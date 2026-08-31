@@ -1,0 +1,54 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../models/onboarding_step.dart';
+import '../providers/onboarding_providers.dart';
+import 'caretaker_pairing_screen.dart';
+import 'cognitive_anxiety_screen.dart';
+import 'deaf_hearing_screen.dart';
+import 'lock_in_screen.dart';
+import 'magic_button_contacts_screen.dart';
+import 'mobility_question_screen.dart';
+import 'onboarding_complete_screen.dart';
+import 'paired_confirmation_screen.dart';
+import 'role_selection_screen.dart';
+import 'safe_havens_screen.dart';
+import 'user_pairing_screen.dart';
+import 'verbosity_voice_screen.dart';
+import 'vision_question_screen.dart';
+import 'visual_calibration_screen.dart';
+
+/// Single host widget that switches between onboarding steps based on
+/// [OnboardingController] state — keeps navigation logic in one place
+/// instead of spreading named routes across go_router for a flow that is
+/// inherently linear.
+class OnboardingFlowScreen extends ConsumerWidget {
+  const OnboardingFlowScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final step = ref.watch(onboardingControllerProvider.select((s) => s.step));
+
+    final screen = switch (step) {
+      OnboardingStep.roleSelection => const RoleSelectionScreen(),
+      OnboardingStep.caretakerPairing => const CaretakerPairingScreen(),
+      OnboardingStep.userPairingCodeEntry => const UserPairingScreen(),
+      OnboardingStep.pairedConfirmation => const PairedConfirmationScreen(),
+      OnboardingStep.visionQuestion => const VisionQuestionScreen(),
+      OnboardingStep.visualCalibration => const VisualCalibrationScreen(),
+      OnboardingStep.mobilityQuestion => const MobilityQuestionScreen(),
+      OnboardingStep.cognitiveAnxietyQuestion => const CognitiveAnxietyScreen(),
+      OnboardingStep.deafHearingQuestion => const DeafHearingScreen(),
+      OnboardingStep.verbosityAndVoice => const VerbosityVoiceScreen(),
+      OnboardingStep.magicButtonContacts => const MagicButtonContactsScreen(),
+      OnboardingStep.safeHavens => const SafeHavensScreen(),
+      OnboardingStep.lockIn => const LockInScreen(),
+      OnboardingStep.complete => const OnboardingCompleteScreen(),
+    };
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 250),
+      child: KeyedSubtree(key: ValueKey(step), child: screen),
+    );
+  }
+}

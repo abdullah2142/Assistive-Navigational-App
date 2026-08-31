@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // users/{uid} — the disability/preference profile built during
+    // onboarding (Module 1) and mutated afterwards only via Gemini
+    // function-calling or the paired Caretaker's remote toggles (Module 2+).
+    match /users/{uid} {
+      allow read: if request.auth != null &&
+        (request.auth.uid == uid || resource.data.pairedUserId == request.auth.uid);
+      allow create: if request.auth != null && request.auth.uid == uid;
+      // `role` is set once at account creation and only ever promoted to a
+      // verified custom claim by the onUserRoleWritten Cloud Function —
+      // clients may never change their own role after creation.
+      allow update: if request.auth != null && request.auth.uid == uid &&
+        request.resource.data.role == resource.data.role;
+      // Lets the OTHER party in a pairing transaction stamp their own uid
+      // onto this profile's `pairedUserId` once. uids aren't guessable, and
+      // single-use/expiry gating already happened via the pairingCodes/{code}
+      // update rule in the same transaction — this rule only allows that one
+      // field to change, and only while the profile is still unpaired.
+      allow update: if request.auth != null && request.auth.uid != uid &&
+        resource.data.pairedUserId == null &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pairedUserId']) &&
+        request.resource.data.pairedUserId == request.auth.uid;
+    }
+
+    // pairingCodes/{code} — short-lived Caretaker<->Disabled User pairing.
+    // Anyone signed in may attempt to redeem a code (they don't know which
+    // uid it belongs to ahead of time); only the creating Caretaker's own
+    // client ever creates one.
+    match /pairingCodes/{code} {
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.caretakerUid;
+      allow get: if request.auth != null;
+      allow update: if request.auth != null &&
+        resource.data.disabledUserUid == null &&
+        request.resource.data.disabledUserUid == request.auth.uid;
+    }
+  }
+}

@@ -1,0 +1,16 @@
+enum OnboardingStep {
+  roleSelection,
+  caretakerPairing,
+  userPairingCodeEntry,
+  pairedConfirmation,
+  visionQuestion,
+  visualCalibration,
+  mobilityQuestion,
+  cognitiveAnxietyQuestion,
+  deafHearingQuestion,
+  verbosityAndVoice,
+  magicButtonContacts,
+  safeHavens,
+  lockIn,
+  complete,
+}

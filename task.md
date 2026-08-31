@@ -19,7 +19,8 @@ Source: `01_module_plan_onboarding.md`
 - [x] Caretaker: generates 6-digit pairing code, writes to `pairingCodes/{code}`, waits (live Firestore stream)
 - [x] Disabled User: enters code, redeemed transactionally, links `pairedUserId` on both profiles
 - [x] Pairing codes expire after 15 minutes, single-use
-- [x] Verified live against real Firebase: code generation, redemption, and bidirectional `pairedUserId` linking all confirmed in Firestore console
+- [x] "I don't have a caretaker" option on the code-entry screen — Disabled User can skip pairing entirely and still use every feature that doesn't depend on a caretaker (Magic Button contacts, safe havens, hazard detection); `pairedUserId` just stays null and can be set later via the AI chat (Module 3)
+- [x] Verified live against real Firebase: code generation, redemption, bidirectional `pairedUserId` linking, and the no-caretaker skip path all confirmed working
 
 ## Step 2: Granular Disability Profiling & Calibration
 - [x] Vision level question (none / low / full)
@@ -53,3 +54,4 @@ Source: `01_module_plan_onboarding.md`
 - **Cosmetic:** the "add at least one contact" error message on the Magic Button screen doesn't clear itself the moment a contact is added — only on the next Continue press or step change. Low priority.
 - **Design note (not a bug):** onboarding progress is not resumed from Firestore if the app is killed/reloaded mid-flow — a restart always begins at role selection. Worth revisiting in a later module if partial-onboarding recovery matters.
 - **Testing caveat (not a bug):** Firebase Auth's web session lives in a per-origin IndexedDB store (`firebaseLocalStorageDb`), shared by *every* tab of the same browser at that origin — not per-tab. Two tabs of one browser pointed at the same dev URL are the same anonymous identity, so picking a different role in each tab looks like flipping one account's role and is correctly rejected by the immutable-role rule. To test Caretaker + Disabled User side by side, use two separate browsers (or a normal + incognito window) — confirmed working that way. Real devices are unaffected since each has isolated storage.
+- **Testing caveat (not a bug):** a browser tab left backgrounded for a long stretch during heavy multi-tab testing was observed to freeze on a stale rendered frame — the new UI was confirmed present in the compiled JS, in a widget test, and in a brand-new tab, but the old backgrounded tab kept painting an outdated frame until closed and reopened fresh. If a tested change doesn't appear to show up, try a brand-new tab before assuming the code is wrong.

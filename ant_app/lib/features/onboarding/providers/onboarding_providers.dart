@@ -138,6 +138,14 @@ class OnboardingController extends Notifier<OnboardingState> {
     }
   }
 
+  /// Some Disabled Users don't have a caretaker at all. They can still use
+  /// every safety feature that doesn't depend on one (Magic Button contacts,
+  /// hazard detection, safe havens) — `pairedUserId` just stays null.
+  /// Pairing can always be completed later via the AI chat (Module 3).
+  void skipPairing() {
+    _goTo(OnboardingStep.visionQuestion);
+  }
+
   Future<void> _persist(UserProfile updated) async {
     state = state.copyWith(profile: updated);
     await ref.read(profileServiceProvider).saveProfile(updated);

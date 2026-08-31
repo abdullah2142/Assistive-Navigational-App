@@ -57,6 +57,21 @@ class _UserPairingScreenState extends ConsumerState<UserPairingScreen> {
             const SizedBox(height: 16),
             Text(state.errorMessage!, style: const TextStyle(color: AppColors.danger)),
           ],
+          const SizedBox(height: 32),
+          Semantics(
+            button: true,
+            label: 'I don\'t have a caretaker, continue without pairing',
+            child: TextButton(
+              onPressed: state.isLoading ? null : controller.skipPairing,
+              child: const Text('I don\'t have a caretaker'),
+            ),
+          ),
+          Text(
+            'You can still use every safety feature. You can pair with a caretaker '
+            'later just by asking the AI.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ],
       ),
     );

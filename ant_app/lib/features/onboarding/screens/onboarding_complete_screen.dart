@@ -1,22 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/onboarding_strings.dart';
+import '../../../core/providers/tts_providers.dart';
 import '../../../core/theme/app_colors.dart';
-import '../models/user_role.dart';
 import '../providers/onboarding_providers.dart';
 
-/// Placeholder hand-off screen. In the real app this routes straight into
-/// the Split-Mode Dashboard (Disabled User) or Guardian Hub (Caretaker) —
-/// both are Module 2 scope and not built yet.
-class OnboardingCompleteScreen extends ConsumerWidget {
+/// Brief hand-off screen shown for the moment between writing
+/// `onboardingComplete: true` and `AppRoot` (Module 2) picking up that
+/// Firestore change and swapping to the real dashboard.
+class OnboardingCompleteScreen extends ConsumerStatefulWidget {
   const OnboardingCompleteScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final role = ref.watch(onboardingControllerProvider).profile?.role;
-    final message = role == UserRole.caretaker
-        ? 'Setup complete. The Guardian Hub (live tracking dashboard) is built in Module 2.'
-        : 'Setup complete. The Split-Mode Dashboard (AI chat + map) is built in Module 2.';
+  ConsumerState<OnboardingCompleteScreen> createState() => _OnboardingCompleteScreenState();
+}
+
+class _OnboardingCompleteScreenState extends ConsumerState<OnboardingCompleteScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (!ref.read(ttsEnabledProvider)) return;
+    final state = ref.read(onboardingControllerProvider);
+    final language = state.profile?.language ?? state.language;
+    final message = Onboarding.of(language).completeMessage;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => ref.read(ttsServiceProvider).speak(message, language: language),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final language = ref.watch(onboardingControllerProvider.select((s) => s.profile?.language)) ??
+        ref.read(onboardingControllerProvider).language;
+    final message = Onboarding.of(language).completeMessage;
 
     return Scaffold(
       body: SafeArea(

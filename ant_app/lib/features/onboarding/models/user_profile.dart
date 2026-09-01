@@ -1,3 +1,4 @@
+import '../../../core/localization/app_language.dart';
 import 'disability_profile_enums.dart';
 import 'trusted_contact.dart';
 import 'user_role.dart';
@@ -28,6 +29,10 @@ class UserProfile {
     this.homeAddress,
     this.safePlaceAddress,
     this.onboardingComplete = false,
+    this.themePreference = ThemePreference.light,
+    this.passerbyHelperMessages = const [],
+    this.language = AppLanguage.english,
+    this.snapshotConsent = SnapshotConsentPreference.askEachTime,
   });
 
   final String uid;
@@ -64,6 +69,24 @@ class UserProfile {
   // Step 4 — Automation lock-in.
   final bool onboardingComplete;
 
+  // Display theme (Module 2) — irrelevant/overridden when visionLevel is
+  // VisionLevel.low, which forces the high-contrast Low Vision theme.
+  final ThemePreference themePreference;
+
+  // Passerby Helper message templates (Module 2), collected during
+  // onboarding so the "Show Screen" overlay has ready-to-use options
+  // tailored to this person instead of a generic default set.
+  final List<String> passerbyHelperMessages;
+
+  // UI display language — chosen on the very first onboarding screen,
+  // before role selection, since a Bangla-only reader needs to understand
+  // that screen too. Independent of themePreference/voiceId.
+  final AppLanguage language;
+
+  // Step 3.4 — whether the paired Caretaker can trigger a Snapshot Request
+  // (Module 6) without live per-request consent.
+  final SnapshotConsentPreference snapshotConsent;
+
   bool get requiresVisualCalibration => visionLevel == VisionLevel.low;
 
   Map<String, dynamic> toJson() => {
@@ -84,6 +107,10 @@ class UserProfile {
         'homeAddress': homeAddress,
         'safePlaceAddress': safePlaceAddress,
         'onboardingComplete': onboardingComplete,
+        'themePreference': themePreference.name,
+        'passerbyHelperMessages': passerbyHelperMessages,
+        'language': language.name,
+        'snapshotConsent': snapshotConsent.name,
       };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -106,6 +133,11 @@ class UserProfile {
         homeAddress: json['homeAddress'] as String?,
         safePlaceAddress: json['safePlaceAddress'] as String?,
         onboardingComplete: json['onboardingComplete'] as bool? ?? false,
+        themePreference: ThemePreference.fromFirestore(json['themePreference'] as String?),
+        passerbyHelperMessages:
+            (json['passerbyHelperMessages'] as List<dynamic>? ?? []).map((m) => m as String).toList(),
+        language: AppLanguage.fromFirestore(json['language'] as String?),
+        snapshotConsent: SnapshotConsentPreference.fromFirestore(json['snapshotConsent'] as String?),
       );
 
   UserProfile copyWith({
@@ -125,6 +157,10 @@ class UserProfile {
     String? homeAddress,
     String? safePlaceAddress,
     bool? onboardingComplete,
+    ThemePreference? themePreference,
+    List<String>? passerbyHelperMessages,
+    AppLanguage? language,
+    SnapshotConsentPreference? snapshotConsent,
   }) =>
       UserProfile(
         uid: uid,
@@ -144,5 +180,9 @@ class UserProfile {
         homeAddress: homeAddress ?? this.homeAddress,
         safePlaceAddress: safePlaceAddress ?? this.safePlaceAddress,
         onboardingComplete: onboardingComplete ?? this.onboardingComplete,
+        themePreference: themePreference ?? this.themePreference,
+        passerbyHelperMessages: passerbyHelperMessages ?? this.passerbyHelperMessages,
+        language: language ?? this.language,
+        snapshotConsent: snapshotConsent ?? this.snapshotConsent,
       );
 }

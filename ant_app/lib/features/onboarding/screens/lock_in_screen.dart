@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
@@ -20,32 +21,54 @@ class LockInScreen extends ConsumerWidget {
     final state = ref.watch(onboardingControllerProvider);
     final controller = ref.read(onboardingControllerProvider.notifier);
     final profile = state.profile;
+    final s = Onboarding.of(profile?.language ?? state.language);
 
     return OnboardingScaffold(
-      title: 'You\'re all set',
-      subtitle: 'Once you confirm, this setup screen goes away for good. To change anything later, '
-          'just tell the AI — for example, say "Change my emergency contact to Mom."',
+      title: s.lockInTitle,
+      subtitle: s.lockInSubtitle,
       onBack: controller.goBack,
       isLoading: state.isLoading,
-      primaryActionLabel: 'Confirm and start using ANT',
+      language: profile?.language ?? state.language,
+      primaryActionLabel: s.lockInConfirmButton,
       onPrimaryAction: controller.confirmLockIn,
+      spokenOptions: profile == null
+          ? const []
+          : [
+              s.lockInSpokenIntro,
+              '${s.lockInVisionLabel}: ${s.visionLevelLabel(profile.visionLevel)}.',
+              '${s.lockInThemeLabel}: ${s.themePreferenceLabel(profile.themePreference)}.',
+              '${s.lockInMobilityLabel}: ${s.mobilityAidLabel(profile.mobilityAid)}.',
+              '${s.lockInDeafLabel}: ${profile.isDeafOrHardOfHearing ? s.lockInYes : s.lockInNo}.',
+              '${s.lockInVerbosityLabel}: ${s.verbosityLevelLabel(profile.verbosity)}.',
+              '${s.lockInContactsLabel}: ${s.lockInContactsValue(profile.magicButtonContacts.length)}.',
+              '${s.lockInMessagesLabel}: ${s.lockInMessagesValue(profile.passerbyHelperMessages.length)}.',
+              '${s.lockInSnapshotLabel}: ${s.snapshotConsentLabel(profile.snapshotConsent)}.',
+              '${s.lockInHomeLabel}: ${profile.homeAddress ?? s.lockInHomeNotSet}.',
+              s.lockInSpokenOutro,
+            ],
       child: profile == null
           ? const SizedBox.shrink()
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _SummaryTile(label: 'Vision', value: profile.visionLevel.name),
-                _SummaryTile(label: 'Mobility', value: profile.mobilityAid.name),
+                _SummaryTile(label: s.lockInVisionLabel, value: s.visionLevelLabel(profile.visionLevel)),
+                _SummaryTile(label: s.lockInThemeLabel, value: s.themePreferenceLabel(profile.themePreference)),
+                _SummaryTile(label: s.lockInMobilityLabel, value: s.mobilityAidLabel(profile.mobilityAid)),
                 _SummaryTile(
-                  label: 'Deaf / hard of hearing',
-                  value: profile.isDeafOrHardOfHearing ? 'Yes' : 'No',
+                  label: s.lockInDeafLabel,
+                  value: profile.isDeafOrHardOfHearing ? s.lockInYes : s.lockInNo,
                 ),
-                _SummaryTile(label: 'AI verbosity', value: profile.verbosity.name),
+                _SummaryTile(label: s.lockInVerbosityLabel, value: s.verbosityLevelLabel(profile.verbosity)),
                 _SummaryTile(
-                  label: 'Trusted contacts',
-                  value: '${profile.magicButtonContacts.length} added',
+                  label: s.lockInContactsLabel,
+                  value: s.lockInContactsValue(profile.magicButtonContacts.length),
                 ),
-                _SummaryTile(label: 'Home address', value: profile.homeAddress ?? '—'),
+                _SummaryTile(
+                  label: s.lockInMessagesLabel,
+                  value: s.lockInMessagesValue(profile.passerbyHelperMessages.length),
+                ),
+                _SummaryTile(label: s.lockInSnapshotLabel, value: s.snapshotConsentLabel(profile.snapshotConsent)),
+                _SummaryTile(label: s.lockInHomeLabel, value: profile.homeAddress ?? s.lockInNotSet),
                 if (state.errorMessage != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 12),

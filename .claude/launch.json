@@ -4,8 +4,8 @@
     {
       "name": "ant_app-web",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "5000", "--directory", "ant_app/build/web"],
-      "port": 5000
+      "runtimeArgs": ["-m", "http.server", "5057", "--directory", "ant_app/build/web"],
+      "port": 5057
     }
   ]
 }

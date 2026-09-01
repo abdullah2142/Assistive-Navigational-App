@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/onboarding_providers.dart';
 
@@ -12,7 +13,9 @@ class PairedConfirmationScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(onboardingControllerProvider);
     final controller = ref.read(onboardingControllerProvider.notifier);
+    final s = Onboarding.of(state.profile?.language ?? state.language);
 
     return Scaffold(
       body: SafeArea(
@@ -26,14 +29,14 @@ class PairedConfirmationScreen extends ConsumerWidget {
               Semantics(
                 header: true,
                 child: Text(
-                  'Paired successfully!',
+                  s.pairedConfirmationTitle,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
               ),
               const SizedBox(height: 12),
               Text(
-                'You are now linked. You will be able to see their live location and get safety alerts once they finish their setup.',
+                s.pairedConfirmationBody,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
@@ -42,7 +45,7 @@ class PairedConfirmationScreen extends ConsumerWidget {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: controller.finishCaretakerSetup,
-                  child: const Text('Continue'),
+                  child: Text(s.continueLabel),
                 ),
               ),
             ],

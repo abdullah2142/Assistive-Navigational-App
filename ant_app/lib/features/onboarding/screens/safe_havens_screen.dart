@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/onboarding_strings.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
 
@@ -25,41 +26,45 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = ref.read(onboardingControllerProvider.notifier);
+    final language = ref.watch(onboardingControllerProvider.select((s) => s.profile!.language));
+    final s = Onboarding.of(language);
 
     return OnboardingScaffold(
-      title: 'Where do you feel safest?',
-      subtitle: 'We\'ll use these to guide you back to safety and to reroute you away from danger.',
+      title: s.safeHavensTitle,
+      subtitle: s.safeHavensSubtitle,
       onBack: controller.goBack,
-      primaryActionLabel: 'Continue',
+      language: language,
+      primaryActionLabel: s.continueLabel,
       primaryActionEnabled: _homeController.text.trim().isNotEmpty,
       onPrimaryAction: () => controller.setSafeHavens(
         homeAddress: _homeController.text.trim(),
         safePlaceAddress:
             _safePlaceController.text.trim().isEmpty ? null : _safePlaceController.text.trim(),
       ),
+      spokenOptions: [s.safeHavensSpokenHint],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Home address', style: Theme.of(context).textTheme.titleMedium),
+          Text(s.safeHavensHomeLabel, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           Semantics(
             textField: true,
-            label: 'Home address',
+            label: s.safeHavensHomeLabel,
             child: TextField(
               controller: _homeController,
-              decoration: const InputDecoration(hintText: 'e.g. House 12, Road 5, Dhanmondi'),
+              decoration: InputDecoration(hintText: s.safeHavensHomeHint),
               onChanged: (_) => setState(() {}),
             ),
           ),
           const SizedBox(height: 20),
-          Text('A safe place nearby (optional)', style: Theme.of(context).textTheme.titleMedium),
+          Text(s.safeHavensPlaceLabel, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           Semantics(
             textField: true,
-            label: 'Safe place address, optional',
+            label: s.safeHavensPlaceLabel,
             child: TextField(
               controller: _safePlaceController,
-              decoration: const InputDecoration(hintText: 'e.g. A trusted relative\'s house'),
+              decoration: InputDecoration(hintText: s.safeHavensPlaceHint),
             ),
           ),
         ],

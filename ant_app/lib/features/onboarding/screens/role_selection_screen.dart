@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../models/user_role.dart';
 import '../providers/onboarding_providers.dart';
@@ -14,22 +15,29 @@ class RoleSelectionScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(onboardingControllerProvider);
     final controller = ref.read(onboardingControllerProvider.notifier);
+    final s = Onboarding.of(state.language);
 
     return OnboardingScaffold(
-      title: 'Welcome to ANT',
-      subtitle: 'Let\'s get started. Are you setting this up for yourself, or for someone you care for?',
+      title: s.roleSelectionTitle,
+      subtitle: s.roleSelectionSubtitle,
+      onBack: controller.goBack,
       isLoading: state.isLoading,
+      language: state.language,
+      spokenOptions: [
+        'Option 1: ${s.roleDisabledUserLabel}. ${s.roleDisabledUserDescription}',
+        'Option 2: ${s.roleCaretakerLabel}. ${s.roleCaretakerDescription}',
+      ],
       child: Column(
         children: [
           BigChoiceCard(
-            label: 'I need assistance',
-            description: 'Set up navigation help for myself.',
+            label: s.roleDisabledUserLabel,
+            description: s.roleDisabledUserDescription,
             icon: Icons.accessibility_new_rounded,
             onTap: () => controller.chooseRole(UserRole.disabledUser),
           ),
           BigChoiceCard(
-            label: 'I am a Caretaker',
-            description: 'Set up remote monitoring for someone I support.',
+            label: s.roleCaretakerLabel,
+            description: s.roleCaretakerDescription,
             icon: Icons.favorite_rounded,
             onTap: () => controller.chooseRole(UserRole.caretaker),
           ),

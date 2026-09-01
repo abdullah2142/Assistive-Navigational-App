@@ -24,6 +24,16 @@ service cloud.firestore {
         resource.data.pairedUserId == null &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pairedUserId']) &&
         request.resource.data.pairedUserId == request.auth.uid;
+      // Remote Management (Module 2): the paired Caretaker gets a normal
+      // settings menu to edit the Disabled User's profile directly — the
+      // one place besides the owner themself that may touch these fields.
+      // `role`, `uid`, and `pairedUserId` stay off-limits even to the
+      // caretaker (role/uid are immutable; pairedUserId is only ever set by
+      // the pairing transaction above).
+      allow update: if request.auth != null && request.auth.uid != uid &&
+        resource.data.pairedUserId == request.auth.uid &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.pairedUserId == resource.data.pairedUserId;
     }
 
     // pairingCodes/{code} — short-lived Caretaker<->Disabled User pairing.
@@ -36,6 +46,54 @@ service cloud.firestore {
       allow update: if request.auth != null &&
         resource.data.disabledUserUid == null &&
         request.resource.data.disabledUserUid == request.auth.uid;
+    }
+
+    // liveLocations/{disabledUserUid} — Overwatch Map (Module 2 UI, written
+    // by the Virtual Guardian background isolate in Module 8). Only the
+    // Disabled User's own device ever writes their location; the paired
+    // Caretaker may only read it.
+    match /liveLocations/{disabledUserUid} {
+      allow read: if request.auth != null &&
+        (request.auth.uid == disabledUserUid ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid);
+      allow write: if request.auth != null && request.auth.uid == disabledUserUid;
+    }
+
+    // alerts/{disabledUserUid}/items/{alertId} — Alert Center (Module 2 UI,
+    // populated by the Virtual Guardian / Magic Button in Modules 8-9).
+    // Alerts are always created by the Disabled User's own device (that's
+    // whose client detects the trigger); only the paired Caretaker may mark
+    // one resolved.
+    match /alerts/{disabledUserUid}/items/{alertId} {
+      allow read: if request.auth != null &&
+        (request.auth.uid == disabledUserUid ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid);
+      allow create: if request.auth != null && request.auth.uid == disabledUserUid;
+      allow update: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved', 'resolvedAt']);
+    }
+
+    // communications/{disabledUserUid}/messages/{messageId} — Communication
+    // Hub (Module 2): Async Memos and Snapshot Requests between a Disabled
+    // User and their paired Caretaker. Keyed by the Disabled User's uid so
+    // both parties read the same subcollection.
+    match /communications/{disabledUserUid}/messages/{messageId} {
+      allow read: if request.auth != null &&
+        (request.auth.uid == disabledUserUid ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid);
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.fromUid &&
+        (request.auth.uid == disabledUserUid ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid);
+    }
+
+    // hazardReports/{reportId} — Crowdsource Reporting Hub (Module 2 UI;
+    // anti-spam thresholds, AI summarization, and decay are Module 5).
+    // Readable by any signed-in user since these drive everyone's routing
+    // safety scores, not just the reporter's.
+    match /hazardReports/{reportId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.reporterUid;
     }
   }
 }

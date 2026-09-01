@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../models/trusted_contact.dart';
 import '../providers/onboarding_providers.dart';
@@ -40,13 +41,17 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
     final state = ref.watch(onboardingControllerProvider);
     final controller = ref.read(onboardingControllerProvider.notifier);
     final contacts = state.profile?.magicButtonContacts ?? const [];
+    final language = state.profile!.language;
+    final s = Onboarding.of(language);
 
     return OnboardingScaffold(
-      title: 'Who should we contact in an emergency?',
-      subtitle: 'Add at least one trusted contact. They\'ll get an SMS with your location if you press the Magic Button.',
+      title: s.contactsTitle,
+      subtitle: s.contactsSubtitle,
       onBack: controller.goBack,
-      primaryActionLabel: 'Continue',
+      language: language,
+      primaryActionLabel: s.continueLabel,
       onPrimaryAction: controller.continueFromContacts,
+      spokenOptions: [s.contactsSpokenHint],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -63,7 +68,7 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
                 title: Text(contacts[i].name),
                 subtitle: Text(contacts[i].phoneNumber),
                 trailing: Semantics(
-                  label: 'Remove ${contacts[i].name}',
+                  label: s.contactsRemoveSemantics(contacts[i].name),
                   button: true,
                   child: IconButton(
                     icon: const Icon(Icons.close_rounded),
@@ -75,27 +80,27 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
           const SizedBox(height: 8),
           Semantics(
             textField: true,
-            label: 'Contact name',
+            label: s.contactsNameHint,
             child: TextField(
               controller: _nameController,
-              decoration: const InputDecoration(hintText: 'Name (e.g. Mother)'),
+              decoration: InputDecoration(hintText: s.contactsNameHint),
             ),
           ),
           const SizedBox(height: 12),
           Semantics(
             textField: true,
-            label: 'Contact phone number',
+            label: s.contactsPhoneHint,
             child: TextField(
               controller: _phoneController,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(hintText: 'Phone number'),
+              decoration: InputDecoration(hintText: s.contactsPhoneHint),
             ),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: () => _addContact(controller),
             icon: const Icon(Icons.add_rounded),
-            label: const Text('Add contact'),
+            label: Text(s.contactsAddButton),
           ),
           if (state.errorMessage != null) ...[
             const SizedBox(height: 12),

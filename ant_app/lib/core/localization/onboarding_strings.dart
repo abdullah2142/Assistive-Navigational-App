@@ -1,0 +1,316 @@
+import '../../features/onboarding/models/disability_profile_enums.dart';
+import '../../features/onboarding/models/user_profile.dart';
+import 'app_language.dart';
+
+/// All UI text for the onboarding flow, in both languages. One class per
+/// [AppLanguage] resolved once per screen build — `Onboarding.of(language)`
+/// — rather than per-string lookups, so a screen just does
+/// `final s = Onboarding.of(lang); s.roleSelectionTitle`.
+///
+/// [LanguageSelectionScreen] is the one screen that doesn't use this — it
+/// has to show both languages at once, since there isn't a chosen one yet.
+///
+/// Bangla wording is deliberately plain, everyday spoken Bangla — see
+/// `dashboard_strings.dart`'s doc comment for the same rule applied there.
+/// Concretely: "দেখাশোনাকারী" over "পরিচর্যাকারী", "সুবিধা" over "বৈশিষ্ট্য",
+/// "ঠিক করা"/"আরামদায়ক" over "সামঞ্জস্য করা"/"স্বাচ্ছন্দ্যদায়ক", and short
+/// concrete sentences over compound formal nouns throughout.
+class Onboarding {
+  const Onboarding._(this._bn);
+
+  factory Onboarding.of(AppLanguage language) => Onboarding._(language == AppLanguage.bangla);
+
+  final bool _bn;
+  String _t(String en, String bn) => _bn ? bn : en;
+
+  // Role selection
+  String get roleSelectionTitle => _t('Welcome to ANT', 'অ্যান্টে স্বাগতম');
+  String get roleSelectionSubtitle => _t(
+        'Let\'s get started. Are you setting this up for yourself, or for someone you care for?',
+        'শুরু করা যাক। আপনি কি নিজের জন্য, নাকি অন্য কারো দেখাশোনার জন্য এটি সেট করছেন?',
+      );
+  String get roleDisabledUserLabel => _t('I need assistance', 'আমার সহায়তা প্রয়োজন');
+  String get roleDisabledUserDescription => _t('Set up navigation help for myself.', 'নিজের জন্য পথ দেখানোর সাহায্য সেট করুন।');
+  String get roleCaretakerLabel => _t('I am a Caretaker', 'আমি একজন দেখাশোনাকারী');
+  String get roleCaretakerDescription =>
+      _t('Set up remote monitoring for someone I support.', 'আমি যাকে দেখাশোনা করি, দূর থেকে তার খেয়াল রাখতে এটি সেট করুন।');
+
+  // Caretaker pairing (share code)
+  String get caretakerPairingTitle =>
+      _t('Share this code with your Disabled User\'s device', 'এই কোডটি যাকে দেখাশোনা করেন তার ফোনে দেখান');
+  String get caretakerPairingGenerating => _t('Generating code', 'কোড তৈরি হচ্ছে');
+  String caretakerPairingYourCode(String code) => _t('Your pairing code is $code', 'আপনার কোড হলো $code');
+  String get caretakerPairingWaiting => _t('Waiting for them to enter this code...', 'তিনি এই কোডটি দেওয়ার অপেক্ষায়...');
+
+  // Paired confirmation (caretaker side)
+  String get pairedConfirmationTitle => _t('Paired successfully!', 'যুক্ত হয়ে গেছে!');
+  String get pairedConfirmationBody => _t(
+        'You are now linked. You will be able to see their live location and get safety alerts once they finish their setup.',
+        'আপনারা এখন যুক্ত। তিনি তার সেটআপ শেষ করলে আপনি তার অবস্থান দেখতে পারবেন এবং নিরাপত্তা সতর্কতা পাবেন।',
+      );
+  String get continueLabel => _t('Continue', 'চালিয়ে যান');
+
+  // User pairing (disabled user enters code)
+  String get userPairingTitle => _t('Enter your caretaker\'s code', 'দেখাশোনাকারীর কোড লিখুন');
+  String get userPairingSubtitle =>
+      _t('Ask your caretaker for the 6-digit code shown on their screen.', 'যিনি আপনার দেখাশোনা করেন, তার স্ক্রিনে থাকা ৬-সংখ্যার কোডটি চেয়ে নিন।');
+  String get userPairingCodeFieldLabel => _t('Enter the 6 digit pairing code', 'ছয় সংখ্যার কোড লিখুন');
+  String get userPairingNoCaretakerButton => _t('I don\'t have a caretaker', 'আমার কোনো দেখাশোনাকারী নেই');
+  String get userPairingNoCaretakerSemantics =>
+      _t('I don\'t have a caretaker, continue without pairing', 'আমার কোনো দেখাশোনাকারী নেই, এটি বাদ দিয়ে চালিয়ে যান');
+  String get userPairingNoCaretakerCaption => _t(
+        'You can still use every safety feature. You can pair with a caretaker later just by asking the AI.',
+        'তবুও আপনি সব নিরাপত্তা সুবিধা ব্যবহার করতে পারবেন। পরে শুধু AI-কে বললেই একজন দেখাশোনাকারীর সাথে যুক্ত হতে পারবেন।',
+      );
+  String get userPairingSpokenHint => _t(
+        'If you do not have a caretaker or a code, there is a button below labeled: '
+            'I don\'t have a caretaker. Tap it to skip pairing and use every safety feature on your own.',
+        'আপনার যদি কোনো দেখাশোনাকারী বা কোড না থাকে, নিচে একটি বোতাম আছে: আমার কোনো দেখাশোনাকারী নেই। '
+            'এটি বাদ দিয়ে নিজে থেকে সব নিরাপত্তা সুবিধা ব্যবহার করতে সেটিতে চাপুন।',
+      );
+
+  // Vision question
+  String get visionTitle => _t('Do you have any vision difficulty?', 'আপনার কি চোখে কোনো সমস্যা আছে?');
+  String get visionSubtitle =>
+      _t('This helps us adjust the screen and voice guidance for you.', 'এটি আমাদের স্ক্রিন ও ভয়েস আপনার জন্য ঠিক করতে সাহায্য করবে।');
+  String get visionNoneLabel => _t('No vision', 'দৃষ্টিশক্তি নেই');
+  String get visionNoneDescription => _t('I rely entirely on voice and touch.', 'আমি পুরোপুরি ভয়েস আর স্পর্শের উপর নির্ভর করি।');
+  String get visionLowLabel => _t('Partial / low vision', 'আংশিক / কম দৃষ্টিশক্তি');
+  String get visionLowDescription =>
+      _t('I can see some things, but need larger text and higher contrast.', 'আমি কিছুটা দেখতে পাই, তবে বড় লেখা আর বেশি কনট্রাস্ট লাগে।');
+  String get visionFullLabel => _t('Full vision', 'সম্পূর্ণ দৃষ্টিশক্তি');
+  String get visionFullDescription => _t('I see well and don\'t need visual adjustments.', 'আমি ভালো দেখতে পাই, কিছু পাল্টানোর দরকার নেই।');
+
+  // Visual calibration
+  String get calibrationTitle => _t('Let\'s adjust the display for you', 'চলুন স্ক্রিন আপনার জন্য ঠিক করি');
+  String get calibrationSubtitle =>
+      _t('Move the sliders until the text below is easy for you to read.', 'নিচের লেখাটি সহজে পড়া না যাওয়া পর্যন্ত স্লাইডার সরান।');
+  String get calibrationPreviewText => _t(
+        'ANT will guide you safely.',
+        'অ্যান্ট আপনাকে নিরাপদে পথ দেখাবে।',
+      );
+  String get calibrationContrastLabel => _t('Contrast', 'কনট্রাস্ট');
+  String calibrationContrastSemantics(int percent) => _t('Contrast level slider, currently $percent percent', 'কনট্রাস্টের স্লাইডার, এখন $percent শতাংশ');
+  String get calibrationTextSizeLabel => _t('Text size', 'লেখার আকার');
+  String calibrationTextSizeSemantics(String scale) =>
+      _t('Text size slider, currently $scale times normal size', 'লেখার আকারের স্লাইডার, এখন স্বাভাবিকের $scale গুণ');
+  String get calibrationContinueButton => _t('This is comfortable, continue', 'এটি আরামদায়ক, চালিয়ে যান');
+  String get calibrationSpokenHint => _t(
+        'Two sliders follow: contrast, and text size. Adjust them if needed, or just tap the '
+            'button at the bottom to continue with the current comfortable defaults.',
+        'দুটি স্লাইডার আছে: কনট্রাস্ট আর লেখার আকার। প্রয়োজনে ঠিক করুন, নাহলে এমনিই '
+            'ভালো আছে এমন মান নিয়ে চালিয়ে যেতে নিচের বোতামে চাপুন।',
+      );
+
+  // Theme preference
+  String get themeTitle => _t('Light or dark?', 'হালকা নাকি গাঢ়?');
+  String get themeSubtitle =>
+      _t('Pick whichever is easier on your eyes. You can change this later just by asking the AI.', 'যেটি আপনার চোখের জন্য আরামদায়ক সেটি বেছে নিন। পরে শুধু AI-কে বললেই এটি পাল্টাতে পারবেন।');
+  String get themeLightLabel => _t('Light', 'হালকা');
+  String get themeLightDescription => _t('Soft cream background, dark text.', 'হালকা ক্রিম রঙের পটভূমি, গাঢ় লেখা।');
+  String get themeDarkLabel => _t('Dark', 'গাঢ়');
+  String get themeDarkDescription => _t('Deep charcoal background, soft white text.', 'গাঢ় কালচে পটভূমি, নরম সাদা লেখা।');
+
+  // Mobility
+  String get mobilityTitle => _t('How do you get around?', 'আপনি কীভাবে চলাফেরা করেন?');
+  String get mobilitySubtitle => _t('This helps us choose routes that work for you.', 'এটি আমাদের আপনার জন্য ঠিক পথ বেছে নিতে সাহায্য করে।');
+  String get mobilityWhiteCaneLabel => _t('White cane', 'সাদা ছড়ি');
+  String get mobilityWheelchairLabel => _t('Wheelchair', 'হুইলচেয়ার');
+  String get mobilityUnassistedLabel => _t('I walk unassisted', 'আমি সাহায্য ছাড়াই হাঁটি');
+
+  // Cognitive & anxiety
+  String get cognitiveTitle => _t('A couple more questions', 'আরও কয়েকটি প্রশ্ন');
+  String get cognitiveSubtitle =>
+      _t('There are no wrong answers here — this only helps us keep things calm for you.', 'এখানে কোনো ভুল উত্তর নেই — এটি শুধু আপনাকে শান্ত রাখতে সাহায্য করবে।');
+  String get cognitiveCrowdedQuestion => _t('Do crowded places make you feel anxious?', 'ভিড়ের জায়গায় কি আপনার অস্বস্তি লাগে?');
+  String get cognitiveComplexQuestion =>
+      _t('Do you find complex, multi-step instructions hard to follow?', 'অনেক ধাপের কঠিন নির্দেশ বুঝতে কি আপনার অসুবিধা হয়?');
+  String get cognitiveSpokenHint => _t(
+        'Two switches follow, both off by default: do crowded places make you feel anxious, '
+            'and do you find complex multi-step instructions hard to follow. Toggle either if it '
+            'applies, then tap Continue at the bottom.',
+        'দুটি সুইচ আছে, দুটোই এখন বন্ধ: ভিড়ের জায়গায় কি অস্বস্তি লাগে, আর অনেক '
+            'ধাপের কঠিন নির্দেশ বুঝতে কি অসুবিধা হয়। প্রযোজ্য হলে সুইচ চালু করুন, তারপর নিচে চালিয়ে যান-এ চাপুন।',
+      );
+
+  // Deaf/hearing
+  String get deafTitle => _t('Are you deaf or hard of hearing?', 'আপনি কি কানে কম শোনেন বা একদম শোনেন না?');
+  String get deafSubtitle =>
+      _t('If so, we\'ll show you text and visual guidance instead of relying on audio.', 'তাহলে আমরা শব্দের বদলে লেখা ও ছবি দিয়ে বোঝাব।');
+  String get deafYesLabel => _t('Yes', 'হ্যাঁ');
+  String get deafYesDescription => _t('Show me text and visuals instead of audio.', 'শব্দের বদলে আমাকে লেখা এবং ছবি দেখান।');
+  String get deafNoLabel => _t('No', 'না');
+  String get deafNoDescription => _t('I can hear voice guidance normally.', 'আমি সহকারীর কথা স্বাভাবিকভাবে শুনতে পাই।');
+
+  // Verbosity & voice
+  String get verbosityTitle => _t('How should the AI talk to you?', 'AI আপনার সাথে কীভাবে কথা বলবে?');
+  String get verbosityChattinessLabel => _t('Chattiness', 'কথা বলার ধরন');
+  String get verbosityMinimalistLabel => _t('Minimalist', 'সংক্ষিপ্ত');
+  String get verbosityMinimalistDescription => _t('Short, essential instructions only.', 'শুধু ছোট, দরকারি কথা বলবে।');
+  String get verbosityDescriptiveLabel => _t('Descriptive', 'বিস্তারিত');
+  String get verbosityDescriptiveDescription => _t('More detail and reassurance along the way.', 'পথে আরও বিস্তারিত কথা আর ভরসা দেবে।');
+  String get verbosityVoiceLabel => _t('Voice', 'ভয়েস');
+  String get verbosityFemaleVoiceLabel => _t('Bangla — Female voice', 'বাংলা — নারী কণ্ঠ');
+  String get verbosityMaleVoiceLabel => _t('Bangla — Male voice', 'বাংলা — পুরুষ কণ্ঠ');
+  String get verbositySpokenHint => _t(
+        'How chatty should the assistant be. Option 1: Minimalist, short essential instructions only. '
+            'Option 2: Descriptive, more detail and reassurance along the way.',
+        'সহকারী কতটা কথা বলবে। বিকল্প ১: সংক্ষিপ্ত, শুধু দরকারি কথা। '
+            'বিকল্প ২: বিস্তারিত, পথে আরও কথা আর ভরসা।',
+      );
+  String get verbositySpokenVoiceHint =>
+      _t('Then pick a voice. Option 1: Bangla, female voice. Option 2: Bangla, male voice.', 'তারপর একটি ভয়েস বেছে নিন। বিকল্প ১: বাংলা, নারী কণ্ঠ। বিকল্প ২: বাংলা, পুরুষ কণ্ঠ।');
+
+  // Magic Button contacts
+  String get contactsTitle => _t('Who should we contact in an emergency?', 'বিপদে পড়লে আমরা কাকে জানাব?');
+  String get contactsSubtitle =>
+      _t('Add at least one trusted contact. They\'ll get an SMS with your location if you press the Magic Button.', 'অন্তত একজন বিশ্বস্ত মানুষের নাম দিন। আপনি ম্যাজিক বাটন চাপলে তিনি আপনার অবস্থানসহ একটি SMS পাবেন।');
+  String get contactsNameHint => _t('Name (e.g. Mother)', 'নাম (যেমন মা)');
+  String get contactsPhoneHint => _t('Phone number', 'ফোন নম্বর');
+  String get contactsAddButton => _t('Add contact', 'পরিচিতি যোগ করুন');
+  String get contactsErrorAtLeastOne =>
+      _t('Please add at least one trusted contact for the Magic Button to work.', 'ম্যাজিক বাটন কাজ করার জন্য অন্তত একজনের নাম দিন।');
+  String get contactsSpokenHint => _t(
+        'Below are two fields: name, and phone number, followed by an Add contact button. '
+            'Add at least one, then tap Continue at the bottom.',
+        'নিচে দুটি ঘর আছে: নাম, এবং ফোন নম্বর, তারপর পরিচিতি যোগ করুন বোতাম। '
+            'অন্তত একজনকে যোগ করুন, তারপর নিচে চালিয়ে যান-এ চাপুন।',
+      );
+  String contactsRemoveSemantics(String name) => _t('Remove $name', '$name বাদ দিন');
+
+  // Passerby messages
+  String get passerbyTitle => _t('What might you need to tell a stranger?', 'অচেনা মানুষকে আপনার কী বলার দরকার হতে পারে?');
+  String get passerbySubtitle => _t(
+        'Pick the messages you\'d want ready to show — you can add your own too. '
+            'These show up full-screen when you ask the AI to "show my screen."',
+        'যেসব বার্তা তৈরি রাখতে চান বেছে নিন — নিজেও লিখতে পারেন। '
+            'AI-কে "আমার স্ক্রিন দেখাও" বললে এগুলো বড় করে স্ক্রিনে দেখাবে।',
+      );
+  String get passerbyWriteOwnHint => _t('Write or dictate your own…', 'নিজে লিখুন বা বলুন…');
+  String get passerbyAddButton => _t('Add message', 'বার্তা যোগ করুন');
+  String get passerbySpeakSemantics => _t('Speak your message', 'কথা বলে বলুন');
+  String get passerbySpeakHint => _t('Voice input arrives with the AI Assistant module', 'কথা বলে লেখার অংশটি পরে যোগ হবে');
+  String get passerbyAiSummaryLabel => _t('AI summary (this is what gets added)', 'ছোট করে লেখা (এটাই যোগ হবে)');
+  String get passerbyWriteFieldSemantics => _t('Write your own message', 'নিজের বার্তা লিখুন');
+  String passerbySpokenPreselected(String messages) => _t('The first 3 below are pre-selected: $messages.', 'নিচের প্রথম ৩টি আগে থেকেই বাছাই করা আছে: $messages।');
+  String passerbySpokenMore(String messages) => _t('More options follow: $messages.', 'আরও কিছু বিকল্প আছে: $messages।');
+  String get passerbySpokenAddOwn => _t(
+        'There is also a field at the bottom to write and add your own message. Tap Continue when ready.',
+        'নিচে নিজের বার্তা লিখে যোগ করার জন্য একটি ঘরও আছে। প্রস্তুত হলে চালিয়ে যান-এ চাপুন।',
+      );
+
+  // Default passerby message suggestions (also used as the runtime fallback
+  // for profiles created before this feature existed)
+  String get passerbyNeedHelp => _t('I need help, please.', 'আমার সাহায্য দরকার, দয়া করে।');
+  String get passerbyWhichDirection => _t('Which direction is this address?', 'এই ঠিকানাটি কোন দিকে?');
+  String get passerbyHelpCross => _t('Can you help me cross the street?', 'আমাকে রাস্তা পার হতে একটু সাহায্য করবেন?');
+  String get passerbyVisuallyImpaired => _t('I am visually impaired. Can you guide me?', 'আমি চোখে দেখি না। আমাকে একটু পথ দেখাবেন?');
+  String get passerbyRoadFlooded => _t('Is this road flooded or blocked?', 'এই রাস্তায় কি পানি জমেছে বা আটকানো আছে?');
+  String get passerbyWhatSignSays => _t('What does this sign say?', 'এই সাইনবোর্ডে কী লেখা আছে?');
+  String get passerbyDeaf => _t('I am deaf. Please type or point to answer.', 'আমি কানে শুনি না। দয়া করে লিখে বা ইশারা করে বলুন।');
+  String get passerbyWhichBus => _t('Which bus number is this?', 'এটি কত নম্বর বাস?');
+  String get passerbyRampNearby => _t('Is there a ramp or accessible entrance nearby?', 'কাছে কোনো ঢালু পথ বা সহজ দরজা আছে কি?');
+
+  // Snapshot consent
+  String get snapshotTitle => _t('Can your caretaker request a photo anytime?', 'আপনার দেখাশোনাকারী কি যেকোনো সময় ছবি চাইতে পারবেন?');
+  String get snapshotSubtitle => _t(
+        'This controls whether they need to ask you first before your camera captures a single frame for them.',
+        'ছবি তোলার আগে তার আপনাকে জিজ্ঞেস করা লাগবে কিনা, সেটা এখানে ঠিক করুন।',
+      );
+  String get snapshotAlwaysLabel => _t('Always allow', 'সবসময় অনুমতি দিন');
+  String get snapshotAlwaysDescription => _t('They can request a snapshot anytime, no need to ask me first.', 'তিনি যেকোনো সময় একটা ছবি চাইতে পারবেন, আগে জিজ্ঞেস করার দরকার নেই।');
+  String get snapshotAskLabel => _t('Ask me each time', 'প্রতিবার আমাকে জিজ্ঞেস করুন');
+  String get snapshotAskDescription => _t('I want to approve every snapshot request as it happens.', 'প্রতিবার ছবি চাইলে আগে আমাকে জিজ্ঞেস করা হোক।');
+  String get snapshotNeverLabel => _t('Never allow', 'কখনো অনুমতি দেবেন না');
+  String get snapshotNeverDescription => _t('Turn off Snapshot Requests entirely.', 'ছবি চাওয়ার সুবিধাটি পুরোপুরি বন্ধ রাখুন।');
+
+  // Safe havens
+  String get safeHavensTitle => _t('Where do you feel safest?', 'আপনি কোথায় সবচেয়ে নিরাপদ বোধ করেন?');
+  String get safeHavensSubtitle =>
+      _t('We\'ll use these to guide you back to safety and to reroute you away from danger.', 'বিপদে পড়লে এগুলো ব্যবহার করে আমরা আপনাকে নিরাপদ জায়গায় ফিরিয়ে আনব।');
+  String get safeHavensHomeLabel => _t('Home address', 'বাড়ির ঠিকানা');
+  String get safeHavensHomeHint => _t('e.g. House 12, Road 5, Dhanmondi', 'যেমন বাড়ি ১২, রোড ৫, ধানমন্ডি');
+  String get safeHavensPlaceLabel => _t('A safe place nearby (optional)', 'কাছাকাছি একটি নিরাপদ জায়গা (ইচ্ছা হলে)');
+  String get safeHavensPlaceHint => _t('e.g. A trusted relative\'s house', 'যেমন কোনো বিশ্বস্ত আত্মীয়ের বাড়ি');
+  String get safeHavensSpokenHint => _t(
+        'Two fields follow: home address, which is required, and an optional safe place nearby.',
+        'দুটি ঘর আছে: বাড়ির ঠিকানা, যা লিখতেই হবে, আর কাছাকাছি একটি নিরাপদ জায়গা, যা ইচ্ছা হলে লিখতে পারেন।',
+      );
+
+  // Lock-in summary
+  String get lockInTitle => _t('You\'re all set', 'সব প্রস্তুত');
+  String get lockInSubtitle => _t(
+        'Once you confirm, this setup screen goes away for good. To change anything later, '
+            'just tell the AI — for example, say "Change my emergency contact to Mom."',
+        'নিশ্চিত করার পর এই সেটআপ স্ক্রিন আর দেখাবে না। পরে কিছু পাল্টাতে '
+            'শুধু AI-কে বলুন — যেমন "আমার জরুরি পরিচিতি মা করে দাও।"',
+      );
+  String get lockInConfirmButton => _t('Confirm and start using ANT', 'নিশ্চিত করুন এবং অ্যান্ট ব্যবহার শুরু করুন');
+  String get lockInVisionLabel => _t('Vision', 'দৃষ্টিশক্তি');
+  String get lockInThemeLabel => _t('Theme', 'রং');
+  String get lockInMobilityLabel => _t('Mobility', 'চলাফেরা');
+  String get lockInDeafLabel => _t('Deaf / hard of hearing', 'কানে শোনার সমস্যা');
+  String get lockInVerbosityLabel => _t('AI verbosity', 'AI কথার ধরন');
+  String get lockInContactsLabel => _t('Trusted contacts', 'বিশ্বস্ত পরিচিতি');
+  String lockInContactsValue(int count) => _t('$count added', '$count জন যোগ হয়েছে');
+  String get lockInMessagesLabel => _t('Passerby messages', 'অন্যদের জন্য বার্তা');
+  String lockInMessagesValue(int count) => _t('$count ready', '$count টি প্রস্তুত');
+  String get lockInHomeLabel => _t('Home address', 'বাড়ির ঠিকানা');
+  String get lockInSnapshotLabel => _t('Snapshot permission', 'ছবি তোলার অনুমতি');
+  String snapshotConsentLabel(SnapshotConsentPreference pref) => switch (pref) {
+        SnapshotConsentPreference.always => snapshotAlwaysLabel,
+        SnapshotConsentPreference.askEachTime => snapshotAskLabel,
+        SnapshotConsentPreference.never => snapshotNeverLabel,
+      };
+  String get lockInNotSet => _t('—', '—');
+  String get lockInYes => _t('Yes', 'হ্যাঁ');
+  String get lockInNo => _t('No', 'না');
+  String get lockInSpokenIntro => _t('Here is a summary before you confirm.', 'নিশ্চিত করার আগে সবকিছু দেখে নিন।');
+  String get lockInSpokenOutro => _t(
+        'If everything sounds right, tap the button at the bottom to confirm and start using ANT. '
+            'Otherwise, use the back button to change anything.',
+        'সবকিছু ঠিক থাকলে, নিশ্চিত করে অ্যান্ট ব্যবহার শুরু করতে নিচের বোতামে চাপুন। '
+            'কিছু পাল্টাতে চাইলে পেছনের বোতাম ব্যবহার করুন।',
+      );
+  String get lockInHomeNotSet => _t('not set', 'লেখা হয়নি');
+
+  // Complete (transitional hand-off)
+  String get completeMessage => _t('All set — taking you to your dashboard…', 'সব প্রস্তুত — নিয়ে যাচ্ছি…');
+
+  // Shared
+  String get backButtonSemantics => _t('Go back to the previous step', 'আগের ধাপে ফিরে যান');
+  String get voiceOnSemantics => _t('Voice guidance is on. Double tap to turn off.', 'ভয়েস চালু আছে। বন্ধ করতে দুইবার চাপুন।');
+  String get voiceOffSemantics => _t('Voice guidance is off. Double tap to turn on.', 'ভয়েস বন্ধ আছে। চালু করতে দুইবার চাপুন।');
+
+  /// Localized labels for the disability-profile enums, used by
+  /// [MySettingsScreen]/[RemoteManagementScreen] chips as well as onboarding.
+  String visionLevelLabel(VisionLevel level) => switch (level) {
+        VisionLevel.none => visionNoneLabel,
+        VisionLevel.low => visionLowLabel,
+        VisionLevel.full => visionFullLabel,
+      };
+  String mobilityAidLabel(MobilityAid aid) => switch (aid) {
+        MobilityAid.whiteCane => mobilityWhiteCaneLabel,
+        MobilityAid.wheelchair => mobilityWheelchairLabel,
+        MobilityAid.unassisted => mobilityUnassistedLabel,
+      };
+  String verbosityLevelLabel(VerbosityLevel v) => switch (v) {
+        VerbosityLevel.minimalist => verbosityMinimalistLabel,
+        VerbosityLevel.descriptive => verbosityDescriptiveLabel,
+      };
+  String themePreferenceLabel(ThemePreference t) => switch (t) {
+        ThemePreference.light => themeLightLabel,
+        ThemePreference.dark => themeDarkLabel,
+      };
+
+  /// The default Passerby Helper message set, localized — used as the
+  /// dashboard's fallback whenever [UserProfile.passerbyHelperMessages] is
+  /// empty (profiles created before this feature existed, or an
+  /// unpaired/edge-case flow).
+  List<String> get defaultPasserbyMessages => [
+        passerbyVisuallyImpaired,
+        passerbyDeaf,
+        passerbyRoadFlooded,
+        passerbyWhichBus,
+      ];
+}

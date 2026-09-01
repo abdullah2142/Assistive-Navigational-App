@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
@@ -26,18 +27,21 @@ class _UserPairingScreenState extends ConsumerState<UserPairingScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(onboardingControllerProvider);
     final controller = ref.read(onboardingControllerProvider.notifier);
+    final s = Onboarding.of(state.language);
 
     return OnboardingScaffold(
-      title: 'Enter your caretaker\'s code',
-      subtitle: 'Ask your caretaker for the 6-digit code shown on their screen.',
+      title: s.userPairingTitle,
+      subtitle: s.userPairingSubtitle,
       isLoading: state.isLoading,
-      primaryActionLabel: 'Continue',
+      language: state.language,
+      primaryActionLabel: s.continueLabel,
       primaryActionEnabled: _controller.text.length == 6,
       onPrimaryAction: () => controller.submitPairingCode(_controller.text),
+      spokenOptions: [s.userPairingSpokenHint],
       child: Column(
         children: [
           Semantics(
-            label: 'Enter the 6 digit pairing code',
+            label: s.userPairingCodeFieldLabel,
             textField: true,
             child: TextField(
               controller: _controller,
@@ -60,15 +64,14 @@ class _UserPairingScreenState extends ConsumerState<UserPairingScreen> {
           const SizedBox(height: 32),
           Semantics(
             button: true,
-            label: 'I don\'t have a caretaker, continue without pairing',
+            label: s.userPairingNoCaretakerSemantics,
             child: TextButton(
               onPressed: state.isLoading ? null : controller.skipPairing,
-              child: const Text('I don\'t have a caretaker'),
+              child: Text(s.userPairingNoCaretakerButton),
             ),
           ),
           Text(
-            'You can still use every safety feature. You can pair with a caretaker '
-            'later just by asking the AI.',
+            s.userPairingNoCaretakerCaption,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall,
           ),

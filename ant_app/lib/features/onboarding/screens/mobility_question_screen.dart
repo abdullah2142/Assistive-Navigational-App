@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/onboarding_strings.dart';
 import '../models/disability_profile_enums.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/big_choice_card.dart';
@@ -12,25 +13,33 @@ class MobilityQuestionScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(onboardingControllerProvider.notifier);
+    final language = ref.watch(onboardingControllerProvider.select((s) => s.profile!.language));
+    final s = Onboarding.of(language);
 
     return OnboardingScaffold(
-      title: 'How do you get around?',
-      subtitle: 'This helps us choose routes that work for you.',
+      title: s.mobilityTitle,
+      subtitle: s.mobilitySubtitle,
       onBack: controller.goBack,
+      language: language,
+      spokenOptions: [
+        'Option 1: ${s.mobilityWhiteCaneLabel}.',
+        'Option 2: ${s.mobilityWheelchairLabel}.',
+        'Option 3: ${s.mobilityUnassistedLabel}.',
+      ],
       child: Column(
         children: [
           BigChoiceCard(
-            label: 'White cane',
+            label: s.mobilityWhiteCaneLabel,
             icon: Icons.accessible_forward_rounded,
             onTap: () => controller.setMobilityAid(MobilityAid.whiteCane),
           ),
           BigChoiceCard(
-            label: 'Wheelchair',
+            label: s.mobilityWheelchairLabel,
             icon: Icons.accessible_rounded,
             onTap: () => controller.setMobilityAid(MobilityAid.wheelchair),
           ),
           BigChoiceCard(
-            label: 'I walk unassisted',
+            label: s.mobilityUnassistedLabel,
             icon: Icons.directions_walk_rounded,
             onTap: () => controller.setMobilityAid(MobilityAid.unassisted),
           ),

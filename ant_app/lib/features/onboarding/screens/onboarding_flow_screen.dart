@@ -6,13 +6,17 @@ import '../providers/onboarding_providers.dart';
 import 'caretaker_pairing_screen.dart';
 import 'cognitive_anxiety_screen.dart';
 import 'deaf_hearing_screen.dart';
+import 'language_selection_screen.dart';
 import 'lock_in_screen.dart';
 import 'magic_button_contacts_screen.dart';
 import 'mobility_question_screen.dart';
 import 'onboarding_complete_screen.dart';
 import 'paired_confirmation_screen.dart';
+import 'passerby_messages_screen.dart';
 import 'role_selection_screen.dart';
 import 'safe_havens_screen.dart';
+import 'snapshot_consent_screen.dart';
+import 'theme_preference_screen.dart';
 import 'user_pairing_screen.dart';
 import 'verbosity_voice_screen.dart';
 import 'vision_question_screen.dart';
@@ -30,17 +34,21 @@ class OnboardingFlowScreen extends ConsumerWidget {
     final step = ref.watch(onboardingControllerProvider.select((s) => s.step));
 
     final screen = switch (step) {
+      OnboardingStep.languageSelection => const LanguageSelectionScreen(),
       OnboardingStep.roleSelection => const RoleSelectionScreen(),
       OnboardingStep.caretakerPairing => const CaretakerPairingScreen(),
       OnboardingStep.userPairingCodeEntry => const UserPairingScreen(),
       OnboardingStep.pairedConfirmation => const PairedConfirmationScreen(),
       OnboardingStep.visionQuestion => const VisionQuestionScreen(),
       OnboardingStep.visualCalibration => const VisualCalibrationScreen(),
+      OnboardingStep.themePreference => const ThemePreferenceScreen(),
       OnboardingStep.mobilityQuestion => const MobilityQuestionScreen(),
       OnboardingStep.cognitiveAnxietyQuestion => const CognitiveAnxietyScreen(),
       OnboardingStep.deafHearingQuestion => const DeafHearingScreen(),
       OnboardingStep.verbosityAndVoice => const VerbosityVoiceScreen(),
       OnboardingStep.magicButtonContacts => const MagicButtonContactsScreen(),
+      OnboardingStep.passerbyMessages => const PasserbyMessagesScreen(),
+      OnboardingStep.snapshotConsent => const SnapshotConsentScreen(),
       OnboardingStep.safeHavens => const SafeHavensScreen(),
       OnboardingStep.lockIn => const LockInScreen(),
       OnboardingStep.complete => const OnboardingCompleteScreen(),

@@ -17,16 +17,48 @@ class AppTheme {
         surface: AppColors.surface,
         onBackground: AppColors.textPrimary,
         primary: AppColors.primary,
+        divider: AppColors.divider,
         brightness: Brightness.light,
       );
 
-  static ThemeData lowVision({double fontScale = 1.4}) => _build(
+  /// Standard "Calm" Dark theme (Module 2) — picked during onboarding via
+  /// [ThemePreference.dark]. Distinct from [highContrastDark]: this is the
+  /// softer palette anyone gets, not the Low Vision accessibility variant.
+  static ThemeData standardDark({double fontScale = 1.0}) => _build(
         fontScale: fontScale,
-        background: AppColors.lowVisionBackground,
-        surface: AppColors.lowVisionSurface,
-        onBackground: AppColors.lowVisionText,
-        primary: AppColors.lowVisionPrimary,
+        background: AppColors.darkBackground,
+        surface: AppColors.darkSurface,
+        onBackground: AppColors.darkText,
+        primary: AppColors.primaryLight,
+        divider: AppColors.darkDivider,
         brightness: Brightness.dark,
+      );
+
+  /// Low Vision's high-contrast theme, dark half — paired with
+  /// [ThemePreference.dark]. Maximum contrast (pure black/white) instead of
+  /// the softer Standard Dark palette, on top of whatever [fontScale] was
+  /// calibrated. See [highContrastLight] for the light half — Low Vision
+  /// users pick Light/Dark same as anyone, this only swaps the palette.
+  static ThemeData highContrastDark({double fontScale = 1.4}) => _build(
+        fontScale: fontScale,
+        background: AppColors.highContrastDarkBackground,
+        surface: AppColors.highContrastDarkSurface,
+        onBackground: AppColors.highContrastDarkText,
+        primary: AppColors.highContrastDarkPrimary,
+        divider: AppColors.highContrastDarkText,
+        brightness: Brightness.dark,
+      );
+
+  /// Low Vision's high-contrast theme, light half — paired with
+  /// [ThemePreference.light]. Pure white background, pure black text.
+  static ThemeData highContrastLight({double fontScale = 1.4}) => _build(
+        fontScale: fontScale,
+        background: AppColors.highContrastLightBackground,
+        surface: AppColors.highContrastLightSurface,
+        onBackground: AppColors.highContrastLightText,
+        primary: AppColors.highContrastLightPrimary,
+        divider: AppColors.highContrastLightText,
+        brightness: Brightness.light,
       );
 
   static ThemeData _build({
@@ -35,6 +67,7 @@ class AppTheme {
     required Color surface,
     required Color onBackground,
     required Color primary,
+    required Color divider,
     required Brightness brightness,
   }) {
     final headlineFont = GoogleFonts.plusJakartaSansTextTheme();
@@ -104,11 +137,11 @@ class AppTheme {
         fillColor: surface,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: AppColors.divider),
+          borderSide: BorderSide(color: divider),
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       ),
-      dividerColor: AppColors.divider,
+      dividerColor: divider,
       sliderTheme: SliderThemeData(
         activeTrackColor: primary,
         thumbColor: primary,

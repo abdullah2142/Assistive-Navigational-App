@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/onboarding_providers.dart';
 
@@ -9,7 +10,9 @@ class CaretakerPairingScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final code = ref.watch(onboardingControllerProvider).pairingCode;
+    final state = ref.watch(onboardingControllerProvider);
+    final code = state.pairingCode;
+    final s = Onboarding.of(state.profile?.language ?? state.language);
 
     return Scaffold(
       body: SafeArea(
@@ -21,14 +24,14 @@ class CaretakerPairingScreen extends ConsumerWidget {
               Semantics(
                 header: true,
                 child: Text(
-                  'Share this code with your Disabled User\'s device',
+                  s.caretakerPairingTitle,
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
               ),
               const SizedBox(height: 32),
               Semantics(
-                label: code == null ? 'Generating code' : 'Your pairing code is $code',
+                label: code == null ? s.caretakerPairingGenerating : s.caretakerPairingYourCode(code),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
                   decoration: BoxDecoration(
@@ -53,7 +56,7 @@ class CaretakerPairingScreen extends ConsumerWidget {
               const CircularProgressIndicator(strokeWidth: 2),
               const SizedBox(height: 16),
               Text(
-                'Waiting for them to enter this code...',
+                s.caretakerPairingWaiting,
                 style: Theme.of(context).textTheme.bodyLarge,
                 textAlign: TextAlign.center,
               ),

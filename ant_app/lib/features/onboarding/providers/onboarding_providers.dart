@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/app_language.dart';
+import '../../../core/localization/onboarding_strings.dart';
+import '../../../core/providers/tts_providers.dart';
 import '../models/disability_profile_enums.dart';
 import '../models/onboarding_step.dart';
 import '../models/trusted_contact.dart';
@@ -20,9 +23,17 @@ final authStateProvider = StreamProvider<User?>((ref) {
   return ref.watch(authServiceProvider).authStateChanges();
 });
 
+/// Live `users/{uid}` document for any uid — used by [AppRoot] for
+/// role-based routing (Module 2), and by dashboards to watch either "my own"
+/// profile or a paired counterpart's.
+final profileStreamProvider = StreamProvider.family<UserProfile?, String>((ref, uid) {
+  return ref.watch(profileServiceProvider).watchProfile(uid);
+});
+
 class OnboardingState {
   const OnboardingState({
-    this.step = OnboardingStep.roleSelection,
+    this.step = OnboardingStep.languageSelection,
+    this.language = AppLanguage.english,
     this.profile,
     this.pairingCode,
     this.isLoading = false,
@@ -31,6 +42,12 @@ class OnboardingState {
   });
 
   final OnboardingStep step;
+
+  /// Only authoritative before [profile] exists (language selection and
+  /// role selection, the two screens shown pre-signin) — once a
+  /// [UserProfile] is created, `profile.language` is the source of truth,
+  /// baked in from this at [chooseRole] time.
+  final AppLanguage language;
   final UserProfile? profile;
   final String? pairingCode;
   final bool isLoading;
@@ -39,6 +56,7 @@ class OnboardingState {
 
   OnboardingState copyWith({
     OnboardingStep? step,
+    AppLanguage? language,
     UserProfile? profile,
     String? pairingCode,
     bool? isLoading,
@@ -48,6 +66,7 @@ class OnboardingState {
   }) =>
       OnboardingState(
         step: step ?? this.step,
+        language: language ?? this.language,
         profile: profile ?? this.profile,
         pairingCode: pairingCode ?? this.pairingCode,
         isLoading: isLoading ?? this.isLoading,
@@ -83,11 +102,16 @@ class OnboardingController extends Notifier<OnboardingState> {
     state = state.copyWith(step: last, history: previous, clearError: true);
   }
 
+  void setLanguage(AppLanguage language) {
+    state = state.copyWith(language: language);
+    _goTo(OnboardingStep.roleSelection);
+  }
+
   Future<void> chooseRole(UserRole role) async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final user = await ref.read(authServiceProvider).ensureSignedIn();
-      final profile = UserProfile(uid: user.uid, role: role);
+      final profile = UserProfile(uid: user.uid, role: role, language: state.language);
       await ref.read(profileServiceProvider).saveProfile(profile);
       state = state.copyWith(profile: profile, isLoading: false);
 
@@ -155,13 +179,24 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     await _persist(profile.copyWith(visionLevel: level));
-    _goTo(level == VisionLevel.low ? OnboardingStep.visualCalibration : OnboardingStep.mobilityQuestion);
+    // Low Vision still gets a Light/Dark say — it's an independent
+    // accessibility axis, not a fixed theme substituted in its place (see
+    // theme_resolver.dart) — so everyone reaches themePreference, Low
+    // Vision users just detour through calibration first.
+    _goTo(level == VisionLevel.low ? OnboardingStep.visualCalibration : OnboardingStep.themePreference);
   }
 
   Future<void> setCalibration({required double contrastLevel, required double fontScale}) async {
     final profile = state.profile;
     if (profile == null) return;
     await _persist(profile.copyWith(contrastLevel: contrastLevel, fontScale: fontScale));
+    _goTo(OnboardingStep.themePreference);
+  }
+
+  Future<void> setThemePreference(ThemePreference preference) async {
+    final profile = state.profile;
+    if (profile == null) return;
+    await _persist(profile.copyWith(themePreference: preference));
     _goTo(OnboardingStep.mobilityQuestion);
   }
 
@@ -189,6 +224,14 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     await _persist(profile.copyWith(isDeafOrHardOfHearing: isDeafOrHardOfHearing));
+    // Spoken onboarding guidance defaults on for Visually Impaired users with
+    // no one to read the screen for them (see ttsEnabledProvider) — but it's
+    // useless noise for someone who can't hear it, so switch it off the
+    // moment we know that's the case.
+    if (isDeafOrHardOfHearing) {
+      ref.read(ttsServiceProvider).stop();
+      ref.read(ttsEnabledProvider.notifier).state = false;
+    }
     _goTo(OnboardingStep.verbosityAndVoice);
   }
 
@@ -215,10 +258,24 @@ class OnboardingController extends Notifier<OnboardingState> {
   void continueFromContacts() {
     if ((state.profile?.magicButtonContacts.length ?? 0) < 1) {
       state = state.copyWith(
-        errorMessage: 'Please add at least one trusted contact for the Magic Button to work.',
+        errorMessage: Onboarding.of(state.profile!.language).contactsErrorAtLeastOne,
       );
       return;
     }
+    _goTo(OnboardingStep.passerbyMessages);
+  }
+
+  Future<void> setPasserbyHelperMessages(List<String> messages) async {
+    final profile = state.profile;
+    if (profile == null) return;
+    await _persist(profile.copyWith(passerbyHelperMessages: messages));
+    _goTo(OnboardingStep.snapshotConsent);
+  }
+
+  Future<void> setSnapshotConsent(SnapshotConsentPreference preference) async {
+    final profile = state.profile;
+    if (profile == null) return;
+    await _persist(profile.copyWith(snapshotConsent: preference));
     _goTo(OnboardingStep.safeHavens);
   }
 
@@ -230,8 +287,14 @@ class OnboardingController extends Notifier<OnboardingState> {
   }
 
   /// Caretaker-side equivalent of [confirmLockIn] — there is no disability
-  /// interview for this role, pairing is the entire Module 1 flow.
-  void finishCaretakerSetup() {
+  /// interview for this role, pairing is the entire Module 1 flow. Must
+  /// still persist `onboardingComplete: true`, the same field [AppRoot]
+  /// (Module 2) checks for both roles to decide whether to skip straight to
+  /// a dashboard on a later launch.
+  Future<void> finishCaretakerSetup() async {
+    final profile = state.profile;
+    if (profile == null) return;
+    await _persist(profile.copyWith(onboardingComplete: true));
     _goTo(OnboardingStep.complete);
   }
 

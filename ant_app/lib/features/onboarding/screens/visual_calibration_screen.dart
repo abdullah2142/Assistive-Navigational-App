@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
@@ -25,28 +26,32 @@ class _VisualCalibrationScreenState extends ConsumerState<VisualCalibrationScree
   @override
   Widget build(BuildContext context) {
     final controller = ref.read(onboardingControllerProvider.notifier);
+    final language = ref.watch(onboardingControllerProvider.select((s) => s.profile!.language));
+    final s = Onboarding.of(language);
     final bg = Color.lerp(AppColors.background, Colors.black, _contrast)!;
     final fg = Color.lerp(AppColors.textPrimary, Colors.white, _contrast)!;
 
     return OnboardingScaffold(
-      title: 'Let\'s adjust the display for you',
-      subtitle: 'Move the sliders until the text below is easy for you to read.',
+      title: s.calibrationTitle,
+      subtitle: s.calibrationSubtitle,
       onBack: controller.goBack,
-      primaryActionLabel: 'This is comfortable, continue',
+      language: language,
+      primaryActionLabel: s.calibrationContinueButton,
       onPrimaryAction: () =>
           controller.setCalibration(contrastLevel: _contrast, fontScale: _fontScale),
+      spokenOptions: [s.calibrationSpokenHint],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Semantics(
             liveRegion: true,
-            label: 'Preview text',
+            label: s.calibrationPreviewText,
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
               child: Text(
-                'ANT will guide you safely.\nআমরা আপনাকে নিরাপদে পথ দেখাব।',
+                s.calibrationPreviewText,
                 style: TextStyle(
                   color: fg,
                   fontSize: 18 * _fontScale,
@@ -58,11 +63,11 @@ class _VisualCalibrationScreenState extends ConsumerState<VisualCalibrationScree
           ),
           const SizedBox(height: 32),
           Semantics(
-            label: 'Contrast level slider, currently ${(_contrast * 100).round()} percent',
+            label: s.calibrationContrastSemantics((_contrast * 100).round()),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Contrast', style: Theme.of(context).textTheme.titleMedium),
+                Text(s.calibrationContrastLabel, style: Theme.of(context).textTheme.titleMedium),
                 Slider(
                   value: _contrast,
                   onChanged: (v) => setState(() => _contrast = v),
@@ -72,11 +77,11 @@ class _VisualCalibrationScreenState extends ConsumerState<VisualCalibrationScree
           ),
           const SizedBox(height: 16),
           Semantics(
-            label: 'Text size slider, currently ${_fontScale.toStringAsFixed(1)} times normal size',
+            label: s.calibrationTextSizeSemantics(_fontScale.toStringAsFixed(1)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Text size', style: Theme.of(context).textTheme.titleMedium),
+                Text(s.calibrationTextSizeLabel, style: Theme.of(context).textTheme.titleMedium),
                 Slider(
                   value: _fontScale,
                   min: 1.0,

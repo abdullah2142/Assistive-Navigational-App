@@ -1,0 +1,9 @@
+name = "ant-crime-report-probe"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# 12th of each month, 03:00 UTC = 09:00 Asia/Dhaka — the report is uploaded
+# roughly 10 days after the month it covers ends (confirmed live: July
+# 2026's was uploaded 2026-08-10), so this safely lands after that lag.
+[triggers]
+crons = ["0 3 12 * *"]

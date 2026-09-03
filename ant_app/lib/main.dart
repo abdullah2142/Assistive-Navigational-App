@@ -1,4 +1,7 @@
+import 'dart:ui';
+
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,6 +14,24 @@ import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Confirmed live: `google_speech`'s `EndlessStreamingService` can deliver
+  // one last buffered gRPC response asynchronously just after `dispose()`
+  // already closed its internal stream controller (`CloudSttService.stop`),
+  // which throws "Bad state: Cannot add new events after calling close"
+  // from deep inside that package's own internals — not reachable from any
+  // try/catch in this app's code, since it surfaces on its own zone/
+  // microtask rather than propagating back through `stop()`'s Future. A
+  // continuous listener (wake-word, onboarding's rapid narrate-then-listen
+  // loop) starts and stops that stream often enough for this to be a real,
+  // recurring source of noisy/potentially-fatal uncaught errors rather than
+  // a one-off — logging and swallowing it here (instead of leaving it to
+  // whatever Dart's default unhandled-error behavior would otherwise do) is
+  // the only fix possible without patching the third-party package itself.
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('[Main] uncaught async error (handled, not fatal): $error');
+    return true;
+  };
 
   bool firebaseReady = true;
   try {

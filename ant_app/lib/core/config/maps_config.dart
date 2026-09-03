@@ -19,4 +19,14 @@ class MapsConfig {
   MapsConfig._();
 
   static const bool isConfigured = true;
+
+  /// The same key embedded in the three native map-SDK integration points
+  /// above, exposed here so Dart code can also call the Directions/Geocoding
+  /// REST APIs directly (Module 4's routing — see `routing_service.dart`).
+  /// Those are separate Maps Platform products from "Maps SDK for
+  /// Android/iOS"/"Maps JavaScript API" and may need enabling/restricting
+  /// separately on whichever GCP project this key belongs to — if routing
+  /// requests start failing with a `REQUEST_DENIED` status, check that
+  /// first before assuming the routing code itself is broken.
+  static const String apiKey = 'AIzaSyBhpaxU8ZdJ-3xGt-fTRfChMa5zIwEJiYI';
 }

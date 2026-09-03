@@ -6,6 +6,7 @@ import '../models/disability_profile_enums.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/big_choice_card.dart';
 import '../widgets/onboarding_scaffold.dart';
+import '../widgets/onboarding_voice.dart';
 
 class VisionQuestionScreen extends ConsumerWidget {
   const VisionQuestionScreen({super.key});
@@ -25,6 +26,23 @@ class VisionQuestionScreen extends ConsumerWidget {
         'Option 1: ${s.visionNoneLabel}. ${s.visionNoneDescription}',
         'Option 2: ${s.visionLowLabel}. ${s.visionLowDescription}',
         'Option 3: ${s.visionFullLabel}. ${s.visionFullDescription}',
+      ],
+      voiceChoices: [
+        OnboardingVoiceChoice(
+          label: s.visionNoneLabel,
+          synonyms: s.visionNoneSynonyms,
+          onSelect: () => controller.setVisionLevel(VisionLevel.none),
+        ),
+        OnboardingVoiceChoice(
+          label: s.visionLowLabel,
+          synonyms: s.visionLowSynonyms,
+          onSelect: () => controller.setVisionLevel(VisionLevel.low),
+        ),
+        OnboardingVoiceChoice(
+          label: s.visionFullLabel,
+          synonyms: s.visionFullSynonyms,
+          onSelect: () => controller.setVisionLevel(VisionLevel.full),
+        ),
       ],
       child: Column(
         children: [

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/localization/onboarding_strings.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
+import '../widgets/voice_dictate_button.dart';
 
 class SafeHavensScreen extends ConsumerStatefulWidget {
   const SafeHavensScreen({super.key});
@@ -47,25 +48,47 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
         children: [
           Text(s.safeHavensHomeLabel, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          Semantics(
-            textField: true,
-            label: s.safeHavensHomeLabel,
-            child: TextField(
-              controller: _homeController,
-              decoration: InputDecoration(hintText: s.safeHavensHomeHint),
-              onChanged: (_) => setState(() {}),
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Semantics(
+                  textField: true,
+                  label: s.safeHavensHomeLabel,
+                  child: TextField(
+                    controller: _homeController,
+                    decoration: InputDecoration(hintText: s.safeHavensHomeHint),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              VoiceDictateButton(
+                controller: _homeController,
+                language: language,
+                onDictated: (_) => setState(() {}),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           Text(s.safeHavensPlaceLabel, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          Semantics(
-            textField: true,
-            label: s.safeHavensPlaceLabel,
-            child: TextField(
-              controller: _safePlaceController,
-              decoration: InputDecoration(hintText: s.safeHavensPlaceHint),
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Semantics(
+                  textField: true,
+                  label: s.safeHavensPlaceLabel,
+                  child: TextField(
+                    controller: _safePlaceController,
+                    decoration: InputDecoration(hintText: s.safeHavensPlaceHint),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              VoiceDictateButton(controller: _safePlaceController, language: language),
+            ],
           ),
         ],
       ),

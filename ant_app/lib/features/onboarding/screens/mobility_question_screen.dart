@@ -6,6 +6,7 @@ import '../models/disability_profile_enums.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/big_choice_card.dart';
 import '../widgets/onboarding_scaffold.dart';
+import '../widgets/onboarding_voice.dart';
 
 class MobilityQuestionScreen extends ConsumerWidget {
   const MobilityQuestionScreen({super.key});
@@ -25,6 +26,23 @@ class MobilityQuestionScreen extends ConsumerWidget {
         'Option 1: ${s.mobilityWhiteCaneLabel}.',
         'Option 2: ${s.mobilityWheelchairLabel}.',
         'Option 3: ${s.mobilityUnassistedLabel}.',
+      ],
+      voiceChoices: [
+        OnboardingVoiceChoice(
+          label: s.mobilityWhiteCaneLabel,
+          synonyms: s.mobilityWhiteCaneSynonyms,
+          onSelect: () => controller.setMobilityAid(MobilityAid.whiteCane),
+        ),
+        OnboardingVoiceChoice(
+          label: s.mobilityWheelchairLabel,
+          synonyms: s.mobilityWheelchairSynonyms,
+          onSelect: () => controller.setMobilityAid(MobilityAid.wheelchair),
+        ),
+        OnboardingVoiceChoice(
+          label: s.mobilityUnassistedLabel,
+          synonyms: s.mobilityUnassistedSynonyms,
+          onSelect: () => controller.setMobilityAid(MobilityAid.unassisted),
+        ),
       ],
       child: Column(
         children: [

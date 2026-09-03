@@ -6,6 +6,7 @@ import '../models/disability_profile_enums.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/big_choice_card.dart';
 import '../widgets/onboarding_scaffold.dart';
+import '../widgets/onboarding_voice.dart';
 
 /// Only shown to users who aren't getting the forced Low Vision high-contrast
 /// theme — see [OnboardingController.setVisionLevel].
@@ -26,6 +27,18 @@ class ThemePreferenceScreen extends ConsumerWidget {
       spokenOptions: [
         'Option 1: ${s.themeLightLabel}. ${s.themeLightDescription}',
         'Option 2: ${s.themeDarkLabel}. ${s.themeDarkDescription}',
+      ],
+      voiceChoices: [
+        OnboardingVoiceChoice(
+          label: s.themeLightLabel,
+          synonyms: s.themeLightSynonyms,
+          onSelect: () => controller.setThemePreference(ThemePreference.light),
+        ),
+        OnboardingVoiceChoice(
+          label: s.themeDarkLabel,
+          synonyms: s.themeDarkSynonyms,
+          onSelect: () => controller.setThemePreference(ThemePreference.dark),
+        ),
       ],
       child: Column(
         children: [

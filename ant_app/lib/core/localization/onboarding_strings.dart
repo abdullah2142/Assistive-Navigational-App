@@ -31,9 +31,19 @@ class Onboarding {
       );
   String get roleDisabledUserLabel => _t('I need assistance', 'আমার সহায়তা প্রয়োজন');
   String get roleDisabledUserDescription => _t('Set up navigation help for myself.', 'নিজের জন্য পথ দেখানোর সাহায্য সেট করুন।');
+  // Voice "wiggle room" — a user paraphrasing the description ("myself")
+  // rather than repeating the label verbatim should still be recognized.
+  // See `OnboardingVoiceChoice.synonyms`' doc comment for the live bug this
+  // fixes.
+  List<String> get roleDisabledUserSynonyms => _bn
+      ? const ['নিজের জন্য', 'নিজে', 'আমার জন্য', 'আমার সাহায্য', 'সাহায্য']
+      : const ['myself', 'for myself', 'assistance', 'i need help', 'help me', 'disabled'];
   String get roleCaretakerLabel => _t('I am a Caretaker', 'আমি একজন দেখাশোনাকারী');
   String get roleCaretakerDescription =>
       _t('Set up remote monitoring for someone I support.', 'আমি যাকে দেখাশোনা করি, দূর থেকে তার খেয়াল রাখতে এটি সেট করুন।');
+  List<String> get roleCaretakerSynonyms => _bn
+      ? const ['দেখাশোনাকারী', 'অন্য কারো জন্য', 'কারো জন্য', 'দেখাশোনা করি']
+      : const ['caretaker', 'someone else', 'support someone', 'guardian', 'monitoring'];
 
   // Caretaker pairing (share code)
   String get caretakerPairingTitle =>
@@ -49,13 +59,29 @@ class Onboarding {
         'আপনারা এখন যুক্ত। তিনি তার সেটআপ শেষ করলে আপনি তার অবস্থান দেখতে পারবেন এবং নিরাপত্তা সতর্কতা পাবেন।',
       );
   String get continueLabel => _t('Continue', 'চালিয়ে যান');
+  List<String> get continueSynonyms => _bn
+      ? const ['শেষ', 'হয়ে গেছে', 'চালিয়ে যাও', 'ঠিক আছে']
+      : const ['done', 'finish', "that's it", "i'm done", 'next', 'okay', 'ready'];
 
   // User pairing (disabled user enters code)
   String get userPairingTitle => _t('Enter your caretaker\'s code', 'দেখাশোনাকারীর কোড লিখুন');
-  String get userPairingSubtitle =>
-      _t('Ask your caretaker for the 6-digit code shown on their screen.', 'যিনি আপনার দেখাশোনা করেন, তার স্ক্রিনে থাকা ৬-সংখ্যার কোডটি চেয়ে নিন।');
+  // Deliberately states the skip option right here, not just in
+  // `userPairingSpokenHint` — that hint is no longer spoken automatically
+  // (see `OnboardingScaffold`'s "brief intro, full options on request"
+  // redesign), but "you don't actually need a caretaker" isn't a
+  // choice-enumeration detail a user can just ask "help" for if they don't
+  // already know it's an option at all — it has to be said upfront, every
+  // time, or a user with no caretaker could get stuck here not realizing
+  // they can just say so and move on.
+  String get userPairingSubtitle => _t(
+        'Ask your caretaker for the 6-digit code shown on their screen. If you don\'t have a caretaker, just say so — you can use every safety feature on your own.',
+        'যিনি আপনার দেখাশোনা করেন, তার স্ক্রিনে থাকা ৬-সংখ্যার কোডটি চেয়ে নিন। যদি আপনার কোনো দেখাশোনাকারী না থাকে, শুধু সেটা বলুন — আপনি একাই সব নিরাপত্তা সুবিধা ব্যবহার করতে পারবেন।',
+      );
   String get userPairingCodeFieldLabel => _t('Enter the 6 digit pairing code', 'ছয় সংখ্যার কোড লিখুন');
   String get userPairingNoCaretakerButton => _t('I don\'t have a caretaker', 'আমার কোনো দেখাশোনাকারী নেই');
+  List<String> get userPairingNoCaretakerSynonyms => _bn
+      ? const ['নেই', 'বাদ দিন', 'কেউ নেই']
+      : const ['no caretaker', 'skip', "don't have one", 'none', 'no one'];
   String get userPairingNoCaretakerSemantics =>
       _t('I don\'t have a caretaker, continue without pairing', 'আমার কোনো দেখাশোনাকারী নেই, এটি বাদ দিয়ে চালিয়ে যান');
   String get userPairingNoCaretakerCaption => _t(
@@ -75,11 +101,20 @@ class Onboarding {
       _t('This helps us adjust the screen and voice guidance for you.', 'এটি আমাদের স্ক্রিন ও ভয়েস আপনার জন্য ঠিক করতে সাহায্য করবে।');
   String get visionNoneLabel => _t('No vision', 'দৃষ্টিশক্তি নেই');
   String get visionNoneDescription => _t('I rely entirely on voice and touch.', 'আমি পুরোপুরি ভয়েস আর স্পর্শের উপর নির্ভর করি।');
+  List<String> get visionNoneSynonyms => _bn
+      ? const ['অন্ধ', 'দেখি না', 'একদমই দেখি না', 'কিছু দেখি না']
+      : const ['blind', 'none', "can't see", 'cannot see', "i don't see"];
   String get visionLowLabel => _t('Partial / low vision', 'আংশিক / কম দৃষ্টিশক্তি');
   String get visionLowDescription =>
       _t('I can see some things, but need larger text and higher contrast.', 'আমি কিছুটা দেখতে পাই, তবে বড় লেখা আর বেশি কনট্রাস্ট লাগে।');
+  List<String> get visionLowSynonyms => _bn
+      ? const ['আংশিক', 'কম দেখি', 'একটু দেখি', 'কিছুটা দেখি']
+      : const ['partial', 'low vision', 'a little', 'some vision', 'low'];
   String get visionFullLabel => _t('Full vision', 'সম্পূর্ণ দৃষ্টিশক্তি');
   String get visionFullDescription => _t('I see well and don\'t need visual adjustments.', 'আমি ভালো দেখতে পাই, কিছু পাল্টানোর দরকার নেই।');
+  List<String> get visionFullSynonyms => _bn
+      ? const ['ভালো দেখি', 'সম্পূর্ণ দেখি', 'ঠিক আছে', 'স্বাভাবিক']
+      : const ['full', 'normal', 'fine', 'good vision', 'i see well', 'perfect'];
 
   // Visual calibration
   String get calibrationTitle => _t('Let\'s adjust the display for you', 'চলুন স্ক্রিন আপনার জন্য ঠিক করি');
@@ -95,6 +130,8 @@ class Onboarding {
   String calibrationTextSizeSemantics(String scale) =>
       _t('Text size slider, currently $scale times normal size', 'লেখার আকারের স্লাইডার, এখন স্বাভাবিকের $scale গুণ');
   String get calibrationContinueButton => _t('This is comfortable, continue', 'এটি আরামদায়ক, চালিয়ে যান');
+  List<String> get calibrationContinueSynonyms =>
+      _bn ? const ['আরামদায়ক', 'ঠিক আছে', 'চালিয়ে যান'] : const ['comfortable', 'good', 'fine', 'continue', 'done'];
   String get calibrationSpokenHint => _t(
         'Two sliders follow: contrast, and text size. Adjust them if needed, or just tap the '
             'button at the bottom to continue with the current comfortable defaults.',
@@ -108,15 +145,22 @@ class Onboarding {
       _t('Pick whichever is easier on your eyes. You can change this later just by asking the AI.', 'যেটি আপনার চোখের জন্য আরামদায়ক সেটি বেছে নিন। পরে শুধু AI-কে বললেই এটি পাল্টাতে পারবেন।');
   String get themeLightLabel => _t('Light', 'হালকা');
   String get themeLightDescription => _t('Soft cream background, dark text.', 'হালকা ক্রিম রঙের পটভূমি, গাঢ় লেখা।');
+  List<String> get themeLightSynonyms => _bn ? const ['সাদা', 'উজ্জ্বল', 'দিনের মোড'] : const ['bright', 'white', 'day mode'];
   String get themeDarkLabel => _t('Dark', 'গাঢ়');
   String get themeDarkDescription => _t('Deep charcoal background, soft white text.', 'গাঢ় কালচে পটভূমি, নরম সাদা লেখা।');
+  List<String> get themeDarkSynonyms => _bn ? const ['কালো', 'রাতের মোড', 'গাঢ় রং'] : const ['black', 'night mode', 'night'];
 
   // Mobility
   String get mobilityTitle => _t('How do you get around?', 'আপনি কীভাবে চলাফেরা করেন?');
   String get mobilitySubtitle => _t('This helps us choose routes that work for you.', 'এটি আমাদের আপনার জন্য ঠিক পথ বেছে নিতে সাহায্য করে।');
   String get mobilityWhiteCaneLabel => _t('White cane', 'সাদা ছড়ি');
+  List<String> get mobilityWhiteCaneSynonyms => _bn ? const ['ছড়ি', 'লাঠি'] : const ['cane', 'stick', 'blind cane'];
   String get mobilityWheelchairLabel => _t('Wheelchair', 'হুইলচেয়ার');
+  List<String> get mobilityWheelchairSynonyms => _bn ? const ['চেয়ার', 'হুইল চেয়ার'] : const ['chair', 'wheel chair'];
   String get mobilityUnassistedLabel => _t('I walk unassisted', 'আমি সাহায্য ছাড়াই হাঁটি');
+  List<String> get mobilityUnassistedSynonyms => _bn
+      ? const ['নিজে হাঁটি', 'সাহায্য ছাড়া', 'সাহায্য লাগে না']
+      : const ['walk myself', 'no aid', 'on my own', 'unassisted', 'nothing', 'none'];
 
   // Cognitive & anxiety
   String get cognitiveTitle => _t('A couple more questions', 'আরও কয়েকটি প্রশ্ন');
@@ -139,19 +183,29 @@ class Onboarding {
       _t('If so, we\'ll show you text and visual guidance instead of relying on audio.', 'তাহলে আমরা শব্দের বদলে লেখা ও ছবি দিয়ে বোঝাব।');
   String get deafYesLabel => _t('Yes', 'হ্যাঁ');
   String get deafYesDescription => _t('Show me text and visuals instead of audio.', 'শব্দের বদলে আমাকে লেখা এবং ছবি দেখান।');
+  List<String> get deafYesSynonyms =>
+      _bn ? const ['কানে শুনি না', 'কম শুনি', 'শুনতে পাই না'] : const ['deaf', "can't hear", 'hard of hearing'];
   String get deafNoLabel => _t('No', 'না');
   String get deafNoDescription => _t('I can hear voice guidance normally.', 'আমি সহকারীর কথা স্বাভাবিকভাবে শুনতে পাই।');
+  List<String> get deafNoSynonyms =>
+      _bn ? const ['শুনতে পাই', 'ঠিক আছে শুনি'] : const ['i can hear', 'hear fine', 'normal hearing'];
 
   // Verbosity & voice
   String get verbosityTitle => _t('How should the AI talk to you?', 'AI আপনার সাথে কীভাবে কথা বলবে?');
   String get verbosityChattinessLabel => _t('Chattiness', 'কথা বলার ধরন');
   String get verbosityMinimalistLabel => _t('Minimalist', 'সংক্ষিপ্ত');
   String get verbosityMinimalistDescription => _t('Short, essential instructions only.', 'শুধু ছোট, দরকারি কথা বলবে।');
+  List<String> get verbosityMinimalistSynonyms =>
+      _bn ? const ['কম কথা', 'ছোট', 'সংক্ষেপে'] : const ['short', 'brief', 'less talking', 'minimal'];
   String get verbosityDescriptiveLabel => _t('Descriptive', 'বিস্তারিত');
   String get verbosityDescriptiveDescription => _t('More detail and reassurance along the way.', 'পথে আরও বিস্তারিত কথা আর ভরসা দেবে।');
+  List<String> get verbosityDescriptiveSynonyms =>
+      _bn ? const ['বেশি কথা', 'বিস্তারিত', 'খুলে বলা'] : const ['detailed', 'more talking', 'long', 'descriptive'];
   String get verbosityVoiceLabel => _t('Voice', 'ভয়েস');
   String get verbosityFemaleVoiceLabel => _t('Bangla — Female voice', 'বাংলা — নারী কণ্ঠ');
+  List<String> get verbosityFemaleVoiceSynonyms => _bn ? const ['নারী', 'মেয়ে', 'মহিলা'] : const ['female', 'woman', 'girl'];
   String get verbosityMaleVoiceLabel => _t('Bangla — Male voice', 'বাংলা — পুরুষ কণ্ঠ');
+  List<String> get verbosityMaleVoiceSynonyms => _bn ? const ['পুরুষ', 'ছেলে'] : const ['male', 'man', 'boy'];
   String get verbositySpokenHint => _t(
         'How chatty should the assistant be. Option 1: Minimalist, short essential instructions only. '
             'Option 2: Descriptive, more detail and reassurance along the way.',
@@ -177,6 +231,14 @@ class Onboarding {
             'অন্তত একজনকে যোগ করুন, তারপর নিচে চালিয়ে যান-এ চাপুন।',
       );
   String contactsRemoveSemantics(String name) => _t('Remove $name', '$name বাদ দিন');
+  String get contactsNamePromptSpoken => _t('Say the contact\'s name.', 'পরিচিতির নাম বলুন।');
+  String get contactsPhonePromptSpoken => _t('Now say their phone number.', 'এখন তাদের ফোন নম্বর বলুন।');
+  String get contactsAddAnotherLabel => _t('Add another', 'আরেকজন যোগ করুন');
+  List<String> get contactsAddAnotherSynonyms =>
+      _bn ? const ['আরেকজন', 'আরও একজন', 'আরও'] : const ['another', 'one more', 'add', 'add one more'];
+  String get contactsAddedThenAddAnotherOrContinueSpoken => _t(
+      'Contact saved. Say "add another" to add someone else, or "continue" if you\'re done.',
+      'পরিচিতি যোগ হয়েছে। আরেকজন যোগ করতে "আরেকজন" বলুন, অথবা শেষ হলে "চালিয়ে যান" বলুন।');
 
   // Passerby messages
   String get passerbyTitle => _t('What might you need to tell a stranger?', 'অচেনা মানুষকে আপনার কী বলার দরকার হতে পারে?');
@@ -197,6 +259,17 @@ class Onboarding {
   String get passerbySpokenAddOwn => _t(
         'There is also a field at the bottom to write and add your own message. Tap Continue when ready.',
         'নিচে নিজের বার্তা লিখে যোগ করার জন্য একটি ঘরও আছে। প্রস্তুত হলে চালিয়ে যান-এ চাপুন।',
+      );
+  String get passerbyVoiceRetryHint => _t(
+        'Say one of the messages to turn it on or off, say your own message to add it, or say "continue" when you\'re done.',
+        'কোনো বার্তার নাম বললে সেটি চালু বা বন্ধ হবে, নিজের বার্তা বললে সেটি যোগ হবে, অথবা শেষ হলে "চালিয়ে যান" বলুন।',
+      );
+  String passerbyMessageAddedSpoken(String message) => _t('Added: $message.', 'যোগ হয়েছে: $message।');
+  String passerbyMessageRemovedSpoken(String message) => _t('Removed: $message.', 'বাদ দেওয়া হয়েছে: $message।');
+  String get passerbyCustomAddedSpoken => _t('Added your message.', 'আপনার বার্তা যোগ হয়েছে।');
+  String get passerbyNeedAtLeastOneSpoken => _t(
+        'Please pick at least one message, or add your own, before continuing.',
+        'চালিয়ে যাওয়ার আগে অন্তত একটি বার্তা বেছে নিন, বা নিজের একটি যোগ করুন।',
       );
 
   // Default passerby message suggestions (also used as the runtime fallback
@@ -219,10 +292,15 @@ class Onboarding {
       );
   String get snapshotAlwaysLabel => _t('Always allow', 'সবসময় অনুমতি দিন');
   String get snapshotAlwaysDescription => _t('They can request a snapshot anytime, no need to ask me first.', 'তিনি যেকোনো সময় একটা ছবি চাইতে পারবেন, আগে জিজ্ঞেস করার দরকার নেই।');
+  List<String> get snapshotAlwaysSynonyms => _bn ? const ['সবসময়', 'যেকোনো সময়'] : const ['always', 'anytime', 'yes always'];
   String get snapshotAskLabel => _t('Ask me each time', 'প্রতিবার আমাকে জিজ্ঞেস করুন');
   String get snapshotAskDescription => _t('I want to approve every snapshot request as it happens.', 'প্রতিবার ছবি চাইলে আগে আমাকে জিজ্ঞেস করা হোক।');
+  List<String> get snapshotAskSynonyms =>
+      _bn ? const ['জিজ্ঞেস করুন', 'আগে বলুন', 'অনুমতি নিন'] : const ['ask me', 'ask first', 'check with me'];
   String get snapshotNeverLabel => _t('Never allow', 'কখনো অনুমতি দেবেন না');
   String get snapshotNeverDescription => _t('Turn off Snapshot Requests entirely.', 'ছবি চাওয়ার সুবিধাটি পুরোপুরি বন্ধ রাখুন।');
+  List<String> get snapshotNeverSynonyms =>
+      _bn ? const ['কখনো না', 'বন্ধ রাখুন', 'বন্ধ'] : const ['never', "don't allow", 'turn off', 'no'];
 
   // Safe havens
   String get safeHavensTitle => _t('Where do you feel safest?', 'আপনি কোথায় সবচেয়ে নিরাপদ বোধ করেন?');
@@ -246,6 +324,8 @@ class Onboarding {
             'শুধু AI-কে বলুন — যেমন "আমার জরুরি পরিচিতি মা করে দাও।"',
       );
   String get lockInConfirmButton => _t('Confirm and start using ANT', 'নিশ্চিত করুন এবং অ্যান্ট ব্যবহার শুরু করুন');
+  List<String> get lockInConfirmSynonyms =>
+      _bn ? const ['নিশ্চিত', 'শুরু করুন', 'ঠিক আছে', 'হ্যাঁ'] : const ['confirm', 'start', 'yes', 'done', 'lock in', 'begin'];
   String get lockInVisionLabel => _t('Vision', 'দৃষ্টিশক্তি');
   String get lockInThemeLabel => _t('Theme', 'রং');
   String get lockInMobilityLabel => _t('Mobility', 'চলাফেরা');
@@ -264,7 +344,9 @@ class Onboarding {
       };
   String get lockInNotSet => _t('—', '—');
   String get lockInYes => _t('Yes', 'হ্যাঁ');
+  List<String> get lockInYesSynonyms => _bn ? const ['জি', 'ঠিক আছে হ্যাঁ', 'হুম'] : const ['yeah', 'yep', 'sure', 'correct', 'true'];
   String get lockInNo => _t('No', 'না');
+  List<String> get lockInNoSynonyms => _bn ? const ['না না', 'নাহ'] : const ['nope', 'not really', 'false', 'nah'];
   String get lockInSpokenIntro => _t('Here is a summary before you confirm.', 'নিশ্চিত করার আগে সবকিছু দেখে নিন।');
   String get lockInSpokenOutro => _t(
         'If everything sounds right, tap the button at the bottom to confirm and start using ANT. '
@@ -281,6 +363,12 @@ class Onboarding {
   String get backButtonSemantics => _t('Go back to the previous step', 'আগের ধাপে ফিরে যান');
   String get voiceOnSemantics => _t('Voice guidance is on. Double tap to turn off.', 'ভয়েস চালু আছে। বন্ধ করতে দুইবার চাপুন।');
   String get voiceOffSemantics => _t('Voice guidance is off. Double tap to turn on.', 'ভয়েস বন্ধ আছে। চালু করতে দুইবার চাপুন।');
+  String get voiceChoiceRetryHint => _t(
+      'Sorry, I didn\'t catch that. Say your answer, or say "help" to hear the options.',
+      'দুঃখিত, বুঝতে পারিনি। আপনার উত্তর বলুন, অথবা বিকল্পগুলো শুনতে "বিকল্প" বলুন।');
+  String get voiceListeningIndicator => _t('Listening for your answer…', 'আপনার উত্তর শুনছি…');
+  String get voiceDictateSemantics => _t('Dictate this by voice', 'কথা বলে লিখুন');
+  String get voiceDoneWord => _t('done', 'শেষ');
 
   /// Localized labels for the disability-profile enums, used by
   /// [MySettingsScreen]/[RemoteManagementScreen] chips as well as onboarding.

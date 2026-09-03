@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/localization/onboarding_strings.dart';
+import '../../../core/providers/ai_assistant_providers.dart';
+import '../../../core/providers/tts_providers.dart';
+import '../../../core/services/stt_service.dart';
+import '../../../core/services/tts_service.dart';
 import '../models/disability_profile_enums.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/big_choice_card.dart';
 import '../widgets/onboarding_scaffold.dart';
+import '../widgets/onboarding_voice.dart';
 
 class VerbosityVoiceScreen extends ConsumerStatefulWidget {
   const VerbosityVoiceScreen({super.key});
@@ -17,6 +22,88 @@ class VerbosityVoiceScreen extends ConsumerStatefulWidget {
 class _VerbosityVoiceScreenState extends ConsumerState<VerbosityVoiceScreen> {
   VerbosityLevel? _verbosity;
   String? _voiceId;
+  bool _disposed = false;
+  bool _voiceStarted = false;
+
+  // See `LanguageSelectionScreen`'s identical fields for why this is a
+  // `late final` capture rather than `ref.read` inside `dispose()` — the
+  // latter is unsafe and throws (confirmed by a real test failure) once
+  // the widget is unmounting.
+  late final TtsService _tts = ref.read(ttsServiceProvider);
+  late final SttService _stt = ref.read(sttServiceProvider);
+
+  @override
+  void initState() {
+    super.initState();
+    _tts;
+    _stt;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _introAndListen());
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _stt.stop();
+    _tts.stop();
+    super.dispose();
+  }
+
+  Future<void> _introAndListen() async {
+    if (_disposed || !ref.read(ttsEnabledProvider)) return;
+    final language = ref.read(onboardingControllerProvider).profile!.language;
+    final s = Onboarding.of(language);
+    await _tts.speak('${s.verbosityTitle}. ${s.verbositySpokenHint}', language: language);
+    if (_disposed || !ref.read(ttsEnabledProvider) || _voiceStarted) return;
+    _voiceStarted = true;
+    final myGeneration = ref.read(onboardingControllerProvider).stepGeneration;
+    bool cancelled() =>
+        _disposed || ref.read(onboardingControllerProvider).stepGeneration != myGeneration;
+    final stt = _stt;
+    final tts = _tts;
+    await listenForVoiceChoice(
+      stt: stt,
+      tts: tts,
+      language: language,
+      choices: [
+        OnboardingVoiceChoice(
+          label: s.verbosityMinimalistLabel,
+          synonyms: s.verbosityMinimalistSynonyms,
+          onSelect: () => setState(() => _verbosity = VerbosityLevel.minimalist),
+        ),
+        OnboardingVoiceChoice(
+          label: s.verbosityDescriptiveLabel,
+          synonyms: s.verbosityDescriptiveSynonyms,
+          onSelect: () => setState(() => _verbosity = VerbosityLevel.descriptive),
+        ),
+      ],
+      retryHint: s.voiceChoiceRetryHint,
+      isCancelled: cancelled,
+    );
+    if (cancelled()) return;
+    await tts.speak(s.verbositySpokenVoiceHint, language: language);
+    if (cancelled()) return;
+    await listenForVoiceChoice(
+      stt: stt,
+      tts: tts,
+      language: language,
+      choices: [
+        OnboardingVoiceChoice(
+          label: s.verbosityFemaleVoiceLabel,
+          synonyms: s.verbosityFemaleVoiceSynonyms,
+          onSelect: () => setState(() => _voiceId = 'bn-BD-female-1'),
+        ),
+        OnboardingVoiceChoice(
+          label: s.verbosityMaleVoiceLabel,
+          synonyms: s.verbosityMaleVoiceSynonyms,
+          onSelect: () => setState(() => _voiceId = 'bn-BD-male-1'),
+        ),
+      ],
+      retryHint: s.voiceChoiceRetryHint,
+      isCancelled: cancelled,
+    );
+    if (cancelled() || _verbosity == null || _voiceId == null) return;
+    ref.read(onboardingControllerProvider.notifier).setVerbosityAndVoice(verbosity: _verbosity!, voiceId: _voiceId!);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,6 +126,7 @@ class _VerbosityVoiceScreenState extends ConsumerState<VerbosityVoiceScreen> {
           ? () => controller.setVerbosityAndVoice(verbosity: _verbosity!, voiceId: _voiceId!)
           : null,
       spokenOptions: [s.verbositySpokenHint, s.verbositySpokenVoiceHint],
+      autoSpeak: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

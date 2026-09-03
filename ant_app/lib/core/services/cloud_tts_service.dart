@@ -1,0 +1,100 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+
+import '../config/cloud_tts_config.dart';
+import '../localization/app_language.dart';
+
+/// Real neural voices via Google Cloud's `text:synthesize` REST endpoint —
+/// the backlog item this replaces `flutter_tts`'s on-device engine for
+/// (that engine's quality is entirely at the mercy of whatever the phone
+/// manufacturer shipped, audibly worse on some devices than others — see
+/// `TtsService`'s engine-preference workaround, which this makes
+/// unnecessary whenever Cloud TTS is configured and reachable).
+///
+/// Stateless per call — synthesizes the whole utterance in one request
+/// (no streaming synthesis API exists for this endpoint) and plays the
+/// returned MP3 via `audioplayers`, the same package already used
+/// elsewhere in this app. Returns `false` on any failure (no key
+/// configured, network error, non-200 response) so `TtsService` can fall
+/// back to on-device speech transparently — never leaves the user in
+/// silence because of a network hiccup.
+class CloudTtsService {
+  final AudioPlayer _player = AudioPlayer();
+
+  /// `bn-IN`, not `bn-BD` — Google Cloud TTS has no Bangladesh-dialect
+  /// Bangla voice, only India's. Same language, a different regional
+  /// accent; still far more natural than the on-device fallback in
+  /// practice, and the only Bangla option Google actually offers here.
+  static const String _bnLanguageCode = 'bn-IN';
+  static const String _enLanguageCode = 'en-US';
+
+  /// Picks a specific Wavenet/Neural2 voice name for [language], honoring
+  /// [voiceId]'s gender (`UserProfile.voiceId`, e.g. `'bn-BD-female-1'`) —
+  /// the one piece of that field this app actually acts on; before this,
+  /// it was collected during onboarding and then never read anywhere.
+  static String _voiceNameFor(AppLanguage language, String voiceId) {
+    final female = voiceId.contains('female');
+    if (language == AppLanguage.bangla) {
+      return female ? 'bn-IN-Wavenet-A' : 'bn-IN-Wavenet-B';
+    }
+    return female ? 'en-US-Neural2-F' : 'en-US-Neural2-D';
+  }
+
+  static String _languageCodeFor(AppLanguage language) =>
+      language == AppLanguage.bangla ? _bnLanguageCode : _enLanguageCode;
+
+  /// Synthesizes and plays [text], awaiting actual playback completion
+  /// (not just request completion) — callers that speak-then-listen right
+  /// after (nearly every voice flow in this app) need that ordering
+  /// guarantee, same reason `TtsService`'s on-device path sets
+  /// `awaitSpeakCompletion(true)`. Returns `false` (having played nothing)
+  /// on any failure.
+  Future<bool> speak(String text, {required AppLanguage language, required String voiceId}) async {
+    if (!CloudTtsConfig.isConfigured) return false;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return true;
+    try {
+      final uri = Uri.parse('https://texttospeech.googleapis.com/v1/text:synthesize?key=${CloudTtsConfig.apiKey}');
+      final response = await http.post(
+        uri,
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'input': {'text': trimmed},
+          'voice': {'languageCode': _languageCodeFor(language), 'name': _voiceNameFor(language, voiceId)},
+          'audioConfig': {'audioEncoding': 'MP3'},
+        }),
+      );
+      if (response.statusCode != 200) {
+        debugPrint('[CloudTts] synth failed: ${response.statusCode} ${response.body}');
+        return false;
+      }
+      final audioContent = (jsonDecode(response.body) as Map<String, dynamic>)['audioContent'] as String?;
+      if (audioContent == null) {
+        debugPrint('[CloudTts] response had no audioContent');
+        return false;
+      }
+      final bytes = base64Decode(audioContent);
+      await _player.stop();
+      final done = Completer<void>();
+      late final StreamSubscription<void> sub;
+      sub = _player.onPlayerComplete.listen((_) {
+        if (!done.isCompleted) done.complete();
+        sub.cancel();
+      });
+      await _player.play(BytesSource(bytes));
+      await done.future.timeout(const Duration(seconds: 30), onTimeout: () {});
+      return true;
+    } catch (e) {
+      debugPrint('[CloudTts] error: $e');
+      return false;
+    }
+  }
+
+  Future<void> stop() => _player.stop();
+
+  Future<void> dispose() => _player.dispose();
+}

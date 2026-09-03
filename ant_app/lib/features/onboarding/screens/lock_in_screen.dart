@@ -5,6 +5,7 @@ import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
+import '../widgets/onboarding_voice.dart';
 
 /// Step 4 — The Automation Lock-In.
 ///
@@ -45,6 +46,15 @@ class LockInScreen extends ConsumerWidget {
               '${s.lockInSnapshotLabel}: ${s.snapshotConsentLabel(profile.snapshotConsent)}.',
               '${s.lockInHomeLabel}: ${profile.homeAddress ?? s.lockInHomeNotSet}.',
               s.lockInSpokenOutro,
+            ],
+      voiceChoices: profile == null
+          ? const []
+          : [
+              OnboardingVoiceChoice(
+                label: s.lockInConfirmButton,
+                synonyms: s.lockInConfirmSynonyms,
+                onSelect: controller.confirmLockIn,
+              ),
             ],
       child: profile == null
           ? const SizedBox.shrink()

@@ -5,6 +5,7 @@ import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
+import '../widgets/onboarding_voice.dart';
 
 /// Step 2.1b — Visual Calibration Phase.
 ///
@@ -40,6 +41,17 @@ class _VisualCalibrationScreenState extends ConsumerState<VisualCalibrationScree
       onPrimaryAction: () =>
           controller.setCalibration(contrastLevel: _contrast, fontScale: _fontScale),
       spokenOptions: [s.calibrationSpokenHint],
+      // Sliders themselves aren't voice-drivable, but saying the button's
+      // own label ("continue") still lets a blind user move past this
+      // screen with the comfortable defaults instead of getting stuck
+      // needing a sighted person to find the on-screen sliders.
+      voiceChoices: [
+        OnboardingVoiceChoice(
+          label: s.calibrationContinueButton,
+          synonyms: s.calibrationContinueSynonyms,
+          onSelect: () => controller.setCalibration(contrastLevel: _contrast, fontScale: _fontScale),
+        ),
+      ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

@@ -33,7 +33,9 @@ class UserProfile {
     this.passerbyHelperMessages = const [],
     this.language = AppLanguage.english,
     this.snapshotConsent = SnapshotConsentPreference.askEachTime,
-  });
+    this.wakeWordEnabled = false,
+    bool? voiceAutoListen,
+  }) : voiceAutoListen = voiceAutoListen ?? (visionLevel != VisionLevel.full || complexInstructionsHard);
 
   final String uid;
   final UserRole role;
@@ -87,6 +89,23 @@ class UserProfile {
   // (Module 6) without live per-request consent.
   final SnapshotConsentPreference snapshotConsent;
 
+  // Module 3 — continuous on-device wake-word listening ("Hey ANT", via
+  // openWakeWord). Defaults off: always-on mic capture is a real
+  // battery/privacy tradeoff this app doesn't force on anyone, unlike
+  // push-to-talk which every user gets regardless. See `WakeWordService`.
+  final bool wakeWordEnabled;
+
+  // Whether voice mic entry points (the passerby message composer today —
+  // see `PasserbyMessagePicker`) should start listening automatically
+  // instead of waiting for a manual mic tap. Defaults to on for anyone
+  // whose profile already signals they'd benefit most — not fully sighted,
+  // or finds complex multi-step instructions hard to follow — and off for
+  // everyone else; either way it's just the starting point; explicitly
+  // toggled after that (My Settings, or the `voice_auto_listen` chat
+  // setting) via the constructor's `voiceAutoListen` parameter, which
+  // overrides the computed default and is what actually gets persisted.
+  final bool voiceAutoListen;
+
   bool get requiresVisualCalibration => visionLevel == VisionLevel.low;
 
   Map<String, dynamic> toJson() => {
@@ -111,6 +130,8 @@ class UserProfile {
         'passerbyHelperMessages': passerbyHelperMessages,
         'language': language.name,
         'snapshotConsent': snapshotConsent.name,
+        'wakeWordEnabled': wakeWordEnabled,
+        'voiceAutoListen': voiceAutoListen,
       };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -138,6 +159,13 @@ class UserProfile {
             (json['passerbyHelperMessages'] as List<dynamic>? ?? []).map((m) => m as String).toList(),
         language: AppLanguage.fromFirestore(json['language'] as String?),
         snapshotConsent: SnapshotConsentPreference.fromFirestore(json['snapshotConsent'] as String?),
+        wakeWordEnabled: json['wakeWordEnabled'] as bool? ?? false,
+        // Not `?? false` like the others — a profile that's never had this
+        // field written yet (every profile created before this field
+        // existed) should still get the smart, profile-based default
+        // rather than being silently opted out. `null` here is what lets
+        // the constructor's own default-computation run.
+        voiceAutoListen: json['voiceAutoListen'] as bool?,
       );
 
   UserProfile copyWith({
@@ -161,6 +189,8 @@ class UserProfile {
     List<String>? passerbyHelperMessages,
     AppLanguage? language,
     SnapshotConsentPreference? snapshotConsent,
+    bool? wakeWordEnabled,
+    bool? voiceAutoListen,
   }) =>
       UserProfile(
         uid: uid,
@@ -184,5 +214,12 @@ class UserProfile {
         passerbyHelperMessages: passerbyHelperMessages ?? this.passerbyHelperMessages,
         language: language ?? this.language,
         snapshotConsent: snapshotConsent ?? this.snapshotConsent,
+        wakeWordEnabled: wakeWordEnabled ?? this.wakeWordEnabled,
+        // Always resolved to a concrete value before reaching the
+        // constructor (never left as a bare `null` pass-through) — this
+        // preserves whatever was already persisted rather than recomputing
+        // the smart default off a field that might be changing in this
+        // same `copyWith` call (e.g. `visionLevel`).
+        voiceAutoListen: voiceAutoListen ?? this.voiceAutoListen,
       );
 }

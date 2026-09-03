@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/localization/app_language.dart';
 import '../../../core/localization/onboarding_strings.dart';
+import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../models/disability_profile_enums.dart';
 import '../models/onboarding_step.dart';
@@ -39,9 +40,19 @@ class OnboardingState {
     this.isLoading = false,
     this.errorMessage,
     this.history = const [],
+    this.stepGeneration = 0,
   });
 
   final OnboardingStep step;
+
+  /// Bumped every time [step] changes (see `_goTo`/`goBack`) — a screen's
+  /// own voice-listening loop captures this at mount time and bails out the
+  /// instant it no longer matches, even before the outgoing widget itself
+  /// gets disposed (which `AnimatedSwitcher`'s cross-fade in
+  /// `OnboardingFlowScreen` delays by ~250ms, long enough for a stale
+  /// listener to misfire against the *next* screen's own narration — a
+  /// real bug confirmed live, see `_goTo`'s doc comment).
+  final int stepGeneration;
 
   /// Only authoritative before [profile] exists (language selection and
   /// role selection, the two screens shown pre-signin) — once a
@@ -63,6 +74,7 @@ class OnboardingState {
     String? errorMessage,
     bool clearError = false,
     List<OnboardingStep>? history,
+    int? stepGeneration,
   }) =>
       OnboardingState(
         step: step ?? this.step,
@@ -72,6 +84,7 @@ class OnboardingState {
         isLoading: isLoading ?? this.isLoading,
         errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
         history: history ?? this.history,
+        stepGeneration: stepGeneration ?? this.stepGeneration,
       );
 }
 
@@ -88,18 +101,38 @@ class OnboardingController extends Notifier<OnboardingState> {
   }
 
   void _goTo(OnboardingStep next) {
+    // Cut off whatever mic session belongs to the step being left, right
+    // now — not whenever its `OnboardingScaffold` eventually calls
+    // `dispose()`. Confirmed live as a real bug without this: `KeyedSubtree`
+    // inside `OnboardingFlowScreen`'s `AnimatedSwitcher` keeps the outgoing
+    // screen mounted (and its own narrate-then-listen loop still running)
+    // for the ~250ms cross-fade, so the previous step's mic could still be
+    // open when the next step's own `OnboardingScaffold` starts its own
+    // listen session — two concurrent `listenOnce()` calls on the same
+    // `SttService` singleton, with the stale one able to pick up the new
+    // screen's own spoken narration and misfire its `onSelect`, which is
+    // exactly what produced the "Welcome to ANT" role-selection screen
+    // reappearing after an option was already tapped.
+    ref.read(sttServiceProvider).stop();
     state = state.copyWith(
       step: next,
       history: [...state.history, state.step],
       clearError: true,
+      stepGeneration: state.stepGeneration + 1,
     );
   }
 
   void goBack() {
     if (state.history.isEmpty) return;
+    ref.read(sttServiceProvider).stop();
     final previous = List<OnboardingStep>.from(state.history);
     final last = previous.removeLast();
-    state = state.copyWith(step: last, history: previous, clearError: true);
+    state = state.copyWith(
+      step: last,
+      history: previous,
+      clearError: true,
+      stepGeneration: state.stepGeneration + 1,
+    );
   }
 
   void setLanguage(AppLanguage language) {
@@ -178,12 +211,25 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> setVisionLevel(VisionLevel level) async {
     final profile = state.profile;
     if (profile == null) return;
-    await _persist(profile.copyWith(visionLevel: level));
+    // A fully blind user can't see which theme is active and gets no
+    // benefit from being asked — default them straight to Dark (real
+    // battery savings on the OLED panels most phones here ship with) and
+    // skip the now-pointless question entirely, same as Low Vision
+    // skipping past it in the other direction. Still just a starting
+    // point: changeable later via My Settings or "change theme to light".
+    final updated = level == VisionLevel.none
+        ? profile.copyWith(visionLevel: level, themePreference: ThemePreference.dark)
+        : profile.copyWith(visionLevel: level);
+    await _persist(updated);
     // Low Vision still gets a Light/Dark say — it's an independent
     // accessibility axis, not a fixed theme substituted in its place (see
-    // theme_resolver.dart) — so everyone reaches themePreference, Low
-    // Vision users just detour through calibration first.
-    _goTo(level == VisionLevel.low ? OnboardingStep.visualCalibration : OnboardingStep.themePreference);
+    // theme_resolver.dart) — so it's only None that skips themePreference,
+    // Low Vision users detour through calibration first and still reach it.
+    _goTo(switch (level) {
+      VisionLevel.low => OnboardingStep.visualCalibration,
+      VisionLevel.none => OnboardingStep.mobilityQuestion,
+      VisionLevel.full => OnboardingStep.themePreference,
+    });
   }
 
   Future<void> setCalibration({required double contrastLevel, required double fontScale}) async {
@@ -239,6 +285,9 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     await _persist(profile.copyWith(verbosity: verbosity, voiceId: voiceId));
+    // Applied immediately, not just persisted — every onboarding screen from
+    // here on narrates with the voice just picked instead of the default.
+    ref.read(ttsServiceProvider).setVoiceId(voiceId);
     _goTo(OnboardingStep.magicButtonContacts);
   }
 

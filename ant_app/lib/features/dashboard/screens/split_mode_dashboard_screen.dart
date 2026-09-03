@@ -25,9 +25,21 @@ class SplitModeDashboardScreen extends StatelessWidget {
         final messages = profile.passerbyHelperMessages.isNotEmpty
             ? profile.passerbyHelperMessages
             : Onboarding.of(profile.language).defaultPasserbyMessages;
-        await PasserbyMessagePicker.show(context, messages: messages, strings: d);
+        await PasserbyMessagePicker.show(
+          context,
+          messages: messages,
+          strings: d,
+          language: profile.language,
+          autoListen: profile.voiceAutoListen,
+        );
       case SuggestedChipAction.reportHazard:
-        await CrowdsourceReportingHub.show(context, reporterUid: profile.uid, language: profile.language);
+        await CrowdsourceReportingHub.show(
+          context,
+          reporterUid: profile.uid,
+          language: profile.language,
+          voiceAutoListen: profile.voiceAutoListen,
+          mobilityAid: profile.mobilityAid,
+        );
       case SuggestedChipAction.routeToWork:
       case SuggestedChipAction.scanBusSign:
         break; // Handled inside the chat panel itself.
@@ -64,7 +76,7 @@ class SplitModeDashboardScreen extends StatelessWidget {
             Expanded(
               flex: 6,
               child: ChatStreamPanel(
-                language: profile.language,
+                profile: profile,
                 onOverlayChip: (action) => _handleOverlayChip(context, action),
               ),
             ),

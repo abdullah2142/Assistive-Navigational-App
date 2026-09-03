@@ -2,7 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/localization/app_language.dart';
+import '../../../core/localization/onboarding_strings.dart';
+import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
+import '../../../core/services/stt_service.dart';
+import '../../../core/services/tts_service.dart';
+import '../providers/onboarding_providers.dart';
+import 'onboarding_voice.dart';
 
 /// Shared shell for every onboarding screen: a Semantics-announced header,
 /// optional back button, scrollable body, and a fixed primary action at the
@@ -28,6 +34,7 @@ class OnboardingScaffold extends ConsumerStatefulWidget {
     this.spokenOptions = const [],
     this.language = AppLanguage.english,
     this.autoSpeak = true,
+    this.voiceChoices = const [],
   });
 
   final String title;
@@ -52,34 +59,102 @@ class OnboardingScaffold extends ConsumerStatefulWidget {
   /// languages, since there's no chosen one yet).
   final bool autoSpeak;
 
+  /// When non-empty, this screen's single group of tappable choices can
+  /// also be answered out loud: once narration finishes, the mic listens
+  /// (re-prompting on a miss instead of giving up) until one matches. A
+  /// screen with more than one independent choice to make (e.g. two
+  /// sequential yes/no questions) drives `listenForVoiceChoice` itself
+  /// rather than using this — see `CognitiveAnxietyScreen`.
+  final List<OnboardingVoiceChoice> voiceChoices;
+
   @override
   ConsumerState<OnboardingScaffold> createState() => _OnboardingScaffoldState();
 }
 
 class _OnboardingScaffoldState extends ConsumerState<OnboardingScaffold> {
+  bool _disposed = false;
+  bool _listening = false;
+
+  // Captured once, here, rather than `ref.read` inside `dispose()` — `ref`
+  // is unsafe to use once a widget is unmounting. Forced eager in
+  // `initState` below so `dispose()` always has a valid reference even on
+  // a screen that's left before `_speakThenListen` itself ever ran.
+  late final TtsService _tts = ref.read(ttsServiceProvider);
+  late final SttService _stt = ref.read(sttServiceProvider);
+
   @override
   void initState() {
     super.initState();
+    _tts;
+    _stt;
     // Post-frame so this fires once this screen has actually landed, not
     // mid-transition with the previous screen's frame still on layout.
     if (widget.autoSpeak) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _speak());
+      WidgetsBinding.instance.addPostFrameCallback((_) => _speakThenListen());
     }
   }
 
-  void _speak() {
-    if (!mounted || !ref.read(ttsEnabledProvider)) return;
-    final parts = [
-      widget.title,
-      if (widget.subtitle != null) widget.subtitle!,
-      ...widget.spokenOptions,
-    ];
-    ref.read(ttsServiceProvider).speak(parts.join('. '), language: widget.language);
+  @override
+  void dispose() {
+    _disposed = true;
+    // Both unconditionally, not just when `_listening` — confirmed live as
+    // a real bug without this: leaving a screen mid-narration (tapping an
+    // option before its own TTS narration finished playing) left that
+    // narration audibly still playing over the *next* screen, since only
+    // the mic was ever stopped here, never the voice. `stop()` on either
+    // service is a safe no-op when nothing is actually active.
+    _tts.stop();
+    _stt.stop();
+    super.dispose();
+  }
+
+  Future<void> _speakThenListen() async {
+    if (_disposed || !ref.read(ttsEnabledProvider)) return;
+    // Captured once, up front — see `OnboardingState.stepGeneration`'s doc
+    // comment for the stale-listener bug this (plus the check in
+    // `isCancelled` below) fixes.
+    final myGeneration = ref.read(onboardingControllerProvider).stepGeneration;
+    // Brief intro only — title + subtitle, not the full option enumeration
+    // ([spokenOptions]) — a user who already knows what they want
+    // shouldn't have to sit through a full read-out of every choice before
+    // they can even speak (explicit user feedback). The full list is
+    // offered on request instead — see `listenForVoiceChoice`'s `helpText`
+    // and [OnboardingStrings.voiceChoiceRetryHint], which tells the user
+    // they can ask for it.
+    //
+    // That deferral only makes sense when a listen loop is actually about
+    // to start, though — confirmed live as a real bug for screens with no
+    // `voiceChoices` at all (e.g. `SafeHavensScreen`, pure dictation, no
+    // voice-choice recognition on this screen): `spokenOptions` never got
+    // spoken *at all*, since this method returns right after the intro
+    // when there's no listening to do. Nothing "on request" can save that
+    // — there's no request mechanism without a listen loop. So a screen
+    // with empty `voiceChoices` gets its full `spokenOptions` said now,
+    // same as before the on-request redesign.
+    final introParts = [widget.title, if (widget.subtitle != null) widget.subtitle!];
+    if (widget.voiceChoices.isEmpty) introParts.addAll(widget.spokenOptions);
+    final intro = introParts.join('. ');
+    await _tts.speak(intro, language: widget.language);
+    if (_disposed || widget.voiceChoices.isEmpty || !ref.read(ttsEnabledProvider)) return;
+    setState(() => _listening = true);
+    final s = Onboarding.of(widget.language);
+    await listenForVoiceChoice(
+      stt: _stt,
+      tts: _tts,
+      language: widget.language,
+      choices: widget.voiceChoices,
+      helpText: widget.spokenOptions.isEmpty ? null : widget.spokenOptions.join('. '),
+      retryHint: s.voiceChoiceRetryHint,
+      isCancelled: () =>
+          _disposed || ref.read(onboardingControllerProvider).stepGeneration != myGeneration,
+    );
+    if (!_disposed) setState(() => _listening = false);
   }
 
   @override
   Widget build(BuildContext context) {
     final ttsEnabled = ref.watch(ttsEnabledProvider);
+    final s = Onboarding.of(widget.language);
 
     return Scaffold(
       appBar: AppBar(
@@ -97,16 +172,20 @@ class _OnboardingScaffoldState extends ConsumerState<OnboardingScaffold> {
         actions: [
           Semantics(
             button: true,
-            label: ttsEnabled ? 'Voice guidance is on. Double tap to turn off.' : 'Voice guidance is off. Double tap to turn on.',
+            label: ttsEnabled ? s.voiceOnSemantics : s.voiceOffSemantics,
             child: IconButton(
               icon: Icon(ttsEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded),
               onPressed: () {
                 final next = !ttsEnabled;
                 ref.read(ttsEnabledProvider.notifier).state = next;
                 if (next) {
-                  _speak();
+                  _speakThenListen();
                 } else {
-                  ref.read(ttsServiceProvider).stop();
+                  _tts.stop();
+                  if (_listening) {
+                    _stt.stop();
+                    setState(() => _listening = false);
+                  }
                 }
               },
             ),
@@ -127,6 +206,27 @@ class _OnboardingScaffoldState extends ConsumerState<OnboardingScaffold> {
               if (widget.subtitle != null) ...[
                 const SizedBox(height: 8),
                 Text(widget.subtitle!, style: Theme.of(context).textTheme.bodyLarge),
+              ],
+              if (_listening) ...[
+                const SizedBox(height: 12),
+                Semantics(
+                  liveRegion: true,
+                  label: s.voiceListeningIndicator,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.mic_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 6),
+                      Text(
+                        s.voiceListeningIndicator,
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelMedium
+                            ?.copyWith(color: Theme.of(context).colorScheme.primary),
+                      ),
+                    ],
+                  ),
+                ),
               ],
               const SizedBox(height: 24),
               Expanded(child: SingleChildScrollView(child: widget.child)),

@@ -89,7 +89,43 @@ class AppTheme {
       labelLarge: bodyFont.labelLarge?.copyWith(color: onBackground),
     );
 
-    textTheme = textTheme.apply(fontSizeFactor: fontScale);
+    // Not `textTheme.apply(fontSizeFactor: fontScale)` — that throws
+    // ("fontSize != null || (fontSizeFactor == 1.0 && fontSizeDelta ==
+    // 0.0)") the moment `fontScale != 1.0` if any style has a null
+    // `fontSize`. That used to look like a rare edge case worth skipping
+    // defensively — it isn't: on this Flutter SDK, `fontSize` comes back
+    // null for *every* Material 3 text style by default (confirmed
+    // directly: even plain `ThemeData.light().textTheme.bodyLarge?.fontSize`
+    // is null here, google_fonts included — the framework resolves the
+    // actual rendered size some other way that isn't exposed on the
+    // `TextStyle` itself). The previous "skip scaling when null" guard
+    // therefore made `fontScale` a silent no-op across literally the whole
+    // app — the text-size slider/setting has never visibly done anything
+    // outside of a screen-local preview hack. Fixed by always assigning an
+    // explicit `fontSize`: honor whatever's already on the style if
+    // non-null (respects the day this SDK starts populating it again), else
+    // fall back to the documented Material 3 type-scale default for that
+    // slot — then multiply by `fontScale` either way, so scaling always
+    // actually applies.
+    TextStyle? scaled(TextStyle? style, double materialDefaultSize) =>
+        style?.copyWith(fontSize: (style.fontSize ?? materialDefaultSize) * fontScale);
+    textTheme = TextTheme(
+      displayLarge: scaled(textTheme.displayLarge, 57),
+      displayMedium: scaled(textTheme.displayMedium, 45),
+      displaySmall: scaled(textTheme.displaySmall, 36),
+      headlineLarge: scaled(textTheme.headlineLarge, 32),
+      headlineMedium: scaled(textTheme.headlineMedium, 28),
+      headlineSmall: scaled(textTheme.headlineSmall, 24),
+      titleLarge: scaled(textTheme.titleLarge, 22),
+      titleMedium: scaled(textTheme.titleMedium, 16),
+      titleSmall: scaled(textTheme.titleSmall, 14),
+      bodyLarge: scaled(textTheme.bodyLarge, 16),
+      bodyMedium: scaled(textTheme.bodyMedium, 14),
+      bodySmall: scaled(textTheme.bodySmall, 12),
+      labelLarge: scaled(textTheme.labelLarge, 14),
+      labelMedium: scaled(textTheme.labelMedium, 12),
+      labelSmall: scaled(textTheme.labelSmall, 11),
+    );
 
     final colorScheme = ColorScheme(
       brightness: brightness,

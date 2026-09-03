@@ -1,0 +1,351 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+
+import '../config/cloud_stt_config.dart';
+import '../localization/app_language.dart';
+import 'cloud_stt_service.dart';
+import 'wake_word_service.dart';
+
+/// Thin wrapper around the device's built-in speech recognizer.
+///
+/// This is the pragmatic swap for the module plan's "Google Cloud
+/// Speech-to-Text via gRPC streaming": the project has no billing-enabled
+/// GCP project to call that API from (see `GeminiConfig`'s doc comment),
+/// so real-time transcription instead runs entirely on-device via
+/// `speech_to_text` — free, works with no backend, and degrades to
+/// "unavailable" cleanly on a device/simulator that has no recognizer
+/// installed rather than crashing. Wake-word detection (Porcupine) is
+/// deliberately not implemented for the same reason (needs a Picovoice
+/// account); every mic button in the app is push-to-talk instead.
+class SttService {
+  SttService({WakeWordService? wakeWord, CloudSttService? cloudStt})
+      : _wakeWord = wakeWord,
+        _cloudStt = cloudStt;
+
+  final SpeechToText _speech = SpeechToText();
+  final WakeWordService? _wakeWord;
+  final CloudSttService? _cloudStt;
+  bool _initialized = false;
+  Completer<void>? _sessionDone;
+  Completer<void>? _cloudSessionDone;
+
+  /// One-time device capability + permission check, cached after the first
+  /// call. Returns `false` (never throws) if the device has no speech
+  /// recognizer, the OS denies microphone/speech permission, or anything
+  /// else goes wrong — callers should show the same "voice unavailable"
+  /// messaging the UI already had before this module existed.
+  Future<bool> ensureAvailable() async {
+    if (_initialized) return _speech.isAvailable;
+    try {
+      // `onStatus` is wired once here (it's a single listener for this
+      // `SpeechToText` instance's whole lifetime, not per-`listen()` call)
+      // so every future `listenOnce()` can await the real end of a session
+      // via `_sessionDone` — see the doc comment on `listenOnce` for why
+      // that matters.
+      _initialized = await _speech.initialize(
+        onStatus: _handleStatus,
+        onError: (e) => debugPrint('[Stt] recognition error: ${e.errorMsg} (permanent=${e.permanent})'),
+      );
+    } catch (_) {
+      _initialized = false;
+    }
+    return _initialized;
+  }
+
+  void _handleStatus(String status) {
+    if (status == SpeechToText.doneStatus) {
+      _sessionDone?.complete();
+      _sessionDone = null;
+    }
+  }
+
+  bool get isListening => _speech.isListening;
+
+  /// Best-effort match of the app's UI language to a locale the device's
+  /// recognizer actually supports. Locale identifier formatting
+  /// (`bn_BD` vs `bn-BD`) varies by platform/OS version in ways this
+  /// wrapper can't predict without a real device, so instead of guessing a
+  /// single hardcoded string, it scans whatever `locales()` reports first.
+  ///
+  /// `locales()` only enumerates locales with a downloaded *offline*
+  /// language pack, though — confirmed live, a real device's list had
+  /// English, Hindi, and a dozen others but no Bangla at all, meaning
+  /// Bangla speech was silently being recognized as English/Hindi
+  /// ("jibberish"). Android's recognizer still generally accepts an
+  /// explicit locale id outside that list and falls through to
+  /// network-based recognition for it when one isn't installed offline
+  /// (almost certainly how Google's own Gemini app gets working Bangla on
+  /// the same device) — so for Bangla specifically, rather than give up to
+  /// the system default (which is what was silently mistranscribing it),
+  /// pass the standard `bn-BD` id directly and let the recognizer attempt
+  /// it. English still resolves purely from the scanned list, unchanged.
+  Future<String?> _resolveLocaleId(AppLanguage language) async {
+    final prefix = language == AppLanguage.bangla ? 'bn' : 'en';
+    try {
+      final available = await _speech.locales();
+      debugPrint('[Stt] wanted prefix="$prefix", device locales=${available.map((l) => l.localeId).toList()}');
+      for (final locale in available) {
+        if (locale.localeId.toLowerCase().startsWith(prefix)) {
+          debugPrint('[Stt] resolved locale="${locale.localeId}" (${locale.name})');
+          return locale.localeId;
+        }
+      }
+      if (language == AppLanguage.bangla) {
+        debugPrint('[Stt] no offline Bangla pack found — trying bn-BD directly (online recognition)');
+        return 'bn-BD';
+      }
+      debugPrint('[Stt] no locale matched prefix="$prefix" — falling back to system default');
+    } catch (e) {
+      debugPrint('[Stt] locales() lookup failed: $e — falling back to system default');
+    }
+    return null;
+  }
+
+  /// Runs a single push-to-talk listening session. Calls [onResult] with
+  /// the best-guess transcript every time the recognizer updates it
+  /// (`isFinal: false` for interim words, `true` once it settles) so the
+  /// caller can show live captions. Stops automatically after a pause in
+  /// speech; [stop] also ends it early (e.g. the user tapping the mic
+  /// button again).
+  ///
+  /// The returned future doesn't complete until the session is genuinely
+  /// over (the platform's `done` status, fired once all results have been
+  /// delivered) — deliberately not just `SpeechToText.listen()`'s own
+  /// future, which resolves the moment the recognizer *starts*. A caller
+  /// that raced ahead on that earlier signal (confirmed live: the wake-word
+  /// listener restarting its own microphone stream a fraction of a second
+  /// after `listenOnce` was called) would fight this session for the mic
+  /// and get cut off before the user finished speaking their command.
+  ///
+  /// Also pauses wake-word listening for the duration of the session (see
+  /// `WakeWordService.pauseAround`) whenever one was injected — every
+  /// caller gets that coordination automatically, rather than each having
+  /// to remember it separately. Confirmed live as a real, recurring bug
+  /// when it *wasn't* centralized this way: any mic button that didn't
+  /// know to stop wake-word first (the passerby message picker's, e.g.)
+  /// hit the same mic-contention race the main chat mic button was
+  /// eventually fixed for.
+  ///
+  /// Prefers `CloudSttService` (genuinely continuous, cloud-quality
+  /// recognition — confirmed live to fix the on-device recognizer's
+  /// Bangla-locale gibberish problem) whenever one was injected and
+  /// `CloudSttConfig.isConfigured`, adapting its open stream to this
+  /// method's single-utterance contract with a `pauseFor` silence timer
+  /// in Dart (Cloud STT's API is built around "keep listening," not "listen
+  /// once," so this method does the "once" part). Falls back to the
+  /// on-device recognizer transparently — same signature, same behavior
+  /// from the caller's perspective either way — if Cloud STT isn't
+  /// configured or fails to start.
+  Future<void> listenOnce({
+    required AppLanguage language,
+    required void Function(String text, bool isFinal) onResult,
+    // Both 1.2s and 1.8s got cut off mid-sentence live in the main chat —
+    // reverted to the original 3s there per explicit user preference. The
+    // "late reply" feeling reported alongside that is a separate thing
+    // (the Gemini API round trip itself, which starts only after this
+    // timer expires) — not this value. Callers with a different natural
+    // pause length (e.g. composing a passerby message, where 3s alone was
+    // still reported as cutting off too early) can override it.
+    Duration pauseFor = const Duration(seconds: 3),
+    // Hard ceiling on total session length regardless of pauses — not what
+    // decides when a message is "done" (that's purely `pauseFor`, i.e.
+    // silence), just a backstop against a session that somehow never ends.
+    // Default kept generous rather than the old fixed 30s, which cut off
+    // a longer message outright even mid-sentence; callers who genuinely
+    // want a short ceiling can still pass one.
+    Duration listenFor = const Duration(minutes: 5),
+  }) async {
+    final wakeWord = _wakeWord;
+    if (wakeWord != null) {
+      await wakeWord.pauseAround(
+        () => _listenOnceInner(language: language, onResult: onResult, pauseFor: pauseFor, listenFor: listenFor),
+      );
+    } else {
+      await _listenOnceInner(language: language, onResult: onResult, pauseFor: pauseFor, listenFor: listenFor);
+    }
+  }
+
+  Future<void> _listenOnceInner({
+    required AppLanguage language,
+    required void Function(String text, bool isFinal) onResult,
+    required Duration pauseFor,
+    required Duration listenFor,
+  }) async {
+    // A reliable, app-controlled "listening started" cue — requested
+    // explicitly live: the OS's own mic-start sound wasn't consistently
+    // audible/present, leaving no dependable signal for a user who can't
+    // see the mic icon change color that it's actually safe to start
+    // talking now.
+    HapticFeedback.lightImpact();
+    final cloud = _cloudStt;
+    if (cloud != null && CloudSttConfig.isConfigured) {
+      final usedCloud = await _listenOnceViaCloud(
+        cloud,
+        language: language,
+        onResult: onResult,
+        pauseFor: pauseFor,
+        listenFor: listenFor,
+      );
+      if (usedCloud) return;
+      debugPrint('[Stt] Cloud STT unavailable — falling back to on-device recognizer');
+    }
+    await _listenOnceOnDevice(language: language, onResult: onResult, pauseFor: pauseFor, listenFor: listenFor);
+  }
+
+  /// Adapts `CloudSttService`'s open-ended stream into this method's
+  /// single-utterance contract: stop as soon as a final result arrives
+  /// (matching how every caller already treats the first `isFinal: true`
+  /// as "the utterance is complete, act on it now"), or after [pauseFor]
+  /// of silence if the user never says anything, or at the [listenFor]
+  /// ceiling regardless — whichever comes first. Returns `false` (having
+  /// started nothing) if Cloud STT couldn't start at all, so the caller
+  /// falls back to the on-device recognizer.
+  // How long to wait for the user to *start* talking at all, before any
+  // speech has been heard yet — deliberately longer than `pauseFor` (which
+  // governs the gap *after* speech has begun). Confirmed live as a real,
+  // recurring bug when a single timeout was used for both: the natural
+  // reaction-time gap between a wake-word buzz and the user actually
+  // starting to speak occasionally exceeded the short post-speech pause
+  // window (3s for the main chat), silently ending the session — and
+  // everything the user then said was never captured at all.
+  static const Duration _initialSilenceTimeout = Duration(seconds: 8);
+
+  Future<bool> _listenOnceViaCloud(
+    CloudSttService cloud, {
+    required AppLanguage language,
+    required void Function(String text, bool isFinal) onResult,
+    required Duration pauseFor,
+    required Duration listenFor,
+  }) async {
+    final done = Completer<void>();
+    _cloudSessionDone = done;
+    Timer? silenceTimer;
+    Timer? ceilingTimer;
+    var heardSpeech = false;
+    var lastText = '';
+    var finalDelivered = false;
+
+    void finish(String reason, {bool synthesizeFinal = false}) {
+      if (done.isCompleted) return;
+      debugPrint('[Stt] cloud session ending ($reason)');
+      if (synthesizeFinal && !finalDelivered) {
+        // The server never sent its own final result before *this* (a
+        // Dart-side timeout, not a real end-of-speech signal from Cloud
+        // STT) ended the session — without synthesizing one here, every
+        // caller waiting specifically for `isFinal: true` to act (send the
+        // chat message, select a hazard-report option by voice,
+        // auto-submit a passerby message) would simply never hear back at
+        // all. Confirmed live as the single root cause behind several very
+        // different-looking symptoms — text sitting unsent in the chat
+        // box, voice category selection never registering, the passerby
+        // overlay no longer auto-opening.
+        finalDelivered = true;
+        onResult(lastText, true);
+      }
+      done.complete();
+      _cloudSessionDone = null;
+      silenceTimer?.cancel();
+      ceilingTimer?.cancel();
+      unawaited(cloud.stop());
+    }
+
+    void resetSilenceTimer() {
+      silenceTimer?.cancel();
+      silenceTimer =
+          Timer(heardSpeech ? pauseFor : _initialSilenceTimeout, () => finish('silence', synthesizeFinal: true));
+    }
+
+    final started = await cloud.start(
+      language: language,
+      onResult: (text, isFinal) {
+        debugPrint('[Stt] cloud heard "$text" (isFinal=$isFinal)');
+        lastText = text;
+        if (isFinal) finalDelivered = true;
+        onResult(text, isFinal);
+        if (text.trim().isNotEmpty) heardSpeech = true;
+        if (isFinal) {
+          finish('final result');
+        } else {
+          resetSilenceTimer();
+        }
+      },
+    );
+    if (!started) {
+      debugPrint('[Stt] cloud failed to start');
+      return false;
+    }
+
+    resetSilenceTimer();
+    ceilingTimer = Timer(listenFor, () => finish('listenFor ceiling', synthesizeFinal: true));
+    await done.future;
+    return true;
+  }
+
+  Future<void> _listenOnceOnDevice({
+    required AppLanguage language,
+    required void Function(String text, bool isFinal) onResult,
+    required Duration pauseFor,
+    required Duration listenFor,
+  }) async {
+    if (!await ensureAvailable()) return;
+    final localeId = await _resolveLocaleId(language);
+    final done = Completer<void>();
+    _sessionDone = done;
+    await _speech.listen(
+      onResult: (result) => onResult(result.recognizedWords, result.finalResult),
+      listenOptions: SpeechListenOptions(
+        localeId: localeId,
+        partialResults: true,
+        // Was `true` — confirmed live as the real cause of sessions ending
+        // well before the user actually stopped talking (misread at the
+        // time as a duration limit): `error_no_match` fires on a merely
+        // *transient* recognition hiccup (a brief unclear word, a beat of
+        // background noise — very much not "give up entirely"), especially
+        // with the online Bangla recognition path, and `cancelOnError`
+        // killed the whole session on that alone rather than just letting
+        // it keep listening for more speech.
+        cancelOnError: false,
+        listenMode: ListenMode.confirmation,
+        pauseFor: pauseFor,
+        listenFor: listenFor,
+      ),
+    );
+    // Bounded by `listenFor` plus a buffer, not awaited unbounded —
+    // `SpeechToText.listen()` can silently no-op if the recognizer fails to
+    // actually start (no exception, `done` then never fires), which would
+    // otherwise hang this forever.
+    await done.future.timeout(listenFor + const Duration(seconds: 5), onTimeout: () {});
+  }
+
+  /// Stops whichever recognizer is actually active. Every caller of this
+  /// (manual re-tap to cancel, every mic-using widget's `dispose()`) needs
+  /// this to work regardless of which path a given session took — a stop
+  /// that only touched the on-device recognizer would silently leave an
+  /// active Cloud STT stream running (until its own `listenOnce`-level
+  /// timers eventually caught up), a real bug once there were two possible
+  /// backends instead of one. Safe to call both unconditionally: stopping
+  /// a backend that was never started is a no-op on either side.
+  Future<void> stop() async {
+    await _speech.stop();
+    await _cloudStt?.stop();
+    // Defensive: `done` should follow `stop()` naturally, but if it doesn't
+    // (or never fires for some platform-specific reason), don't leave a
+    // pending `listenOnce()` caller awaiting forever.
+    if (_sessionDone case final pending? when !pending.isCompleted) {
+      pending.complete();
+    }
+    _sessionDone = null;
+    // Same defensive completion for an in-progress Cloud STT session — an
+    // external `stop()` call (the user re-tapping the mic to cancel, a
+    // widget's `dispose()`) bypasses `_listenOnceViaCloud`'s own `finish()`
+    // entirely, so without this its `await done.future` would hang forever
+    // instead of `listenOnce()` actually returning.
+    if (_cloudSessionDone case final pending? when !pending.isCompleted) {
+      pending.complete();
+    }
+    _cloudSessionDone = null;
+  }
+}

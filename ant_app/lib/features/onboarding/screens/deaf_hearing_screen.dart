@@ -5,6 +5,7 @@ import '../../../core/localization/onboarding_strings.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/big_choice_card.dart';
 import '../widgets/onboarding_scaffold.dart';
+import '../widgets/onboarding_voice.dart';
 
 class DeafHearingScreen extends ConsumerWidget {
   const DeafHearingScreen({super.key});
@@ -23,6 +24,10 @@ class DeafHearingScreen extends ConsumerWidget {
       spokenOptions: [
         'Option 1: ${s.deafYesLabel}. ${s.deafYesDescription}',
         'Option 2: ${s.deafNoLabel}. ${s.deafNoDescription}',
+      ],
+      voiceChoices: [
+        OnboardingVoiceChoice(label: s.deafYesLabel, synonyms: s.deafYesSynonyms, onSelect: () => controller.setDeafHearing(true)),
+        OnboardingVoiceChoice(label: s.deafNoLabel, synonyms: s.deafNoSynonyms, onSelect: () => controller.setDeafHearing(false)),
       ],
       child: Column(
         children: [

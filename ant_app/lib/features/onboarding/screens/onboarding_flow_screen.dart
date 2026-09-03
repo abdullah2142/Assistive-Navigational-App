@@ -54,9 +54,16 @@ class OnboardingFlowScreen extends ConsumerWidget {
       OnboardingStep.complete => const OnboardingCompleteScreen(),
     };
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 250),
-      child: KeyedSubtree(key: ValueKey(step), child: screen),
-    );
+    // Deliberately not `AnimatedSwitcher` — its cross-fade keeps the
+    // *outgoing* screen mounted (with its own narrate-then-listen voice
+    // loop still running) for the transition's duration, which is exactly
+    // what let a stale listener from the previous step still be alive when
+    // the next step's own screen started speaking/listening. Confirmed
+    // live as a real, user-visible bug: the previous screen's narration
+    // kept audibly playing over the new screen, and its listener could
+    // misfire off the new screen's own speech. A screen change here should
+    // be instant, not animated — see `OnboardingScaffold.dispose` for the
+    // other half of this fix (it now also stops TTS, not just STT).
+    return KeyedSubtree(key: ValueKey(step), child: screen);
   }
 }

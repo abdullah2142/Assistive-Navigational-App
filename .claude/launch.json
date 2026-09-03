@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "ant_app-web",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "5057", "--directory", "ant_app/build/web"],
-      "port": 5057
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "python3 -m http.server $PORT --directory ant_app/build/web"],
+      "port": 5057,
+      "autoPort": true
     }
   ]
 }

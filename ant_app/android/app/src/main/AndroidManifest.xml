@@ -1,6 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- AI Assistant module (voice input) and Guardian voice memos both
+         need the mic; speech recognition itself is on-device, no separate
+         permission beyond RECORD_AUDIO is required on Android. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Module 3's background/lock-screen "Hey ANT" listening — see
+         WakeWordForegroundService's doc comment. FOREGROUND_SERVICE_MICROPHONE
+         is required to declare a microphone-associated foreground service on
+         Android 14+ even though the service itself never opens the mic (the
+         Dart-side recorder does); POST_NOTIFICATIONS is required at runtime
+         on Android 13+ for the ongoing notification to actually show. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="ant_app"
         android:name="${applicationName}"
@@ -27,6 +41,10 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <service
+            android:name=".WakeWordForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

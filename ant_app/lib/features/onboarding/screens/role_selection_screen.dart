@@ -7,6 +7,7 @@ import '../models/user_role.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/big_choice_card.dart';
 import '../widgets/onboarding_scaffold.dart';
+import '../widgets/onboarding_voice.dart';
 
 class RoleSelectionScreen extends ConsumerWidget {
   const RoleSelectionScreen({super.key});
@@ -26,6 +27,18 @@ class RoleSelectionScreen extends ConsumerWidget {
       spokenOptions: [
         'Option 1: ${s.roleDisabledUserLabel}. ${s.roleDisabledUserDescription}',
         'Option 2: ${s.roleCaretakerLabel}. ${s.roleCaretakerDescription}',
+      ],
+      voiceChoices: [
+        OnboardingVoiceChoice(
+          label: s.roleDisabledUserLabel,
+          synonyms: s.roleDisabledUserSynonyms,
+          onSelect: () => controller.chooseRole(UserRole.disabledUser),
+        ),
+        OnboardingVoiceChoice(
+          label: s.roleCaretakerLabel,
+          synonyms: s.roleCaretakerSynonyms,
+          onSelect: () => controller.chooseRole(UserRole.caretaker),
+        ),
       ],
       child: Column(
         children: [

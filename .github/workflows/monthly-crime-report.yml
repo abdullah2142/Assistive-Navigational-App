@@ -1,0 +1,39 @@
+name: Monthly crime report ingestion
+
+# Module 4's citywide crime-trend refresh (see functions/lib/crime_report_ingestion.js
+# and functions/scripts/monthly_crime_ingest.js). Runs here rather than as a
+# Cloud Function scheduled job because Google Cloud Functions are refused a
+# network connection to police.gov.bd entirely (confirmed live, ECONNREFUSED,
+# from two different GCP regions) — GitHub's runners are a different network
+# and may not be blocked the same way. First run should be triggered manually
+# (Actions tab -> this workflow -> "Run workflow") to confirm that before
+# trusting the schedule.
+on:
+  schedule:
+    # 12th of each month, 03:00 UTC = 09:00 Asia/Dhaka — the report is
+    # uploaded roughly 10 days after the month it covers ends (confirmed
+    # live: July 2026's was uploaded 2026-08-10), so this safely lands after
+    # that lag. Matches the (currently unreachable) scrapeDmpCrimeReports
+    # Cloud Function's intended schedule.
+    - cron: '0 3 12 * *'
+  workflow_dispatch: {}
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: functions
+        run: npm ci
+
+      - name: Run monthly ingestion
+        working-directory: functions
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node scripts/monthly_crime_ingest.js

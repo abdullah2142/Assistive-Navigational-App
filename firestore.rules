@@ -95,5 +95,30 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow create: if request.auth != null && request.auth.uid == request.resource.data.reporterUid;
     }
+
+    // crimeZones/{thanaSlug} — Module 4's static Thana crime baseline
+    // (boundary polygon + Crime_Score). Public safety data, read-only from
+    // the client; only written by the `seedCrimeZones`/`scrapeDmpCrimeReports`
+    // Cloud Functions, which use the Admin SDK and bypass these rules
+    // entirely — so `allow write: if false` here is just making that
+    // explicit, not the actual enforcement mechanism.
+    match /crimeZones/{thanaId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // cityTrend/{period} + meta/cityTrendMultiplier — Module 4's citywide
+    // crime-trend history and the multiplier derived from it (see
+    // `scrapeDmpCrimeReports`/`updateCityTrendMultiplier` in
+    // functions/index.js). Same public-data, function-writes-only pattern
+    // as crimeZones.
+    match /cityTrend/{period} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+    match /meta/{docId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
   }
 }

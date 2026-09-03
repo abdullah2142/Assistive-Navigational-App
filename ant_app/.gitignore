@@ -31,6 +31,7 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+/android/build/
 /coverage/
 
 # Symbolication related
@@ -46,3 +47,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local secrets (Gemini API key, etc.) — passed to `flutter run`/`build` via
+# --dart-define-from-file, never committed. See GeminiConfig's doc comment.
+dart_defines.local.json

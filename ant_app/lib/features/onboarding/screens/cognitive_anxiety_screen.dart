@@ -57,11 +57,13 @@ class _CognitiveAnxietyScreenState extends ConsumerState<CognitiveAnxietyScreen>
     await _startVoiceFlow(s, language);
   }
 
-  /// Two independent yes/no questions in sequence — the scaffold's built-in
-  /// `voiceChoices` only handles one flat group, so this screen drives
-  /// `listenForVoiceChoice` itself, once per question, then auto-continues
-  /// once both are answered (there's no way for a screen reader-less blind
-  /// user to then go find and tap the Continue button on their own).
+  /// Two independent yes/no questions in sequence, each using
+  /// `classifyTraitYesNo` (see its doc comment — plain word-overlap
+  /// matching is the wrong shape for a question with two directly
+  /// opposite answers) rather than the generic choice mechanism. Then
+  /// auto-continues once both are answered — there's no way for a screen
+  /// reader-less blind user to then go find and tap the Continue button on
+  /// their own.
   Future<void> _startVoiceFlow(Onboarding s, AppLanguage language) async {
     if (_voiceStarted) return;
     _voiceStarted = true;
@@ -70,38 +72,79 @@ class _CognitiveAnxietyScreenState extends ConsumerState<CognitiveAnxietyScreen>
         _disposed || ref.read(onboardingControllerProvider).stepGeneration != myGeneration;
     final stt = _stt;
     final tts = _tts;
-    await tts.speak(s.cognitiveCrowdedQuestion, language: language);
-    if (cancelled()) return;
-    await listenForVoiceChoice(
+
+    final crowded = await _askYesNo(
       stt: stt,
       tts: tts,
       language: language,
-      choices: [
-        OnboardingVoiceChoice(label: s.lockInYes, synonyms: s.lockInYesSynonyms, onSelect: () => setState(() => _crowdedAnxious = true)),
-        OnboardingVoiceChoice(label: s.lockInNo, synonyms: s.lockInNoSynonyms, onSelect: () => setState(() => _crowdedAnxious = false)),
-      ],
+      question: s.cognitiveCrowdedQuestion,
+      presentPhrases: s.cognitiveCrowdedPresentPhrases,
+      absentPhrases: s.cognitiveCrowdedAbsentPhrases,
       retryHint: s.voiceChoiceRetryHint,
       isCancelled: cancelled,
     );
-    if (cancelled()) return;
-    await tts.speak(s.cognitiveComplexQuestion, language: language);
-    if (cancelled()) return;
-    await listenForVoiceChoice(
+    if (cancelled() || crowded == null) return;
+    setState(() => _crowdedAnxious = crowded);
+
+    final complex = await _askYesNo(
       stt: stt,
       tts: tts,
       language: language,
-      choices: [
-        OnboardingVoiceChoice(label: s.lockInYes, synonyms: s.lockInYesSynonyms, onSelect: () => setState(() => _complexHard = true)),
-        OnboardingVoiceChoice(label: s.lockInNo, synonyms: s.lockInNoSynonyms, onSelect: () => setState(() => _complexHard = false)),
-      ],
+      question: s.cognitiveComplexQuestion,
+      presentPhrases: s.cognitiveComplexPresentPhrases,
+      absentPhrases: s.cognitiveComplexAbsentPhrases,
       retryHint: s.voiceChoiceRetryHint,
       isCancelled: cancelled,
     );
-    if (cancelled()) return;
+    if (cancelled() || complex == null) return;
+    setState(() => _complexHard = complex);
+
     ref.read(onboardingControllerProvider.notifier).setCognitiveAnxiety(
           crowdedPlacesAnxious: _crowdedAnxious,
           complexInstructionsHard: _complexHard,
         );
+  }
+
+  /// Speaks [question], then listens until `classifyTraitYesNo` returns a
+  /// clear answer (re-prompting on anything ambiguous) or the screen is
+  /// left. Returns `null` only when cancelled.
+  Future<bool?> _askYesNo({
+    required SttService stt,
+    required TtsService tts,
+    required AppLanguage language,
+    required String question,
+    required List<String> presentPhrases,
+    required List<String> absentPhrases,
+    required String retryHint,
+    required bool Function() isCancelled,
+  }) async {
+    await tts.speak(question, language: language);
+    while (!isCancelled()) {
+      if (!await stt.ensureAvailable()) return null;
+      var wantsHelp = false;
+      bool? answer;
+      await stt.listenOnce(
+        language: language,
+        onResult: (text, isFinal) {
+          if (!isFinal || wantsHelp || answer != null) return;
+          final trimmed = text.trim();
+          if (trimmed.isEmpty) return;
+          if (isHelpRequest(trimmed)) {
+            wantsHelp = true;
+            return;
+          }
+          answer = classifyTraitYesNo(trimmed, presentPhrases: presentPhrases, absentPhrases: absentPhrases);
+        },
+      );
+      if (isCancelled()) return null;
+      if (wantsHelp) {
+        await tts.speak(question, language: language);
+        continue;
+      }
+      if (answer != null) return answer;
+      await tts.speak(retryHint, language: language);
+    }
+    return null;
   }
 
   @override

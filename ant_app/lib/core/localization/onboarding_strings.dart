@@ -94,6 +94,14 @@ class Onboarding {
         'আপনার যদি কোনো দেখাশোনাকারী বা কোড না থাকে, নিচে একটি বোতাম আছে: আমার কোনো দেখাশোনাকারী নেই। '
             'এটি বাদ দিয়ে নিজে থেকে সব নিরাপত্তা সুবিধা ব্যবহার করতে সেটিতে চাপুন।',
       );
+  String get userPairingVoicePromptSpoken => _t(
+        'Say your 6-digit code, or say "I don\'t have a caretaker" to skip.',
+        'আপনার ৬-সংখ্যার কোডটি বলুন, অথবা বাদ দিতে "আমার কোনো দেখাশোনাকারী নেই" বলুন।',
+      );
+  String get userPairingCodePartialSpoken => _t(
+        'Got part of that. Say the rest of the code, or say the whole thing again.',
+        'কিছুটা পেয়েছি। বাকি সংখ্যাগুলো বলুন, অথবা পুরো কোডটি আবার বলুন।',
+      );
 
   // Vision question
   String get visionTitle => _t('Do you have any vision difficulty?', 'আপনার কি চোখে কোনো সমস্যা আছে?');
@@ -176,6 +184,34 @@ class Onboarding {
         'দুটি সুইচ আছে, দুটোই এখন বন্ধ: ভিড়ের জায়গায় কি অস্বস্তি লাগে, আর অনেক '
             'ধাপের কঠিন নির্দেশ বুঝতে কি অসুবিধা হয়। প্রযোজ্য হলে সুইচ চালু করুন, তারপর নিচে চালিয়ে যান-এ চাপুন।',
       );
+  // See `classifyTraitYesNo`'s doc comment — these phrase lists deliberately
+  // bake in whatever negation each phrase needs, rather than relying on a
+  // generic "flip on negation" rule that gets the direction wrong depending
+  // on *what's* negated.
+  List<String> get cognitiveCrowdedPresentPhrases => _bn
+      ? const ['অস্বস্তি', 'ভয় লাগে', 'নার্ভাস', 'ঘাবড়ে যাই', 'অসুবিধা হয়']
+      : const [
+          'anxious', 'nervous', 'uncomfortable', 'stressed', 'uneasy', 'panic', 'scared',
+          'bother me', 'bothers me', "don't like crowds", 'dont like crowds', 'hate crowds',
+        ];
+  List<String> get cognitiveCrowdedAbsentPhrases => _bn
+      ? const ['অস্বস্তি লাগে না', 'সমস্যা নেই', 'ভালো লাগে', 'ঠিক আছে']
+      : const [
+          'fine in crowds', 'comfortable in crowds', 'not bothered', 'no problem', "don't bother me",
+          'dont bother me', "doesn't bother me", 'okay with crowds', 'used to crowds', 'fine with crowds',
+        ];
+  List<String> get cognitiveComplexPresentPhrases => _bn
+      ? const ['কঠিন', 'বুঝতে কষ্ট', 'জটিল', 'সমস্যা হয়']
+      : const [
+          'hard to follow', 'confusing', 'difficult', 'hard time', 'complicated', 'get lost',
+          "can't follow", 'cant follow', 'hard for me',
+        ];
+  List<String> get cognitiveComplexAbsentPhrases => _bn
+      ? const ['সহজ', 'বুঝতে পারি', 'সমস্যা নেই', 'ঠিক আছে']
+      : const [
+          'easy to follow', 'understand fine', 'no problem', 'can follow', 'fine with instructions',
+          'not hard', 'not difficult', 'easy for me',
+        ];
 
   // Deaf/hearing
   String get deafTitle => _t('Are you deaf or hard of hearing?', 'আপনি কি কানে কম শোনেন বা একদম শোনেন না?');
@@ -183,12 +219,28 @@ class Onboarding {
       _t('If so, we\'ll show you text and visual guidance instead of relying on audio.', 'তাহলে আমরা শব্দের বদলে লেখা ও ছবি দিয়ে বোঝাব।');
   String get deafYesLabel => _t('Yes', 'হ্যাঁ');
   String get deafYesDescription => _t('Show me text and visuals instead of audio.', 'শব্দের বদলে আমাকে লেখা এবং ছবি দেখান।');
-  List<String> get deafYesSynonyms =>
-      _bn ? const ['কানে শুনি না', 'কম শুনি', 'শুনতে পাই না'] : const ['deaf', "can't hear", 'hard of hearing'];
   String get deafNoLabel => _t('No', 'না');
   String get deafNoDescription => _t('I can hear voice guidance normally.', 'আমি সহকারীর কথা স্বাভাবিকভাবে শুনতে পাই।');
-  List<String> get deafNoSynonyms =>
-      _bn ? const ['শুনতে পাই', 'ঠিক আছে শুনি'] : const ['i can hear', 'hear fine', 'normal hearing'];
+  // See `classifyTraitYesNo`'s doc comment — replaced the old synonym-list
+  // matching entirely (confirmed live as a real bug: word-overlap scoring
+  // let "I can hear my assistant" match the *deaf* answer's "can't hear"
+  // synonym, since both merely share the word "hear" and negation isn't
+  // something word-overlap counting can see). Each phrase here already has
+  // whatever negation it needs baked directly in.
+  List<String> get deafPresentPhrases => _bn
+      ? const ['বধির', 'কানে শুনি না', 'কম শুনি', 'শুনতে সমস্যা', 'শুনতে পাই না', 'ভালো শুনি না', 'শোনায় সমস্যা']
+      : const [
+          'deaf', 'hard of hearing', 'trouble hearing', 'hearing problem', 'hearing issue',
+          "can't hear", 'cant hear', 'cannot hear', 'can not hear', "don't hear well", 'dont hear well',
+          'hard time hearing', 'poor hearing', 'bad hearing', 'difficulty hearing',
+        ];
+  List<String> get deafAbsentPhrases => _bn
+      ? const ['শুনতে পাই', 'শোনায় সমস্যা নেই', 'ঠিক আছে শুনি', 'ভালো শুনি', 'স্বাভাবিক শুনি']
+      : const [
+          'hear fine', 'hear well', 'can hear', 'hearing is fine', 'hearing is good', 'hearing is normal',
+          'no hearing problem', 'no trouble hearing', 'normal hearing', 'good hearing', 'hear you',
+          'hear everything', 'hear my assistant', 'no problem hearing',
+        ];
 
   // Verbosity & voice
   String get verbosityTitle => _t('How should the AI talk to you?', 'AI আপনার সাথে কীভাবে কথা বলবে?');
@@ -239,6 +291,17 @@ class Onboarding {
   String get contactsAddedThenAddAnotherOrContinueSpoken => _t(
       'Contact saved. Say "add another" to add someone else, or "continue" if you\'re done.',
       'পরিচিতি যোগ হয়েছে। আরেকজন যোগ করতে "আরেকজন" বলুন, অথবা শেষ হলে "চালিয়ে যান" বলুন।');
+  /// Read back before saving, not after — explicit user feedback: a
+  /// dictated phone number is exactly the kind of thing that's easy for
+  /// STT to get subtly wrong (a dropped or swapped digit), and this is an
+  /// *emergency* contact, so confirming it's right matters more here than
+  /// almost anywhere else in onboarding. [spacedPhone] should have its
+  /// digits spoken one at a time (space-separated), not read as one large
+  /// number — see `_spaceOutDigits` at the call site.
+  String contactsConfirmSpoken(String name, String spacedPhone) => _t(
+        'I heard the name as $name, and the phone number as $spacedPhone. Say "yes" to save this, or "no" to try again.',
+        'নাম শুনেছি $name, আর ফোন নম্বর $spacedPhone। ঠিক থাকলে "হ্যাঁ" বলুন, নাহলে আবার বলতে "না" বলুন।',
+      );
 
   // Passerby messages
   String get passerbyTitle => _t('What might you need to tell a stranger?', 'অচেনা মানুষকে আপনার কী বলার দরকার হতে পারে?');
@@ -261,12 +324,40 @@ class Onboarding {
         'নিচে নিজের বার্তা লিখে যোগ করার জন্য একটি ঘরও আছে। প্রস্তুত হলে চালিয়ে যান-এ চাপুন।',
       );
   String get passerbyVoiceRetryHint => _t(
-        'Say one of the messages to turn it on or off, say your own message to add it, or say "continue" when you\'re done.',
-        'কোনো বার্তার নাম বললে সেটি চালু বা বন্ধ হবে, নিজের বার্তা বললে সেটি যোগ হবে, অথবা শেষ হলে "চালিয়ে যান" বলুন।',
+        'Say one of the messages to turn it on or off, say "my own message" to add something new, say "help" to hear the messages again, or say "continue" when you\'re done.',
+        'কোনো বার্তার নাম বললে সেটি চালু বা বন্ধ হবে, নতুন কিছু যোগ করতে "নিজের বার্তা" বলুন, আবার শুনতে "সাহায্য" বলুন, অথবা শেষ হলে "চালিয়ে যান" বলুন।',
+      );
+  /// Spoken *before* the very first listen, not just after a miss —
+  /// confirmed live as a real gap without this: a user was given zero
+  /// instructions on what to actually say until after they'd already
+  /// guessed wrong once. Also gives a concrete, literal example phrase
+  /// (not just an abstract description) a user with nothing of their own
+  /// to say can just repeat verbatim — explicit user feedback: "it should
+  /// clearly give me a keyword to use." Names the "my own message" trigger
+  /// explicitly too (see `passerbyAddOwnTriggers`) — confirmed live as a
+  /// second, separate real gap: without a distinct keyword, an arbitrary
+  /// custom message could share a stray word with a suggestion sentence
+  /// and get misread as picking that one instead of being added as new text.
+  String passerbyVoiceIntroSpoken(String example) => _t(
+        'Say one of these messages to turn it on or off, or say "my own message" to add something new. '
+            'If you can\'t think of one, you can just say: "$example" — that will be added as your message. '
+            'Say "help" any time to hear the messages again, or "continue" when you\'re done.',
+        'এই বার্তাগুলোর যেকোনো একটির নাম বললে সেটি চালু বা বন্ধ হবে, অথবা নতুন কিছু যোগ করতে "নিজের বার্তা" বলুন। '
+            'কিছু মনে না এলে, এটাই বলতে পারেন: "$example" — এটি আপনার বার্তা হিসেবে যোগ হবে। '
+            'বার্তাগুলো আবার শুনতে যেকোনো সময় "সাহায্য" বলুন, অথবা শেষ হলে "চালিয়ে যান" বলুন।',
       );
   String passerbyMessageAddedSpoken(String message) => _t('Added: $message.', 'যোগ হয়েছে: $message।');
   String passerbyMessageRemovedSpoken(String message) => _t('Removed: $message.', 'বাদ দেওয়া হয়েছে: $message।');
   String get passerbyCustomAddedSpoken => _t('Added your message.', 'আপনার বার্তা যোগ হয়েছে।');
+  /// Explicit keyword to signal "what I say next is my own new message, not
+  /// an attempt to pick one of the suggestions" — confirmed live as needed:
+  /// without a clear trigger, an arbitrary custom message could easily
+  /// share a stray word with a suggestion sentence and get misread as
+  /// picking that one instead of being added as new text.
+  List<String> get passerbyAddOwnTriggers => _bn
+      ? const ['নিজের বার্তা', 'আমার বার্তা যোগ করব', 'নিজের কথা', 'কাস্টম বার্তা']
+      : const ['my own message', 'add my own', 'say my own', 'custom message', 'write my own', 'add a message'];
+  String get passerbyAddOwnPromptSpoken => _t('Okay, say your message now.', 'ঠিক আছে, এখন আপনার বার্তা বলুন।');
   String get passerbyNeedAtLeastOneSpoken => _t(
         'Please pick at least one message, or add your own, before continuing.',
         'চালিয়ে যাওয়ার আগে অন্তত একটি বার্তা বেছে নিন, বা নিজের একটি যোগ করুন।',
@@ -314,6 +405,13 @@ class Onboarding {
         'Two fields follow: home address, which is required, and an optional safe place nearby.',
         'দুটি ঘর আছে: বাড়ির ঠিকানা, যা লিখতেই হবে, আর কাছাকাছি একটি নিরাপদ জায়গা, যা ইচ্ছা হলে লিখতে পারেন।',
       );
+  String get safeHavensHomePromptSpoken => _t('Say your home address.', 'আপনার বাড়ির ঠিকানা বলুন।');
+  String get safeHavensPlacePromptSpoken => _t(
+        'Now say a safe place nearby, if you have one — or say "skip" if not.',
+        'এখন কাছাকাছি একটি নিরাপদ জায়গার কথা বলুন, থাকলে — না থাকলে "বাদ" বলুন।',
+      );
+  List<String> get safeHavensSkipWords =>
+      _bn ? const ['বাদ', 'নেই', 'স্কিপ'] : const ['skip', 'none', 'no', "don't have one", 'nothing'];
 
   // Lock-in summary
   String get lockInTitle => _t('You\'re all set', 'সব প্রস্তুত');

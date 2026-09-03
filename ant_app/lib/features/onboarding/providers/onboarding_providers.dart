@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/localization/app_language.dart';
@@ -113,6 +114,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     // screen's own spoken narration and misfire its `onSelect`, which is
     // exactly what produced the "Welcome to ANT" role-selection screen
     // reappearing after an option was already tapped.
+    debugPrint('[Onboarding] _goTo: ${state.step} -> $next (generation ${state.stepGeneration} -> ${state.stepGeneration + 1})');
     ref.read(sttServiceProvider).stop();
     state = state.copyWith(
       step: next,
@@ -127,6 +129,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     ref.read(sttServiceProvider).stop();
     final previous = List<OnboardingStep>.from(state.history);
     final last = previous.removeLast();
+    debugPrint('[Onboarding] goBack: ${state.step} -> $last (generation ${state.stepGeneration} -> ${state.stepGeneration + 1})');
     state = state.copyWith(
       step: last,
       history: previous,
@@ -140,7 +143,26 @@ class OnboardingController extends Notifier<OnboardingState> {
     _goTo(OnboardingStep.roleSelection);
   }
 
+  /// Stops whatever the *current* screen has listening/speaking, right now
+  /// — not whenever `_goTo` eventually runs. Confirmed live as a real,
+  /// recurring bug without this: nearly every controller method here does
+  /// an async Firestore write (`_persist`, `ensureSignedIn`, `redeemCode`,
+  /// `generateCode`) *before* calling `_goTo`, so the outgoing screen
+  /// stayed fully mounted — mic still open, its own retry/auto-help logic
+  /// still free to fire — for the entire round trip. A stale listener
+  /// re-narrating (or worse, re-matching) the screen the user just left is
+  /// exactly what looked like "the previous screen briefly reappearing"
+  /// right before the real navigation happened. `_goTo`'s own `stop()`
+  /// remains too (it also covers `setLanguage`/`skipPairing`, which have no
+  /// async gap before it), but it's too late on its own for anything that
+  /// awaits first.
+  void _stopCurrentScreenVoice() {
+    ref.read(sttServiceProvider).stop();
+    ref.read(ttsServiceProvider).stop();
+  }
+
   Future<void> chooseRole(UserRole role) async {
+    _stopCurrentScreenVoice();
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final user = await ref.read(authServiceProvider).ensureSignedIn();
@@ -182,6 +204,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> submitPairingCode(String code) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final caretakerUid =
@@ -203,6 +226,13 @@ class OnboardingController extends Notifier<OnboardingState> {
     _goTo(OnboardingStep.visionQuestion);
   }
 
+  // Deliberately does NOT stop STT/TTS itself — `addContact`/`removeContact`
+  // also route through this and, unlike every other caller, don't navigate
+  // away afterward (they're called mid-flow by the contacts screen's own
+  // voice loop, which immediately starts its *own* next `listenOnce()`
+  // right after). Stopping the mic here would race that next listen
+  // attempt. Every navigating caller below calls `_stopCurrentScreenVoice()`
+  // itself, before this.
   Future<void> _persist(UserProfile updated) async {
     state = state.copyWith(profile: updated);
     await ref.read(profileServiceProvider).saveProfile(updated);
@@ -211,6 +241,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> setVisionLevel(VisionLevel level) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     // A fully blind user can't see which theme is active and gets no
     // benefit from being asked — default them straight to Dark (real
     // battery savings on the OLED panels most phones here ship with) and
@@ -235,6 +266,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> setCalibration({required double contrastLevel, required double fontScale}) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     await _persist(profile.copyWith(contrastLevel: contrastLevel, fontScale: fontScale));
     _goTo(OnboardingStep.themePreference);
   }
@@ -242,6 +274,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> setThemePreference(ThemePreference preference) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     await _persist(profile.copyWith(themePreference: preference));
     _goTo(OnboardingStep.mobilityQuestion);
   }
@@ -249,6 +282,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> setMobilityAid(MobilityAid aid) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     await _persist(profile.copyWith(mobilityAid: aid));
     _goTo(OnboardingStep.cognitiveAnxietyQuestion);
   }
@@ -259,6 +293,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   }) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     await _persist(profile.copyWith(
       crowdedPlacesAnxious: crowdedPlacesAnxious,
       complexInstructionsHard: complexInstructionsHard,
@@ -269,6 +304,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> setDeafHearing(bool isDeafOrHardOfHearing) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     await _persist(profile.copyWith(isDeafOrHardOfHearing: isDeafOrHardOfHearing));
     // Spoken onboarding guidance defaults on for Visually Impaired users with
     // no one to read the screen for them (see ttsEnabledProvider) — but it's
@@ -284,6 +320,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> setVerbosityAndVoice({required VerbosityLevel verbosity, required String voiceId}) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     await _persist(profile.copyWith(verbosity: verbosity, voiceId: voiceId));
     // Applied immediately, not just persisted — every onboarding screen from
     // here on narrates with the voice just picked instead of the default.
@@ -317,6 +354,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> setPasserbyHelperMessages(List<String> messages) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     await _persist(profile.copyWith(passerbyHelperMessages: messages));
     _goTo(OnboardingStep.snapshotConsent);
   }
@@ -324,6 +362,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> setSnapshotConsent(SnapshotConsentPreference preference) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     await _persist(profile.copyWith(snapshotConsent: preference));
     _goTo(OnboardingStep.safeHavens);
   }
@@ -331,6 +370,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> setSafeHavens({required String homeAddress, String? safePlaceAddress}) async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     await _persist(profile.copyWith(homeAddress: homeAddress, safePlaceAddress: safePlaceAddress));
     _goTo(OnboardingStep.lockIn);
   }
@@ -343,6 +383,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> finishCaretakerSetup() async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     await _persist(profile.copyWith(onboardingComplete: true));
     _goTo(OnboardingStep.complete);
   }
@@ -350,6 +391,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   Future<void> confirmLockIn() async {
     final profile = state.profile;
     if (profile == null) return;
+    _stopCurrentScreenVoice();
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       await _persist(profile.copyWith(onboardingComplete: true));

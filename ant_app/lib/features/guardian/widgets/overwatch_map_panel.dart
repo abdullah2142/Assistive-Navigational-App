@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
+import 'package:latlong2/latlong.dart' as ll;
 
 import '../../../core/config/maps_config.dart';
+import '../../../core/config/routing_config.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/map_unavailable_placeholder.dart';
 import '../providers/guardian_providers.dart';
+
+const String _osmUserAgent = 'ANT-AssistiveNavigationalApp/1.0 (+https://github.com/abdullah2142/Assistive-Navigational-App)';
 
 /// The Overwatch Map — live GPS + battery for the paired disabled user.
 ///
@@ -32,21 +37,21 @@ class OverwatchMapPanel extends ConsumerWidget {
                 message: 'Waiting for the first location update…',
               );
             }
-            if (!MapsConfig.isConfigured) {
+            if (!RoutingConfig.useOpenStreetMap && !MapsConfig.isConfigured) {
               return MapUnavailablePlaceholder(
                 message: 'Last known: ${location.lat.toStringAsFixed(4)}, ${location.lng.toStringAsFixed(4)}',
               );
             }
-            final target = LatLng(location.lat, location.lng);
             return Stack(
               children: [
                 Positioned.fill(
-                  child: GoogleMap(
-                    initialCameraPosition: CameraPosition(target: target, zoom: 16),
-                    markers: {Marker(markerId: const MarkerId('disabledUser'), position: target)},
-                    zoomControlsEnabled: false,
-                    myLocationButtonEnabled: false,
-                  ),
+                  // See `DashboardMapPanel`'s doc comment — same
+                  // `RoutingConfig.useOpenStreetMap`-gated swap, so a
+                  // caretaker isn't left staring at an empty Google map
+                  // either while there's no working Maps Platform key.
+                  child: RoutingConfig.useOpenStreetMap
+                      ? _buildOsmMap(location.lat, location.lng)
+                      : _buildGoogleMap(location.lat, location.lng),
                 ),
                 if (location.batteryPercent != null)
                   Positioned(
@@ -69,6 +74,36 @@ class OverwatchMapPanel extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildOsmMap(double lat, double lng) {
+    final target = ll.LatLng(lat, lng);
+    return FlutterMap(
+      options: MapOptions(initialCenter: target, initialZoom: 16),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.ant.assistive.ant_app',
+          // See `DashboardMapPanel`'s identical fix — a `const` headers map
+          // crashes here ("Cannot modify unmodifiable map"), since
+          // `flutter_map`'s tile provider mutates it internally.
+          tileProvider: NetworkTileProvider(headers: {'User-Agent': _osmUserAgent}),
+        ),
+        MarkerLayer(markers: [
+          Marker(point: target, width: 28, height: 28, child: const Icon(Icons.person_pin_circle, color: Colors.red, size: 28)),
+        ]),
+      ],
+    );
+  }
+
+  Widget _buildGoogleMap(double lat, double lng) {
+    final target = gmaps.LatLng(lat, lng);
+    return gmaps.GoogleMap(
+      initialCameraPosition: gmaps.CameraPosition(target: target, zoom: 16),
+      markers: {gmaps.Marker(markerId: const gmaps.MarkerId('disabledUser'), position: target)},
+      zoomControlsEnabled: false,
+      myLocationButtonEnabled: false,
     );
   }
 }

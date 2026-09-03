@@ -149,6 +149,43 @@ class _PasserbyMessagesScreenState extends ConsumerState<PasserbyMessagesScreen>
     return _donePhrasesEn.any(lower.contains) || _donePhrasesBn.any(text.contains);
   }
 
+  bool _isAddOwnTrigger(String text, Onboarding s) {
+    final lower = text.toLowerCase().trim();
+    if (lower.length > 30) return false; // too long to be just the trigger phrase
+    return s.passerbyAddOwnTriggers.any((t) => lower.contains(t.toLowerCase()) || text.contains(t));
+  }
+
+  /// Whole-sentence [fuzzyVoiceMatch] doesn't work for these suggestions —
+  /// confirmed live as a real bug: they're full sentences ("Can you help me
+  /// cross the street?"), and requiring 50%+ of a whole sentence's words to
+  /// match is an unrealistic bar for a short reference to it ("help me
+  /// cross" or even just "cross"). This scores every suggestion by how many
+  /// *significant* words it shares with what was heard and returns the best
+  /// one — far more forgiving, at the cost of some ambiguity when two
+  /// suggestions share a word (resolved by picking the highest-scoring
+  /// one, not just the first with any overlap at all).
+  String? _bestMatchingSuggestion(String heard) {
+    final heardWords = _significantWords(heard);
+    if (heardWords.isEmpty) return null;
+    String? best;
+    var bestScore = 0;
+    for (final message in _suggestions) {
+      final score = heardWords.intersection(_significantWords(message)).length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = message;
+      }
+    }
+    return best;
+  }
+
+  Set<String> _significantWords(String text) => text
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^\wঀ-৿\s]'), '')
+      .split(RegExp(r'\s+'))
+      .where((w) => w.length > 2)
+      .toSet();
+
   /// Every listen either: toggles one suggested message on/off (spoken
   /// name matched, fuzzily, against `_suggestions`), adds a dictated
   /// message (didn't match a suggestion or a "continue" command, so it's
@@ -164,7 +201,22 @@ class _PasserbyMessagesScreenState extends ConsumerState<PasserbyMessagesScreen>
     await _tts.speak('${s.passerbyTitle}. ${s.passerbySubtitle}', language: profile.language);
     if (_disposed || !ref.read(ttsEnabledProvider) || _voiceStarted) return;
     _voiceStarted = true;
+    await _speakOptions(s, profile.language);
+    if (_disposed) return;
     await _voiceLoop(s, profile.language);
+  }
+
+  /// The suggestion list plus how-to-interact instructions — spoken once
+  /// up front (see `_introAndListen`) and again on request ("help"), so
+  /// it's never more than one word away no matter how far into the loop
+  /// the user already is.
+  Future<void> _speakOptions(Onboarding s, AppLanguage language) async {
+    final parts = [
+      s.passerbySpokenPreselected(_suggestions.take(3).join('. ')),
+      if (_suggestions.length > 3) s.passerbySpokenMore(_suggestions.skip(3).join('. ')),
+      s.passerbyVoiceIntroSpoken(s.passerbyNeedHelp),
+    ];
+    await _tts.speak(parts.join(' '), language: language);
   }
 
   Future<void> _voiceLoop(Onboarding s, AppLanguage language) async {
@@ -178,29 +230,40 @@ class _PasserbyMessagesScreenState extends ConsumerState<PasserbyMessagesScreen>
     while (!cancelled()) {
       if (!await stt.ensureAvailable()) return;
       var isDone = false;
+      var wantsHelp = false;
+      var wantsAddOwn = false;
       String? toggledMessage;
-      String? freeText;
       await stt.listenOnce(
         language: language,
         onResult: (text, isFinal) {
-          if (!isFinal || isDone || toggledMessage != null || freeText != null) return;
+          if (!isFinal || isDone || wantsHelp || wantsAddOwn || toggledMessage != null) return;
           final trimmed = text.trim();
           if (trimmed.isEmpty) return;
+          if (isHelpRequest(trimmed)) {
+            wantsHelp = true;
+            return;
+          }
           if (_isDoneCommand(trimmed)) {
             isDone = true;
             return;
           }
-          for (final message in _suggestions) {
-            if (fuzzyVoiceMatch(trimmed, message)) {
-              toggledMessage = message;
-              return;
-            }
+          // Checked *before* falling back to a suggestion match — a short
+          // utterance that happens to share a word with a suggestion
+          // sentence should still get one more chance to be unambiguous
+          // when it's this explicit trigger.
+          if (_isAddOwnTrigger(trimmed, s)) {
+            wantsAddOwn = true;
+            return;
           }
-          freeText = trimmed;
+          toggledMessage = _bestMatchingSuggestion(trimmed);
         },
       );
       if (cancelled()) return;
 
+      if (wantsHelp) {
+        await _speakOptions(s, language);
+        continue;
+      }
       if (isDone) {
         final allSelected = [..._selected, ..._custom];
         if (allSelected.isEmpty) {
@@ -209,6 +272,29 @@ class _PasserbyMessagesScreenState extends ConsumerState<PasserbyMessagesScreen>
         }
         controller.setPasserbyHelperMessages(allSelected);
         return;
+      }
+      if (wantsAddOwn) {
+        await tts.speak(s.passerbyAddOwnPromptSpoken, language: language);
+        if (cancelled()) return;
+        if (!await stt.ensureAvailable()) return;
+        String? customText;
+        await stt.listenOnce(
+          language: language,
+          // Deliberately unconditional — this listen exists *because* the
+          // user explicitly asked to dictate something new, so whatever
+          // comes back is the message, not a command to interpret.
+          onResult: (text, isFinal) {
+            if (!isFinal) return;
+            final trimmed = text.trim();
+            if (trimmed.isNotEmpty) customText = trimmed;
+          },
+        );
+        if (cancelled()) return;
+        if (customText != null) {
+          setState(() => _custom.add(summarizeText(customText!)));
+          await tts.speak(s.passerbyCustomAddedSpoken, language: language);
+        }
+        continue;
       }
       if (toggledMessage != null) {
         final message = toggledMessage!;
@@ -223,11 +309,6 @@ class _PasserbyMessagesScreenState extends ConsumerState<PasserbyMessagesScreen>
           _selected.contains(message) ? s.passerbyMessageAddedSpoken(message) : s.passerbyMessageRemovedSpoken(message),
           language: language,
         );
-        continue;
-      }
-      if (freeText != null) {
-        setState(() => _custom.add(summarizeText(freeText!)));
-        await tts.speak(s.passerbyCustomAddedSpoken, language: language);
         continue;
       }
       await tts.speak(s.passerbyVoiceRetryHint, language: language);

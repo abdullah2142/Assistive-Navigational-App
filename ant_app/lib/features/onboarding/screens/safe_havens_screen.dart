@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/localization/app_language.dart';
 import '../../../core/localization/onboarding_strings.dart';
+import '../../../core/providers/ai_assistant_providers.dart';
+import '../../../core/providers/tts_providers.dart';
+import '../../../core/services/stt_service.dart';
+import '../../../core/services/tts_service.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
 import '../widgets/voice_dictate_button.dart';
@@ -16,12 +21,102 @@ class SafeHavensScreen extends ConsumerStatefulWidget {
 class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
   final _homeController = TextEditingController();
   final _safePlaceController = TextEditingController();
+  bool _disposed = false;
+  bool _voiceStarted = false;
+
+  // See `LanguageSelectionScreen`'s identical fields for why this is a
+  // `late final` capture rather than `ref.read` inside `dispose()`.
+  late final TtsService _tts = ref.read(ttsServiceProvider);
+  late final SttService _stt = ref.read(sttServiceProvider);
+
+  @override
+  void initState() {
+    super.initState();
+    _tts;
+    _stt;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _introAndListen());
+  }
 
   @override
   void dispose() {
+    _disposed = true;
+    _stt.stop();
+    _tts.stop();
     _homeController.dispose();
     _safePlaceController.dispose();
     super.dispose();
+  }
+
+  /// Previously this screen only ever listened when the user manually
+  /// tapped one of its two `VoiceDictateButton`s — every other onboarding
+  /// screen narrates and listens automatically, and this one not doing the
+  /// same read as "the mic doesn't work here" (explicit user feedback).
+  /// Home address loops until something is captured (it's required); the
+  /// safe place is asked once and accepts a "skip" word since it's
+  /// optional.
+  Future<void> _introAndListen() async {
+    if (_disposed || !ref.read(ttsEnabledProvider)) return;
+    final language = ref.read(onboardingControllerProvider).profile!.language;
+    final s = Onboarding.of(language);
+    await _tts.speak('${s.safeHavensTitle}. ${s.safeHavensSubtitle}', language: language);
+    if (_disposed || !ref.read(ttsEnabledProvider) || _voiceStarted) return;
+    _voiceStarted = true;
+    await _voiceLoop(s, language);
+  }
+
+  Future<void> _voiceLoop(Onboarding s, AppLanguage language) async {
+    final myGeneration = ref.read(onboardingControllerProvider).stepGeneration;
+    bool cancelled() =>
+        _disposed || ref.read(onboardingControllerProvider).stepGeneration != myGeneration;
+    final stt = _stt;
+    final tts = _tts;
+    final controller = ref.read(onboardingControllerProvider.notifier);
+
+    while (_homeController.text.trim().isEmpty && !cancelled()) {
+      await tts.speak(s.safeHavensHomePromptSpoken, language: language);
+      if (cancelled()) return;
+      if (!await stt.ensureAvailable()) {
+        debugPrint('[SafeHavensVoice] stt.ensureAvailable() returned false — giving up silently');
+        return;
+      }
+      String? home;
+      await stt.listenOnce(
+        language: language,
+        onResult: (text, isFinal) {
+          if (isFinal && text.trim().isNotEmpty) home = text.trim();
+        },
+      );
+      if (cancelled()) return;
+      if (home != null) setState(() => _homeController.text = home!);
+    }
+    if (cancelled()) return;
+
+    await tts.speak(s.safeHavensPlacePromptSpoken, language: language);
+    if (cancelled()) return;
+    if (!await stt.ensureAvailable()) {
+        debugPrint('[SafeHavensVoice] stt.ensureAvailable() returned false — giving up silently');
+        return;
+      }
+    String? place;
+    await stt.listenOnce(
+      language: language,
+      onResult: (text, isFinal) {
+        if (!isFinal) return;
+        final trimmed = text.trim();
+        if (trimmed.isEmpty) return;
+        final lower = trimmed.toLowerCase();
+        if (s.safeHavensSkipWords.any((w) => lower.contains(w.toLowerCase()) || trimmed.contains(w))) return;
+        place = trimmed;
+      },
+    );
+    if (cancelled()) return;
+    if (place != null) setState(() => _safePlaceController.text = place!);
+    if (cancelled()) return;
+
+    controller.setSafeHavens(
+      homeAddress: _homeController.text.trim(),
+      safePlaceAddress: _safePlaceController.text.trim().isEmpty ? null : _safePlaceController.text.trim(),
+    );
   }
 
   @override
@@ -43,6 +138,7 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
             _safePlaceController.text.trim().isEmpty ? null : _safePlaceController.text.trim(),
       ),
       spokenOptions: [s.safeHavensSpokenHint],
+      autoSpeak: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

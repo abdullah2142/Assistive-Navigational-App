@@ -114,25 +114,16 @@ class _OnboardingScaffoldState extends ConsumerState<OnboardingScaffold> {
     // comment for the stale-listener bug this (plus the check in
     // `isCancelled` below) fixes.
     final myGeneration = ref.read(onboardingControllerProvider).stepGeneration;
-    // Brief intro only — title + subtitle, not the full option enumeration
-    // ([spokenOptions]) — a user who already knows what they want
-    // shouldn't have to sit through a full read-out of every choice before
-    // they can even speak (explicit user feedback). The full list is
-    // offered on request instead — see `listenForVoiceChoice`'s `helpText`
-    // and [OnboardingStrings.voiceChoiceRetryHint], which tells the user
-    // they can ask for it.
-    //
-    // That deferral only makes sense when a listen loop is actually about
-    // to start, though — confirmed live as a real bug for screens with no
-    // `voiceChoices` at all (e.g. `SafeHavensScreen`, pure dictation, no
-    // voice-choice recognition on this screen): `spokenOptions` never got
-    // spoken *at all*, since this method returns right after the intro
-    // when there's no listening to do. Nothing "on request" can save that
-    // — there's no request mechanism without a listen loop. So a screen
-    // with empty `voiceChoices` gets its full `spokenOptions` said now,
-    // same as before the on-request redesign.
-    final introParts = [widget.title, if (widget.subtitle != null) widget.subtitle!];
-    if (widget.voiceChoices.isEmpty) introParts.addAll(widget.spokenOptions);
+    // Title + subtitle + the full option list, always spoken up front
+    // before listening starts. An earlier version deferred `spokenOptions`
+    // to be spoken only on request ("help") once a listen loop was about
+    // to start, to avoid making a user who already knows their answer sit
+    // through a full read-out first — reverted after live testing: it read
+    // as the mic "just recording" with no idea what to say, which is worse
+    // than the slightly longer narration this restores. `listenForVoiceChoice`
+    // still recognizes "help" mid-loop to *repeat* this, which stays useful
+    // regardless of when it was first said.
+    final introParts = [widget.title, if (widget.subtitle != null) widget.subtitle!, ...widget.spokenOptions];
     final intro = introParts.join('. ');
     await _tts.speak(intro, language: widget.language);
     if (_disposed || widget.voiceChoices.isEmpty || !ref.read(ttsEnabledProvider)) return;

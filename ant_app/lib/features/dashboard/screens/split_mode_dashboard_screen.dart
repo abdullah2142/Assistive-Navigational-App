@@ -11,12 +11,22 @@ import '../widgets/passerby_message_picker.dart';
 import 'my_settings_screen.dart';
 
 /// The Disabled User's home screen — Split-Mode Dashboard: chat (60%) over
-/// a clean map with a giant directional arrow (40%). See UI module plan
+/// a clean map with a giant directional arrow (40%), or the map alone at
+/// full screen when expanded (see [_mapFullScreen]). See UI module plan
 /// Step 2.
-class SplitModeDashboardScreen extends StatelessWidget {
+class SplitModeDashboardScreen extends StatefulWidget {
   const SplitModeDashboardScreen({super.key, required this.profile});
 
   final UserProfile profile;
+
+  @override
+  State<SplitModeDashboardScreen> createState() => _SplitModeDashboardScreenState();
+}
+
+class _SplitModeDashboardScreenState extends State<SplitModeDashboardScreen> {
+  bool _mapFullScreen = false;
+
+  UserProfile get profile => widget.profile;
 
   Future<void> _handleOverlayChip(BuildContext context, SuggestedChipAction action) async {
     final d = Dashboard.of(profile.language);
@@ -73,16 +83,33 @@ class SplitModeDashboardScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            Expanded(
-              flex: 6,
-              child: ChatStreamPanel(
-                profile: profile,
-                onOverlayChip: (action) => _handleOverlayChip(context, action),
+            // `Visibility` with `maintainState: true`, not a conditional
+            // (`if (!_mapFullScreen) Expanded(...)`) — the latter would
+            // unmount `ChatStreamPanel` entirely while the map is expanded,
+            // tearing down its wake-word/STT session and losing the chat
+            // scroll position, just to free up screen space. This keeps it
+            // fully alive (still listening, if wake-word is on) but
+            // invisible and zero-height, so the map's own `Expanded` below
+            // is the *only* one actually taking space and fills the body.
+            Visibility(
+              visible: !_mapFullScreen,
+              maintainState: true,
+              maintainAnimation: true,
+              child: Expanded(
+                flex: 6,
+                child: ChatStreamPanel(
+                  profile: profile,
+                  onOverlayChip: (action) => _handleOverlayChip(context, action),
+                ),
               ),
             ),
             Expanded(
               flex: 4,
-              child: DashboardMapPanel(language: profile.language),
+              child: DashboardMapPanel(
+                language: profile.language,
+                isFullScreen: _mapFullScreen,
+                onToggleFullScreen: () => setState(() => _mapFullScreen = !_mapFullScreen),
+              ),
             ),
           ],
         ),

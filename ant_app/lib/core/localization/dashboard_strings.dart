@@ -55,6 +55,8 @@ class Dashboard {
   String get mapUnavailableSubtitle => _t('A Google Maps API key hasn\'t been configured yet.', 'মানচিত্র এখনো চালু করা হয়নি।');
   String get mapLiveViewLabel => _t('Live map view', 'সরাসরি মানচিত্র');
   String get mapNextDirection => _t('Next direction: continue forward', 'পরের নির্দেশ: সোজা যান');
+  String get mapExpandSemantics => _t('Expand map to full screen', 'মানচিত্র পুরো স্ক্রিনে দেখুন');
+  String get mapCollapseSemantics => _t('Shrink map back to split view', 'মানচিত্র আবার ভাগ করা স্ক্রিনে আনুন');
 
   /// Spoken/screen-reader label for the giant directional arrow once a real
   /// route (Module 4) is active, replacing [mapNextDirection]'s static text.

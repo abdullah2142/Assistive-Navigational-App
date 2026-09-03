@@ -12,6 +12,7 @@ import '../models/trusted_contact.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
 import '../widgets/onboarding_voice.dart';
+import '../widgets/spoken_digits.dart';
 import '../widgets/voice_dictate_button.dart';
 
 class MagicButtonContactsScreen extends ConsumerStatefulWidget {
@@ -99,7 +100,10 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
     while (!cancelled()) {
       await tts.speak(s.contactsNamePromptSpoken, language: language);
       if (cancelled()) return;
-      if (!await stt.ensureAvailable()) return;
+      if (!await stt.ensureAvailable()) {
+        debugPrint('[ContactsVoice] stt.ensureAvailable() returned false — giving up silently');
+        return;
+      }
       String? name;
       await stt.listenOnce(
         language: language,
@@ -112,12 +116,21 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
 
       await tts.speak(s.contactsPhonePromptSpoken, language: language);
       if (cancelled()) return;
-      if (!await stt.ensureAvailable()) return;
+      if (!await stt.ensureAvailable()) {
+        debugPrint('[ContactsVoice] stt.ensureAvailable() returned false — giving up silently');
+        return;
+      }
       String? phone;
       await stt.listenOnce(
         language: language,
         onResult: (text, isFinal) {
-          if (isFinal && text.trim().isNotEmpty) phone = text.trim();
+          if (!isFinal || text.trim().isEmpty) return;
+          // "double three double three..." -> "3344..." — see
+          // `spokenTextToDigits`'s doc comment for the live bug this fixes;
+          // applies here too, not just `VoiceDictateButton`'s manual mic,
+          // since this loop dictates the same phone field automatically.
+          final digits = spokenTextToDigits(text.trim());
+          if (digits.isNotEmpty) phone = digits;
         },
       );
       if (cancelled()) return;
@@ -128,6 +141,20 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
         // don't silently save an empty contact, just loop back and ask again.
         continue;
       }
+
+      // Read back before saving, not after — explicit user feedback: a
+      // dictated phone number especially is easy for STT to get subtly
+      // wrong, and this is an *emergency* contact, so the user needs a
+      // real chance to catch and redo a mistake before it's saved, not
+      // just after. "No" here redoes both fields from scratch rather than
+      // trying to isolate which one was wrong — simpler and more reliable
+      // than a voice-driven "which field do you want to fix".
+      if (!await _confirmContact(stt, tts, s, language, cancelled)) {
+        if (cancelled()) return;
+        continue;
+      }
+      if (cancelled()) return;
+
       _addContact(controller);
 
       var action = '';
@@ -154,6 +181,47 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
       }
       // 'another' — loop back and collect the next contact.
     }
+  }
+
+  /// Speaks the dictated name and phone number back, digit by digit for
+  /// the number (not as one large number, which TTS engines tend to
+  /// mangle), and listens for confirmation. Loops on an unclear answer
+  /// rather than guessing; returns `false` on a clear "no" or on
+  /// cancellation (caller checks `cancelled()` itself to tell the two apart).
+  Future<bool> _confirmContact(
+    SttService stt,
+    TtsService tts,
+    Onboarding s,
+    AppLanguage language,
+    bool Function() cancelled,
+  ) async {
+    final spacedPhone = _phoneController.text.trim().split('').join(' ');
+    while (!cancelled()) {
+      await tts.speak(
+        s.contactsConfirmSpoken(_nameController.text.trim(), spacedPhone),
+        language: language,
+      );
+      if (cancelled()) return false;
+      if (!await stt.ensureAvailable()) return false;
+      bool? confirmed;
+      await stt.listenOnce(
+        language: language,
+        onResult: (text, isFinal) {
+          if (!isFinal || confirmed != null) return;
+          final trimmed = text.trim();
+          if (trimmed.isEmpty) return;
+          confirmed = classifyTraitYesNo(
+            trimmed,
+            presentPhrases: const ['correct', 'that\'s right', 'thats right', 'right', 'save it', 'ঠিক আছে', 'ঠিক'],
+            absentPhrases: const ['wrong', 'incorrect', 'redo', 'try again', 'ভুল', 'আবার'],
+          );
+        },
+      );
+      if (cancelled()) return false;
+      if (confirmed != null) return confirmed!;
+      await tts.speak(s.voiceChoiceRetryHint, language: language);
+    }
+    return false;
   }
 
   @override
@@ -232,7 +300,7 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
                 ),
               ),
               const SizedBox(width: 8),
-              VoiceDictateButton(controller: _phoneController, language: language),
+              VoiceDictateButton(controller: _phoneController, language: language, isPhoneNumber: true),
             ],
           ),
           const SizedBox(height: 12),

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../core/localization/app_language.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/services/tts_service.dart';
@@ -84,6 +86,59 @@ bool fuzzyVoiceMatch(String spoken, String target) {
 /// own, only noise from splitting on punctuation.
 Set<String> _wordsOf(String text) =>
     text.split(RegExp(r'[\s—–\-]+')).where((w) => w.length > 1).toSet();
+
+/// Classifies a yes/no answer about some trait ("are you deaf?", "do
+/// crowded places make you anxious?") — deliberately *not* built on
+/// [fuzzyVoiceMatch]/[OnboardingVoiceChoice], because word-overlap scoring
+/// is fundamentally wrong for this shape of question. Confirmed live as a
+/// real bug: "I can hear my assistant" and the "Yes" choice's synonym
+/// "can't hear" share the single word "hear", which was enough to satisfy
+/// [fuzzyVoiceMatch]'s 50%-of-target-words threshold for a 2-word target —
+/// so a clear, unambiguous statement of *good* hearing could match the
+/// "I'm deaf" answer, purely because negation isn't something word-overlap
+/// counting can see at all. No amount of adding more synonyms fixes that;
+/// the matching *shape* itself was wrong for a question with two directly
+/// opposite answers.
+///
+/// [presentPhrases] and [absentPhrases] must each already have any
+/// necessary negation baked into the phrase itself ("can't hear" go in
+/// [presentPhrases] whole, not decomposed into "hear" + a generic
+/// negation flag) — deliberately not a generic negation-flip step, since
+/// negation changes meaning in opposite directions depending on *what's*
+/// being negated (negating a capability word like "hear" flips toward
+/// "trait present"; negating a difficulty word like "deaf" flips toward
+/// "trait absent") and conflating the two re-introduces the same class of
+/// bug this exists to avoid.
+///
+/// Returns `null` when nothing recognizable was said, or when both sides
+/// matched (a genuinely mixed signal) — the caller should treat that as
+/// "didn't understand" and ask again, never guess.
+bool? classifyTraitYesNo(
+  String heard, {
+  required List<String> presentPhrases,
+  required List<String> absentPhrases,
+  List<String> bareYes = const ['yes', 'yeah', 'yep', 'yup', 'sure', 'correct', 'জি', 'হ্যাঁ', 'হ্যা'],
+  List<String> bareNo = const ['no', 'nope', 'nah', 'না', 'নাহ'],
+}) {
+  final trimmed = heard.trim();
+  if (trimmed.isEmpty) return null;
+  final lower = trimmed.toLowerCase();
+  // Bare yes/no only trusted for a short utterance — a longer sentence
+  // that happens to contain "yes" in passing shouldn't short-circuit past
+  // the more specific phrase checks below.
+  if (trimmed.length <= 15) {
+    if (bareNo.any((w) => lower == w.toLowerCase() || lower.contains(w.toLowerCase()) || trimmed.contains(w))) {
+      return false;
+    }
+    if (bareYes.any((w) => lower == w.toLowerCase() || lower.contains(w.toLowerCase()) || trimmed.contains(w))) {
+      return true;
+    }
+  }
+  final hasPresent = presentPhrases.any((p) => lower.contains(p.toLowerCase()) || trimmed.contains(p));
+  final hasAbsent = absentPhrases.any((p) => lower.contains(p.toLowerCase()) || trimmed.contains(p));
+  if (hasPresent == hasAbsent) return null; // neither, or a genuine conflict — ask again rather than guess
+  return hasPresent;
+}
 
 /// Every phrasing recognized as "I need the options read out", not just the
 /// literal words "help"/"hint" — deliberately broad (explicit user
@@ -229,6 +284,12 @@ Future<void> listenForVoiceChoice({
   required bool Function() isCancelled,
 }) async {
   if (choices.isEmpty) return;
+  final labels = choices.map((c) => c.label).join(' / ');
+  debugPrint('[OnboardingVoice] listenForVoiceChoice starting — choices: $labels');
+  if (isCancelled()) {
+    debugPrint('[OnboardingVoice] already cancelled before first listen — never spoke or listened');
+    return;
+  }
   // After this many unmatched attempts in a row, the full option list is
   // read out automatically — a user who doesn't know (or forgets) they can
   // ask for "help" shouldn't be stuck in a "sorry, didn't catch that" loop
@@ -238,7 +299,10 @@ Future<void> listenForVoiceChoice({
   const missesBeforeAutoHelp = 2;
   var misses = 0;
   while (!isCancelled()) {
-    if (!await stt.ensureAvailable()) return;
+    if (!await stt.ensureAvailable()) {
+      debugPrint('[OnboardingVoice] stt.ensureAvailable() returned false — mic unavailable, giving up silently');
+      return;
+    }
     OnboardingVoiceChoice? matched;
     var wantsHelp = false;
     await stt.listenOnce(
@@ -246,31 +310,38 @@ Future<void> listenForVoiceChoice({
       onResult: (text, isFinal) {
         if (!isFinal || matched != null || wantsHelp) return;
         final trimmed = text.trim();
+        debugPrint('[OnboardingVoice] heard (final): "$trimmed"');
         if (trimmed.isEmpty) return;
-        if (helpText != null && _isHelpRequest(trimmed)) {
+        if (helpText != null && isHelpRequest(trimmed)) {
           wantsHelp = true;
           return;
         }
         for (final choice in choices) {
           if (choice.matches(trimmed)) {
             matched = choice;
+            debugPrint('[OnboardingVoice] matched choice: "${choice.label}"');
             break;
           }
         }
       },
     );
-    if (isCancelled()) return;
+    if (isCancelled()) {
+      debugPrint('[OnboardingVoice] cancelled after listenOnce returned — step changed or disposed');
+      return;
+    }
     final result = matched;
     if (result != null) {
       result.onSelect();
       return;
     }
     if (wantsHelp && helpText != null) {
+      debugPrint('[OnboardingVoice] help requested — speaking full option list');
       misses = 0;
       await tts.speak(helpText, language: language);
       continue;
     }
     misses++;
+    debugPrint('[OnboardingVoice] no match this attempt (miss #$misses)');
     if (helpText != null && misses >= missesBeforeAutoHelp) {
       misses = 0;
       await tts.speak(helpText, language: language);

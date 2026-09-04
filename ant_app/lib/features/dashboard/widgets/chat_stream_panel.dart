@@ -40,17 +40,7 @@ class ChatStreamPanel extends ConsumerStatefulWidget {
 class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsBindingObserver {
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
-  final _textFocus = FocusNode();
   bool _listening = false;
-
-  /// Whether the keyboard input is expanded.
-  ///
-  /// Collapsed by default. A permanently-open text field cost roughly a
-  /// fifth of this panel's height to a control that most of this app's
-  /// users will never touch — they speak. Folding it into a single button
-  /// hands that space back to the chat and to the suggestion chips, which
-  /// are what the panel is actually for.
-  bool _typing = false;
 
   // Captured once, here, rather than `ref.read` inside `dispose()` — `ref`
   // is unsafe to use once a widget is unmounting (a real crash this caused
@@ -71,15 +61,6 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     _stt;
     _wakeWord;
     _backgroundListening;
-    // Collapse the composer once the user is done with it, so the space
-    // goes back to the chat without anyone having to remember to close it.
-    // Only when it's empty — a half-typed message that vanished because the
-    // keyboard was dismissed would be a worse trade than the space.
-    _textFocus.addListener(() {
-      if (!_textFocus.hasFocus && _typing && _textController.text.trim().isEmpty) {
-        setState(() => _typing = false);
-      }
-    });
     ref.read(ttsServiceProvider).setVoiceId(widget.profile.voiceId);
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback(
@@ -154,7 +135,6 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _textController.dispose();
-    _textFocus.dispose();
     _scrollController.dispose();
     _stt.stop();
     _wakeWord.stop();
@@ -280,146 +260,81 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
             onTap: (chip) => _handleChip(chip, d),
           ),
         ),
-        // Voice is the primary way most of this app's users interact — a
-        // small icon squeezed next to the text field undersold that, so the
-        // mic keeps its own big, centered, unmissable button. 64 rather
-        // than 76: still far above the 48dp minimum and still the largest
-        // target on the panel, but no longer crowding the chat above it.
+        // Mic on the left of the input bar rather than on its own row.
+        //
+        // It was a 76dp button centred on a line of its own, which read as
+        // the panel's main control — true — but cost a whole row of height
+        // to say so, on top of the row the text field already took. Side by
+        // side, it is still the largest and left-most target on the bar (the
+        // first thing a thumb or a screen reader reaches) while the chat
+        // above keeps the space both rows used to consume.
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          child: _typing ? _buildComposer(d) : _buildVoiceBar(d),
-        ),
-      ],
-    );
-  }
-
-  /// Collapsed state: the mic, centered, with a small keyboard affordance
-  /// beside it. Typing is available but no longer occupying the panel
-  /// whether or not anyone wants it.
-  Widget _buildVoiceBar(Dashboard d) {
-    return Row(
-      children: [
-        // Balances the keyboard button on the right so the mic sits at the
-        // true centre of the panel rather than being nudged off it — this
-        // is the control users aim at by feel.
-        const SizedBox(width: 52),
-        Expanded(
-          child: Center(
-            child: Semantics(
-              button: true,
-              label: _listening ? d.chatListeningSemantics : d.chatSpeakSemantics,
-              hint: d.chatSpeakHint,
-              liveRegion: _listening,
-              child: Material(
-                color: _listening ? AppColors.danger : AppColors.primary,
-                shape: const CircleBorder(),
-                elevation: 2,
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: () => _toggleListening(d),
-                  child: SizedBox(
-                    width: 64,
-                    height: 64,
-                    child: Icon(_listening ? Icons.mic_off_rounded : Icons.mic_rounded,
-                        color: Colors.white, size: 32),
+          child: Row(
+            children: [
+              Semantics(
+                button: true,
+                label: _listening ? d.chatListeningSemantics : d.chatSpeakSemantics,
+                hint: d.chatSpeakHint,
+                liveRegion: _listening,
+                child: Material(
+                  color: _listening ? AppColors.danger : AppColors.primary,
+                  shape: const CircleBorder(),
+                  elevation: 2,
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => _toggleListening(d),
+                    child: SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: Icon(_listening ? Icons.mic_off_rounded : Icons.mic_rounded,
+                          color: Colors.white, size: 26),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-        ),
-        Semantics(
-          button: true,
-          label: d.chatTypeInsteadSemantics,
-          child: Material(
-            color: Colors.transparent,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: _openComposer,
-              child: SizedBox(
-                width: 52,
-                height: 52,
-                child: Icon(Icons.keyboard_rounded,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant, size: 26),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Semantics(
+                  textField: true,
+                  label: d.chatInputHint,
+                  child: TextField(
+                    controller: _textController,
+                    onSubmitted: (_) => _submitText(),
+                    textInputAction: TextInputAction.send,
+                    // Denser than the theme default, which was sized for a
+                    // form rather than for one line in a crowded panel.
+                    decoration: InputDecoration(
+                      hintText: d.chatInputHint,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    ),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              Semantics(
+                button: true,
+                label: d.chatSendSemantics,
+                child: Material(
+                  color: AppColors.primaryLight,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => _submitText(),
+                    child: const SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: Icon(Icons.send_rounded, color: Colors.white, size: 22),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],
     );
   }
 
-  /// Expanded state: the full text field, focused, with a way back out.
-  Widget _buildComposer(Dashboard d) {
-    return Row(
-      children: [
-        Semantics(
-          button: true,
-          label: d.chatCloseKeyboardSemantics,
-          child: Material(
-            color: Colors.transparent,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: _closeComposer,
-              child: SizedBox(
-                width: 48,
-                height: 48,
-                child: Icon(Icons.close_rounded,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant, size: 24),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Semantics(
-            textField: true,
-            label: d.chatInputHint,
-            child: TextField(
-              controller: _textController,
-              focusNode: _textFocus,
-              autofocus: true,
-              onSubmitted: (_) => _submitText(),
-              textInputAction: TextInputAction.send,
-              decoration: InputDecoration(hintText: d.chatInputHint),
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Semantics(
-          button: true,
-          label: d.chatSendSemantics,
-          child: Material(
-            color: AppColors.primaryLight,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: () => _submitText(),
-              child: const Padding(
-                padding: EdgeInsets.all(14),
-                child: Icon(Icons.send_rounded, color: Colors.white),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _openComposer() {
-    setState(() => _typing = true);
-    // The field is created focused (`autofocus`), so this only matters when
-    // reopening a composer the framework has already built once.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _typing) _textFocus.requestFocus();
-    });
-  }
-
-  void _closeComposer() {
-    _textFocus.unfocus();
-    setState(() => _typing = false);
-  }
 }
-

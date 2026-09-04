@@ -517,7 +517,21 @@ class OnboardingController extends Notifier<OnboardingState> {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final user = await ref.read(authServiceProvider).ensureSignedIn();
-      final profile = _dummyProfile(user.uid, state.language);
+      // `role` is immutable once the profile exists — `firestore.rules`
+      // rejects any update that changes it, because a verified custom claim
+      // is minted from it by `onUserRoleWritten`. So the existing role is
+      // read and kept rather than assumed.
+      //
+      // Assuming it was the live bug: this shortcut wrote
+      // `role: disabledUser` unconditionally, which meant that for anyone
+      // whose profile already existed as a Caretaker, dev-skip was
+      // *guaranteed* to fail with `permission-denied` — the exact error
+      // seen on device. It presents as a mysterious intermittent failure
+      // rather than an obvious one because it depends entirely on what the
+      // last run of the app happened to leave behind.
+      final existing = await ref.read(profileServiceProvider).fetchProfile(user.uid);
+      final profile = _dummyProfile(user.uid, state.language)
+          .copyWith(role: existing?.role, pairedUserId: existing?.pairedUserId);
       // Written to Firestore rather than only held in memory, because
       // `AppRoot` routes off the persisted profile — an in-memory shortcut
       // would bounce straight back to onboarding on the next rebuild.

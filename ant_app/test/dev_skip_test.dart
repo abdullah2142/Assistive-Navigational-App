@@ -93,4 +93,45 @@ void main() {
     expect(restored.magicButtonContacts.first.name, 'Ma');
     expect(restored.language, AppLanguage.bangla, reason: 'keeps the language already chosen');
   });
+
+  group('the shortcut must not try to change an existing role', () {
+    // `firestore.rules` rejects any update to `users/{uid}` that changes
+    // `role`, because `onUserRoleWritten` mints a verified custom claim
+    // from it. Writing a role unconditionally therefore fails with
+    // permission-denied for anyone whose profile already exists as a
+    // Caretaker — which is how this surfaced on a real device: an
+    // intermittent-looking failure that actually depended entirely on what
+    // the previous run left behind.
+    test('the dummy profile carries a role that a caller can override', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final controller = container.read(onboardingControllerProvider.notifier);
+
+      final dummy = controller.debugDummyProfile('uid-1', AppLanguage.english);
+      expect(dummy.role, UserRole.disabledUser);
+
+      // The path devSkipOnboarding takes when a caretaker profile is found.
+      final preserved = dummy.copyWith(role: UserRole.caretaker);
+      expect(preserved.role, UserRole.caretaker,
+          reason: 'an existing role has to survive the shortcut');
+      expect(preserved.toJson()['role'], UserRole.caretaker.firestoreValue);
+    });
+
+    test('role is always written, so the rule can compare it', () {
+      // The update rule reads `resource.data.role`. A profile written
+      // without the field would make that comparison fail against every
+      // subsequent write.
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final controller = container.read(onboardingControllerProvider.notifier);
+      final json = controller.debugDummyProfile('uid-2', AppLanguage.bangla).toJson();
+
+      expect(json.containsKey('role'), isTrue);
+      expect(json['role'], isNotNull);
+      // Same for the field the pairing rule tests for null — absent is not
+      // the same as null in a security rule, and `hasOnly`/`== null` checks
+      // fail outright on a field that was never written.
+      expect(json.containsKey('pairedUserId'), isTrue);
+    });
+  });
 }

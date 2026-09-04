@@ -4,6 +4,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import '../config/cloud_tts_config.dart';
 import '../localization/app_language.dart';
 import 'cloud_tts_service.dart';
+import 'locale_preference.dart';
 
 /// Thin wrapper around the device's built-in text-to-speech engine.
 ///
@@ -95,6 +96,32 @@ class TtsService {
     await _tts.speak(trimmed);
   }
 
+  /// Which of the device's installed voices to speak with.
+  ///
+  /// Was "the alphabetically first voice whose locale starts with the right
+  /// language", which on a real device meant `en-AU-language` — so the app
+  /// spoke to users in Dhaka in an Australian accent. Exactly the same
+  /// first-match-wins bug the speech *recognizer* had; the shared ordering
+  /// in `locale_preference.dart` is there so the two cannot drift apart
+  /// again.
+  ///
+  /// Within the winning locale the name sort is kept: `getVoices` is not
+  /// documented as returning a stable order, and an app that picks a
+  /// different voice each launch sounds broken to someone who only ever
+  /// hears it.
+  @visibleForTesting
+  static Map<String, String>? pickVoice(List<Map<String, String>> voices, String locale) {
+    final ids = voices.map((v) => v['locale'] ?? '').where((l) => l.isNotEmpty).toList();
+    final wanted = pickPreferredLocale(ids, locale);
+    if (wanted == null) return null;
+
+    final matches = voices
+        .where((v) => normaliseLocaleId(v['locale'] ?? '') == normaliseLocaleId(wanted))
+        .toList()
+      ..sort((a, b) => (a['name'] ?? '').compareTo(b['name'] ?? ''));
+    return matches.isEmpty ? null : matches.first;
+  }
+
   /// Picks one specific voice for [locale] the first time it's needed and
   /// reuses that exact choice every time after — see the field doc comment
   /// on `_voiceByLocale` for the inconsistent-voice bug this fixes.
@@ -107,23 +134,16 @@ class TtsService {
     try {
       final voices = await _tts.getVoices;
       if (voices is! List) return;
-      final prefix = locale.split('-').first.toLowerCase();
-      final matches = voices
+      final available = voices
           .whereType<Object?>()
           .map((v) => v is Map ? v.map((k, val) => MapEntry(k.toString(), val.toString())) : null)
           .whereType<Map<String, String>>()
-          .where((v) => (v['locale'] ?? '').toLowerCase().startsWith(prefix))
-          .toList()
-        // Deterministic ordering — `getVoices` isn't documented as
-        // returning a stable order, and picking whichever happens to come
-        // first unsorted would just reintroduce the same inconsistency
-        // this exists to fix.
-        ..sort((a, b) => (a['name'] ?? '').compareTo(b['name'] ?? ''));
-      if (matches.isEmpty) {
+          .toList();
+      final chosen = pickVoice(available, locale);
+      if (chosen == null) {
         debugPrint('[Tts] no voice found for locale=$locale — leaving engine default');
         return;
       }
-      final chosen = matches.first;
       _voiceByLocale[locale] = chosen;
       debugPrint('[Tts] pinned voice for locale=$locale: ${chosen['name']}');
       await _tts.setVoice(chosen);

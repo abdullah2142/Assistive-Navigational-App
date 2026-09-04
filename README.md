@@ -42,10 +42,68 @@ more expensive than a missed one.
 
 ---
 
-## Running it on your phone
+## Two ways to get it on a phone
 
-This is the path that actually works, in order. Everything is Android; iOS
-has never been built or tested.
+Which one you need depends on whether you are going to change code.
+
+| | **Testing it** | **Developing it** |
+| --- | --- | --- |
+| How | Firebase App Distribution | Clone this repo and build |
+| You need | An Android phone | A computer with the full toolchain |
+| Setup | About two minutes | About an hour, first time |
+| Updates | Arrive on their own | You rebuild each time |
+| API keys | Already in the build | You supply your own |
+
+If you are testing, use App Distribution — everything below the next section
+is for people who are going to edit code, and none of it is worth doing to
+run the app once.
+
+---
+
+## Installing as a tester (App Distribution)
+
+**What you need:** an Android phone (8.0+), the email address you were
+invited on, and a network connection. **No computer, no cable, no Android
+SDK, no developer mode** — and on Xiaomi devices, no "Install via USB",
+because this is a normal install rather than an `adb` one.
+
+1. Open the invite email on the phone and tap the link.
+2. Sign in with the Google account the invite was sent to.
+3. Install **Firebase App Tester** when prompted, and allow it to install
+   unknown apps when Android asks. This is once, not per build.
+4. Open App Tester, pick ANT, tap **Download**.
+
+New builds then arrive as a notification. Tap, download, done.
+
+### Sending a build out
+
+```bash
+cd ant_app && flutter build apk --debug
+firebase appdistribution:distribute build/app/outputs/flutter-apk/app-debug.apk \
+  --app YOUR_ANDROID_APP_ID \
+  --groups internal \
+  --release-notes "what changed, and what you want tested"
+```
+
+`YOUR_ANDROID_APP_ID` is the Android App ID from Firebase **Project settings**
+(shaped like `1:123456789:android:abc123`). Manage who gets builds under
+**Release & Monitor → App Distribution → Testers & Groups**.
+
+Write real release notes. They are the only instruction most testers read,
+and they are where you say *what to test*, not just what changed.
+
+> **Keys ship inside the APK.** `--dart-define` values are compiled in and
+> can be extracted from the file by anyone who has it. A distributed build
+> hands out whatever keys it was built with, so distribute only to people
+> you would give those keys to directly, and use restricted or
+> separately-budgeted keys for test builds.
+
+---
+
+## Running it from source
+
+For working on the app. Everything is Android; iOS has never been built or
+tested.
 
 ### 1. Prerequisites
 

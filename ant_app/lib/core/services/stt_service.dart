@@ -7,6 +7,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 import '../config/cloud_stt_config.dart';
 import '../localization/app_language.dart';
 import 'cloud_stt_service.dart';
+import 'locale_preference.dart';
 import 'wake_word_service.dart';
 
 /// Thin wrapper around the device's built-in speech recognizer.
@@ -82,48 +83,16 @@ class SttService {
   /// the system default (which is what was silently mistranscribing it),
   /// pass the standard `bn-BD` id directly and let the recognizer attempt
   /// it. English still resolves purely from the scanned list, unchanged.
-  /// Regional variants to prefer, best acoustic match first, for a user
-  /// speaking English in Dhaka.
+  /// The locale id to ask the recognizer for, or null to accept the system
+  /// default.
   ///
-  /// Taking simply the first locale whose id starts with `en` is not the
-  /// harmless default it looks like. On the Redmi 10C this was tested on,
-  /// the device's list is alphabetical and begins `en_AU, en_CA, en_IN,
-  /// ...` — so every English-speaking user was being transcribed by an
-  /// **Australian English** model. Bangladeshi English is South Asian in
-  /// its vowels and rhythm; `en_IN` is trained on precisely that family and
-  /// is by far the closest available, with `en_GB` next (Bangladeshi
-  /// English is British-derived, and place names here are romanised on
-  /// British conventions) ahead of the American and Antipodean models.
-  ///
-  /// This matters more here than in a typical app. Every command in this
-  /// app is spoken, the users cannot see a mistranscription to correct it,
-  /// and the words most likely to be mangled are Dhaka place names — the
-  /// exact input that has to be right for routing to work at all.
-  static const _englishPreference = ['en_in', 'en_gb', 'en_us', 'en_bd'];
-
-  /// The locale id to ask the recognizer for, or null to accept the
-  /// system default. Pure and separated from the plugin so the ordering
-  /// rule above is directly testable without a device.
+  /// Ordering lives in [pickPreferredLocale] because the text-to-speech
+  /// side has exactly the same problem and had exactly the same bug — see
+  /// `locale_preference.dart`. Pure and separated from the plugin so the
+  /// rule is testable without a microphone.
   @visibleForTesting
-  static String? pickLocaleId(List<String> available, AppLanguage language) {
-    final prefix = language == AppLanguage.bangla ? 'bn' : 'en';
-    String normalised(String id) => id.toLowerCase().replaceAll('-', '_');
-
-    if (language == AppLanguage.english) {
-      for (final wanted in _englishPreference) {
-        for (final id in available) {
-          if (normalised(id) == wanted) return id;
-        }
-      }
-    }
-    // No preferred variant present (or Bangla, where any Bangla pack at all
-    // is a better outcome than none): fall back to the first of the right
-    // language rather than to the system default.
-    for (final id in available) {
-      if (normalised(id).startsWith(prefix)) return id;
-    }
-    return null;
-  }
+  static String? pickLocaleId(List<String> available, AppLanguage language) =>
+      pickPreferredLocale(available, language == AppLanguage.bangla ? 'bn' : 'en');
 
   Future<String?> _resolveLocaleId(AppLanguage language) async {
     final prefix = language == AppLanguage.bangla ? 'bn' : 'en';

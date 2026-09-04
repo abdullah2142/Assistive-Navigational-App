@@ -8,7 +8,6 @@ import 'package:ant_app/core/localization/app_language.dart';
 import 'package:ant_app/core/localization/onboarding_strings.dart';
 import 'package:ant_app/core/services/local_intent_matcher.dart';
 import 'package:ant_app/core/services/saved_place_matcher.dart';
-import 'package:ant_app/core/services/stt_service.dart';
 import 'package:ant_app/features/onboarding/models/saved_place.dart';
 
 void main() {
@@ -93,59 +92,6 @@ void main() {
 
     test('Bangla intro is actually Bangla', () {
       expect(Onboarding.of(AppLanguage.bangla).voiceIntroSpoken, matches(RegExp(r'[ঀ-৿]')));
-    });
-  });
-  group('speech was being transcribed by an Australian English model', () {
-    // The real list this device reported, in the order it reported it. The
-    // old code took the first `en*` entry, so every English-speaking user
-    // in Dhaka was recognised as Australian.
-    const redmi10c = [
-      'cmn_CN', 'cmn_TW', 'en_AU', 'en_CA', 'en_IN', 'en_IE', 'en_SG',
-      'en_GB', 'en_US', 'fr_FR', 'hi_IN', 'ja_JP', 'ko_KR', 'ru_RU',
-    ];
-
-    test('prefers Indian English over whatever happens to sort first', () {
-      expect(
-        SttService.pickLocaleId(redmi10c, AppLanguage.english),
-        'en_IN',
-        reason: 'en_AU sorts first but is the worst acoustic match of the set',
-      );
-    });
-
-    test('falls back down the preference list, not to alphabetical order', () {
-      // No en_IN: British English is the next best for Bangladeshi speakers
-      // and for the romanisation of Dhaka place names.
-      expect(
-        SttService.pickLocaleId(['en_AU', 'en_CA', 'en_GB', 'en_US'], AppLanguage.english),
-        'en_GB',
-      );
-      expect(
-        SttService.pickLocaleId(['en_AU', 'en_CA', 'en_US'], AppLanguage.english),
-        'en_US',
-      );
-    });
-
-    test('accepts hyphenated ids, which some OS versions report instead', () {
-      expect(
-        SttService.pickLocaleId(['en-AU', 'en-IN'], AppLanguage.english),
-        'en-IN',
-        reason: 'the id is returned verbatim so the plugin gets what it gave us',
-      );
-    });
-
-    test('still takes any English at all when no preferred variant exists', () {
-      expect(SttService.pickLocaleId(['en_AU'], AppLanguage.english), 'en_AU');
-    });
-
-    test('returns null when the device has no English pack', () {
-      expect(SttService.pickLocaleId(['hi_IN', 'ja_JP'], AppLanguage.english), isNull);
-    });
-
-    test('Bangla is unaffected — any Bangla pack beats none', () {
-      expect(SttService.pickLocaleId(['en_IN', 'bn_IN'], AppLanguage.bangla), 'bn_IN');
-      // This device had no Bangla at all; the caller then asks for bn-BD
-      // directly so the recognizer can try online recognition.
-      expect(SttService.pickLocaleId(redmi10c, AppLanguage.bangla), isNull);
     });
   });
 }

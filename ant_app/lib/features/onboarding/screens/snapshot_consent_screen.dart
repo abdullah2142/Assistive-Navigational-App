@@ -27,9 +27,9 @@ class SnapshotConsentScreen extends ConsumerWidget {
       onBack: controller.goBack,
       language: language,
       spokenOptions: [
-        'Option 1: ${s.snapshotAlwaysLabel}. ${s.snapshotAlwaysDescription}',
-        'Option 2: ${s.snapshotAskLabel}. ${s.snapshotAskDescription}',
-        'Option 3: ${s.snapshotNeverLabel}. ${s.snapshotNeverDescription}',
+        '${s.spokenOptionLabel(1)}: ${s.snapshotAlwaysLabel}. ${s.snapshotAlwaysDescription}',
+        '${s.spokenOptionLabel(2)}: ${s.snapshotAskLabel}. ${s.snapshotAskDescription}',
+        '${s.spokenOptionLabel(3)}: ${s.snapshotNeverLabel}. ${s.snapshotNeverDescription}',
       ],
       voiceChoices: [
         OnboardingVoiceChoice(

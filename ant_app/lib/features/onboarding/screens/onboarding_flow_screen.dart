@@ -5,8 +5,10 @@ import '../models/onboarding_step.dart';
 import '../providers/onboarding_providers.dart';
 import 'caretaker_pairing_screen.dart';
 import 'cognitive_anxiety_screen.dart';
+import 'frequent_places_screen.dart';
 import 'deaf_hearing_screen.dart';
 import 'language_selection_screen.dart';
+import 'command_tour_screen.dart';
 import 'lock_in_screen.dart';
 import 'magic_button_contacts_screen.dart';
 import 'mobility_question_screen.dart';
@@ -50,6 +52,8 @@ class OnboardingFlowScreen extends ConsumerWidget {
       OnboardingStep.passerbyMessages => const PasserbyMessagesScreen(),
       OnboardingStep.snapshotConsent => const SnapshotConsentScreen(),
       OnboardingStep.safeHavens => const SafeHavensScreen(),
+      OnboardingStep.frequentPlaces => const FrequentPlacesScreen(),
+      OnboardingStep.commandTour => const CommandTourScreen(),
       OnboardingStep.lockIn => const LockInScreen(),
       OnboardingStep.complete => const OnboardingCompleteScreen(),
     };

@@ -20,11 +20,20 @@
  * Runs on a Cron Trigger (see wrangler.toml — 12th of each month, matching
  * the ~10-day report-upload lag confirmed live) and exposes a manual GET
  * endpoint for on-demand runs/testing.
+ *
+ * Since Session 3 this Worker also hosts the two *current-risk* collectors
+ * (`src/collectors/`), which feed per-thana advisories rather than the
+ * citywide monthly figure. They live here for exactly the same reason the
+ * monthly ingest does: Cloud Functions in this project cannot reach these
+ * sites, and Cloudflare's edge can. Routes and schedules are below.
  */
+
+import { signInAnonymously, deleteAccount } from './lib/firebase.js';
+import { collectNews } from './collectors/news.js';
+import { collectSocial } from './collectors/social.js';
 
 const CRIME_STATS_ARCHIVE_URL = 'https://www.police.gov.bd/en/january_2020';
 const PEDESTRIAN_RELEVANT_CATEGORIES = ['dacoity', 'robbery', 'burglary', 'theft', 'kidnapping'];
-const FIREBASE_WEB_API_KEY = 'AIzaSyAXm0kMvv5odpkkrHKRNZz2Cm6mvTx2uDg';
 const RECORD_FN_URL = 'https://us-central1-ant-assistive-nav.cloudfunctions.net/recordCityCrimeMonth';
 
 /** Finds the newest report's title + PDF URL from the archive's table —
@@ -91,28 +100,6 @@ Return ONLY this JSON shape, numbers only (no commas/text in the values):
   return JSON.parse(text);
 }
 
-async function signInAnonymously() {
-  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_WEB_API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ returnSecureToken: true }),
-  });
-  if (!res.ok) throw new Error(`Anonymous sign-in failed: HTTP ${res.status}`);
-  return res.json();
-}
-
-async function deleteAccount(idToken) {
-  try {
-    await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${FIREBASE_WEB_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken }),
-    });
-  } catch (err) {
-    console.warn('Cleanup: failed to delete throwaway auth account (non-fatal):', err);
-  }
-}
-
 async function runIngestion(geminiApiKey) {
   const archiveRes = await fetch(CRIME_STATS_ARCHIVE_URL);
   if (!archiveRes.ok) throw new Error(`Archive page HTTP ${archiveRes.status}`);
@@ -125,7 +112,7 @@ async function runIngestion(geminiApiKey) {
   const extracted = await extractDmpRowViaGemini(pdfBuffer, geminiApiKey);
   const period = extracted.period || new Date().toISOString().slice(0, 7);
 
-  const { idToken, localId } = await signInAnonymously();
+  const { idToken } = await signInAnonymously();
   try {
     const recordRes = await fetch(RECORD_FN_URL, {
       method: 'POST',
@@ -140,28 +127,64 @@ async function runIngestion(geminiApiKey) {
   }
 }
 
+const json = (body, status = 200) =>
+  new Response(JSON.stringify(body, null, 2), { status, headers: { 'content-type': 'application/json' } });
+
+/**
+ * Which cron expression runs which job.
+ *
+ * Cloudflare hands `scheduled` the expression that fired, which is the only
+ * way one Worker can host jobs on different schedules. Kept as a map rather
+ * than an if-chain so adding a job is one line here and one in
+ * `wrangler.toml`, and a mismatch between the two is obvious.
+ */
+const CRON_JOBS = {
+  // Monthly, ~10 days after the reporting month ends.
+  '0 3 12 * *': (env) => runIngestion(env.GEMINI_API_KEY).then((r) => ({ job: 'monthly-crime', ...r })),
+  // Twice daily. News moves slower than a news cycle suggests, and each run
+  // costs Gemini calls, so this is deliberately not hourly.
+  '0 4,16 * * *': (env) => collectNews(env.GEMINI_API_KEY).then((r) => ({ job: 'news', ...r })),
+  // Every 6 hours — the backend's corroboration window is 72 hours, so
+  // there is nothing to gain from checking more often than posts can
+  // accumulate.
+  '0 */6 * * *': () => collectSocial().then((r) => ({ job: 'social', ...r })),
+};
+
 export default {
-  async fetch(request, env, ctx) {
-    if (!env.GEMINI_API_KEY) {
-      return new Response(JSON.stringify({ ok: false, error: 'GEMINI_API_KEY secret not configured' }), {
-        status: 500, headers: { 'content-type': 'application/json' },
-      });
-    }
+  async fetch(request, env) {
+    const path = new URL(request.url).pathname.replace(/\/+$/, '');
     try {
-      const result = await runIngestion(env.GEMINI_API_KEY);
-      return new Response(JSON.stringify({ ok: true, ...result }, null, 2), { headers: { 'content-type': 'application/json' } });
+      // Manual endpoints, for on-demand runs and for verifying a deploy
+      // without waiting for a cron to fire.
+      if (path === '/news') {
+        if (!env.GEMINI_API_KEY) return json({ ok: false, error: 'GEMINI_API_KEY secret not configured' }, 500);
+        return json({ ok: true, ...(await collectNews(env.GEMINI_API_KEY)) });
+      }
+      if (path === '/social') {
+        return json({ ok: true, ...(await collectSocial()) });
+      }
+      if (path === '' || path === '/monthly') {
+        if (!env.GEMINI_API_KEY) return json({ ok: false, error: 'GEMINI_API_KEY secret not configured' }, 500);
+        return json({ ok: true, ...(await runIngestion(env.GEMINI_API_KEY)) });
+      }
+      return json({ ok: false, error: `Unknown path "${path}". Try /, /news or /social.` }, 404);
     } catch (err) {
-      return new Response(JSON.stringify({ ok: false, error: String(err) }, null, 2), {
-        status: 500, headers: { 'content-type': 'application/json' },
-      });
+      return json({ ok: false, error: String(err) }, 500);
     }
   },
 
   async scheduled(controller, env, ctx) {
+    const job = CRON_JOBS[controller.cron];
+    if (!job) {
+      // A cron in wrangler.toml with no handler here would otherwise fire
+      // forever and do nothing at all, silently.
+      console.error(`No handler registered for cron "${controller.cron}"`);
+      return;
+    }
     ctx.waitUntil(
-      runIngestion(env.GEMINI_API_KEY)
-        .then((r) => console.log('Monthly ingestion succeeded:', JSON.stringify(r)))
-        .catch((err) => console.error('Monthly ingestion failed:', err)),
+      job(env)
+        .then((r) => console.log('Scheduled run succeeded:', JSON.stringify(r)))
+        .catch((err) => console.error(`Scheduled run for "${controller.cron}" failed:`, err)),
     );
   },
 };

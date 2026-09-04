@@ -2,10 +2,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 import '../../features/dashboard/models/chat_message.dart';
+import '../../features/dashboard/models/hazard_report.dart';
 import '../../features/dashboard/models/suggested_chip.dart';
 import '../../features/onboarding/models/user_profile.dart';
 import '../config/gemini_config.dart';
 import '../localization/app_language.dart';
+import 'destination_clarifier.dart';
 import 'function_call_executor.dart';
 import 'route_planning_service.dart';
 
@@ -13,7 +15,14 @@ import 'route_planning_service.dart';
 /// model (or, since `LocalIntentMatcher` was added, a plain local pattern
 /// match — see `FunctionCallExecutor`) asked for.
 class AssistantTurn {
-  const AssistantTurn({required this.responseText, this.updatedProfile, this.overlayAction, this.route});
+  const AssistantTurn({
+    required this.responseText,
+    this.updatedProfile,
+    this.overlayAction,
+    this.route,
+    this.hazardPrefill,
+    this.clarification,
+  });
 
   final String responseText;
 
@@ -30,6 +39,15 @@ class AssistantTurn {
   /// Non-null when `request_route` (Module 4) successfully planned a
   /// safety-checked route — the caller surfaces it on the dashboard map.
   final RouteChoice? route;
+
+  /// Non-null when the hazard-report overlay was opened by a command that
+  /// already named the hazard ("report an open manhole") — the Hub opens
+  /// straight to that hazard instead of at the top of its menu.
+  final HazardReportPrefill? hazardPrefill;
+
+  /// Non-null when the assistant just asked the user where a destination
+  /// actually is, and is waiting for the answer.
+  final DestinationClarification? clarification;
 }
 
 /// The central brain (AI Assistant module plan, Step 2): builds a per-turn
@@ -92,6 +110,9 @@ class GeminiAssistantService {
     required List<ChatMessage> recentHistory,
     Position? location,
     void Function(String partialText)? onPartialText,
+    /// The route the user is currently walking, if any — `resolve_hazard`
+    /// is scoped to the hazards on it. See `FunctionCallExecutor`.
+    RouteChoice? activeRoute,
   }) async {
     final contents = <Content>[
       ..._historyToContents(recentHistory),
@@ -115,12 +136,22 @@ class GeminiAssistantService {
     var workingProfile = profile;
     SuggestedChipAction? overlay;
     RouteChoice? route;
+    HazardReportPrefill? hazardPrefill;
+    DestinationClarification? clarification;
     final confirmations = <String>[];
     for (final call in calls) {
-      final applied = await _executor.execute(name: call.name, args: call.args, profile: workingProfile, location: location);
+      final applied = await _executor.execute(
+        name: call.name,
+        args: call.args,
+        profile: workingProfile,
+        location: location,
+        activeRoute: activeRoute,
+      );
       workingProfile = applied.updatedProfile ?? workingProfile;
       overlay ??= applied.overlayAction;
       route ??= applied.route;
+      hazardPrefill ??= applied.hazardPrefill;
+      clarification ??= applied.clarification;
       confirmations.add(applied.responseText);
     }
 
@@ -142,6 +173,8 @@ class GeminiAssistantService {
       updatedProfile: identical(workingProfile, profile) ? null : workingProfile,
       overlayAction: overlay,
       route: route,
+      hazardPrefill: hazardPrefill,
+      clarification: clarification,
     );
   }
 
@@ -273,7 +306,57 @@ User's message: "$userText"
     FunctionDeclaration(
       'open_hazard_report',
       'Open the hazard reporting form. Call this when the user wants to report a hazard, unsafe area, or '
-          'accessibility obstruction.',
+          'accessibility obstruction. If the user already named what the hazard is, pass `category` and '
+          '`subCategory` so the form opens straight to it instead of asking them to pick it again — omit '
+          'both if they only said "report a hazard", and omit `subCategory` if you are not sure which one '
+          'they meant. Never guess: a wrong value files a real report under the wrong hazard type.',
+      Schema.object(properties: {
+        'category': Schema.enumString(
+          enumValues: ['crime', 'roadHazard', 'accessibilityBlock'],
+          description: 'The broad kind of hazard, if the user said.',
+        ),
+        'subCategory': Schema.enumString(
+          enumValues: [
+            'mugging', 'harassment', 'suspiciousCrowd', 'theftPickpocketing', 'stalking',
+            'verbalAbuse', 'physicalAssault', 'poorLighting',
+            'pothole', 'flooding', 'construction', 'noSidewalk', 'openManhole',
+            'brokenStreetlight', 'recklessTraffic', 'illegalParking', 'debrisFallenTree',
+            'brokenRamp', 'blockedPath', 'noCurbCut', 'stairsOnly', 'narrowPassage',
+            'noTactilePaving', 'elevatorOutOfService', 'blockedByVendors',
+          ],
+          description: 'The exact hazard, if the user named it. Must belong to `category`.',
+        ),
+        // No `requiredProperties` — both are optional, so a bare "report a
+        // hazard" still opens the Hub at the top of its menu.
+      }),
+    ),
+    FunctionDeclaration(
+      'save_place',
+      'Save a place the user goes to often so they can later just say "take me to <label>". Call this '
+          'when they ask to remember or save somewhere. Omit `address` to save wherever they are '
+          'standing right now — that is the better option whenever they say "here"/"this place", since '
+          'many Dhaka locations have no address a map can look up.',
+      Schema.object(properties: {
+        'label': Schema.string(description: 'What the user calls it — "work", "Ma\'s house", "school".'),
+        'address': Schema.string(description: 'A written address, only if the user actually gave one.'),
+        'kind': Schema.enumString(
+          enumValues: ['home', 'work', 'school', 'family', 'medical', 'worship', 'other'],
+          description: 'Rough category, used only to understand synonyms later.',
+        ),
+      }, requiredProperties: const ['label']),
+    ),
+    FunctionDeclaration(
+      'remove_place',
+      'Forget a saved place. Call this when the user asks to remove or delete one of their saved places.',
+      Schema.object(properties: {
+        'label': Schema.string(description: 'The place to remove, as the user referred to it.'),
+      }, requiredProperties: const ['label']),
+    ),
+    FunctionDeclaration(
+      'resolve_hazard',
+      'Clear a previously reported hazard on the route the user is currently walking, because they say it '
+          'is no longer there (fixed, repaired, cleared away). Only call this when the user is stating the '
+          'hazard is gone — never when they are reporting a new one.',
       null,
     ),
     FunctionDeclaration(

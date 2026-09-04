@@ -9,6 +9,7 @@ import '../../../core/services/stt_service.dart';
 import '../../../core/services/tts_service.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
+import '../widgets/voice_confirm.dart';
 import '../widgets/voice_dictate_button.dart';
 
 class SafeHavensScreen extends ConsumerStatefulWidget {
@@ -58,7 +59,14 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
     if (_disposed || !ref.read(ttsEnabledProvider)) return;
     final language = ref.read(onboardingControllerProvider).profile!.language;
     final s = Onboarding.of(language);
-    await _tts.speak('${s.safeHavensTitle}. ${s.safeHavensSubtitle}', language: language);
+    // Includes the screen overview (`safeHavensSpokenHint`: how many
+    // fields there are and which is required) before the mic opens, not
+    // just the title and subtitle — the per-field prompts below still
+    // introduce each field as it comes up.
+    await _tts.speak(
+      [s.safeHavensTitle, s.safeHavensSubtitle, s.safeHavensSpokenHint].join('. '),
+      language: language,
+    );
     if (_disposed || !ref.read(ttsEnabledProvider) || _voiceStarted) return;
     _voiceStarted = true;
     await _voiceLoop(s, language);
@@ -87,7 +95,22 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
         },
       );
       if (cancelled()) return;
-      if (home != null) setState(() => _homeController.text = home!);
+      if (home == null) continue;
+      // Addresses are long, and a recognizer that mangles a road number
+      // produces something that still sounds like an address — the failure
+      // is invisible without a read-back, and this one feeds both routing
+      // and the "guide me home" safety path.
+      final confirmed = await VoiceConfirm.readBackAndConfirm(
+        tts: tts,
+        stt: stt,
+        language: language,
+        fieldLabel: s.safeHavensHomeLabel,
+        value: home!,
+        isCancelled: cancelled,
+      );
+      if (cancelled() || confirmed == null) return;
+      if (!confirmed) continue;
+      setState(() => _homeController.text = home!);
     }
     if (cancelled()) return;
 
@@ -110,7 +133,22 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
       },
     );
     if (cancelled()) return;
-    if (place != null) setState(() => _safePlaceController.text = place!);
+    if (place != null) {
+      final confirmed = await VoiceConfirm.readBackAndConfirm(
+        tts: tts,
+        stt: stt,
+        language: language,
+        fieldLabel: s.safeHavensPlaceLabel,
+        value: place!,
+        isCancelled: cancelled,
+      );
+      if (cancelled() || confirmed == null) return;
+      // Declining an *optional* field just leaves it empty rather than
+      // looping — the user can add it later from My Settings or by voice,
+      // and trapping them in a retry loop over something they did not have
+      // to fill in is worse than skipping it.
+      if (confirmed) setState(() => _safePlaceController.text = place!);
+    }
     if (cancelled()) return;
 
     controller.setSafeHavens(
@@ -139,6 +177,13 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
       ),
       spokenOptions: [s.safeHavensSpokenHint],
       autoSpeak: false,
+      // Re-arms this screen's own voice loop when a step fails and we stay
+      // put — `_stopCurrentScreenVoice` cancels it up front on every
+      // navigating action. See `OnboardingState.voiceRearmToken`.
+      onVoiceRestart: () {
+        _voiceStarted = false;
+        _introAndListen();
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -162,6 +207,7 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
               VoiceDictateButton(
                 controller: _homeController,
                 language: language,
+                fieldLabel: s.safeHavensHomeLabel,
                 onDictated: (_) => setState(() {}),
               ),
             ],
@@ -183,7 +229,11 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              VoiceDictateButton(controller: _safePlaceController, language: language),
+              VoiceDictateButton(
+                controller: _safePlaceController,
+                language: language,
+                fieldLabel: s.safeHavensPlaceLabel,
+              ),
             ],
           ),
         ],

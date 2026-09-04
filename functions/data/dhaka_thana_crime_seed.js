@@ -117,4 +117,94 @@ function densityToScore(density) {
   return Math.max(1, Math.min(10, Math.round(raw * 10) / 10));
 }
 
-module.exports = { THANA_CRIME_SEED, densityToScore };
+/**
+ * ## Notorious hotspots — derived from this table, never hand-listed
+ *
+ * `05_module_plan_crowdsourcing.md` Step 4 asks for a "Notorious Hotspot"
+ * typology whose temporal multiplier maxes out at 5x after dusk. The
+ * temptation is to hand-pick a few neighbourhoods everyone "knows" are bad.
+ * That would be exactly the thing `dhaka_thana_crime_seed.js` exists to
+ * avoid: an unsourced, unfalsifiable claim about a real place, hardcoded
+ * into a safety app, quintupling the danger score of wherever the author
+ * happened to have a bad impression of. Reputation is not evidence, and
+ * being wrong here means either routing a disabled user through somewhere
+ * genuinely risky or teaching them to fear a neighbourhood without cause.
+ *
+ * So it is *computed* from the same table everything else here comes from:
+ * a thana is a hotspot when its recorded street-crime density is a
+ * statistical outlier — at least [HOTSPOT_SIGMA] standard deviations above
+ * the mean of the real, DMP-sourced entries.
+ *
+ * Two deliberate constraints:
+ *
+ * - **Only academically-sourced entries qualify.** The interpolated
+ *   post-2009 splits are eyeballed neighbour estimates; applying a 5x
+ *   multiplier on top of a guess compounds the guess instead of flagging a
+ *   fact. An interpolated thana can be dangerous, it just cannot be
+ *   *evidence* of being an outlier.
+ * - **It re-derives itself.** Nothing is hardcoded, so when the ingestion
+ *   pipeline eventually replaces these densities with fresher numbers, the
+ *   hotspot set updates with them rather than preserving a 2009 opinion
+ *   forever.
+ *
+ * On the current table this selects exactly one thana: **Paltan** (29.77
+ * crimes/km2, ~3.1 sigma above the mean, and nearly double the next-highest
+ * thana). Worth stating plainly: the module plan's own illustrative example
+ * is "specific alleys in Mirpur", and **the source data does not support
+ * that** — Mirpur records 4.64/km2, below the city mean. The data wins over
+ * the example.
+ */
+const HOTSPOT_SIGMA = 2;
+
+const _realDensities = THANA_CRIME_SEED.filter((t) => t.dataSource === 'estimated_2009_academic').map(
+  (t) => t.densityEstimate,
+);
+const _mean = _realDensities.reduce((a, b) => a + b, 0) / _realDensities.length;
+const _sd = Math.sqrt(_realDensities.reduce((a, b) => a + (b - _mean) ** 2, 0) / _realDensities.length);
+
+/** The density at or above which a thana counts as a statistical outlier. */
+const HOTSPOT_DENSITY_THRESHOLD = _mean + HOTSPOT_SIGMA * _sd;
+
+function isNotoriousHotspot(entry) {
+  if (entry.dataSource !== 'estimated_2009_academic') return false;
+  return entry.densityEstimate >= HOTSPOT_DENSITY_THRESHOLD;
+}
+
+/**
+ * The same rule, expressed against a **stored `crimeZones` document**
+ * rather than a seed entry.
+ *
+ * `checkRouteSafety` reads zones out of Firestore, where the raw density is
+ * not kept — only the derived `baseCrimeScore` and the `dataSource` tag.
+ * Deriving the flag from those at read time, instead of from a persisted
+ * `notoriousHotspot` field, means **the hotspot rule takes effect on deploy
+ * without anyone having to re-run `seedCrimeZones` first**. That matters
+ * more than it sounds: `seedCrimeZones` is an authenticated callable, so
+ * re-running it is a manual bearer-token dance, and a safety rule that
+ * silently does nothing until someone remembers to perform it is a rule
+ * that will eventually be wrong in production.
+ *
+ * `densityToScore` is monotonic, so thresholding the score at
+ * [HOTSPOT_SCORE_THRESHOLD] selects exactly the same thanas as thresholding
+ * the density — asserted by a test rather than assumed.
+ */
+const HOTSPOT_SCORE_THRESHOLD = densityToScore(HOTSPOT_DENSITY_THRESHOLD);
+
+function isHotspotZone(zone) {
+  if (!zone) return false;
+  // An explicitly stored flag wins when present (a fresher seed may know
+  // something this derivation cannot), but its absence is not a problem.
+  if (typeof zone.notoriousHotspot === 'boolean') return zone.notoriousHotspot;
+  if (zone.dataSource !== 'estimated_2009_academic') return false;
+  return (zone.baseCrimeScore ?? 0) >= HOTSPOT_SCORE_THRESHOLD;
+}
+
+module.exports = {
+  THANA_CRIME_SEED,
+  densityToScore,
+  isNotoriousHotspot,
+  isHotspotZone,
+  HOTSPOT_DENSITY_THRESHOLD,
+  HOTSPOT_SCORE_THRESHOLD,
+  HOTSPOT_SIGMA,
+};

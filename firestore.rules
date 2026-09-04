@@ -87,13 +87,33 @@ service cloud.firestore {
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid);
     }
 
-    // hazardReports/{reportId} — Crowdsource Reporting Hub (Module 2 UI;
-    // anti-spam thresholds, AI summarization, and decay are Module 5).
-    // Readable by any signed-in user since these drive everyone's routing
-    // safety scores, not just the reporter's.
+    // hazardReports/{reportId} — Crowdsource Reporting Hub. Readable by any
+    // signed-in user since these drive everyone's routing safety scores,
+    // not just the reporter's.
+    //
+    // Create only, and only under the caller's own uid: the Red Flag
+    // anti-spam rule counts *distinct reporters* (Module 5, Step 2), so a
+    // client able to write someone else's `reporterUid` could manufacture a
+    // confirmed hazard alone and close a road for every user of the app.
+    // No update/delete either — a report is evidence; expiry, resolution
+    // and aggregation are all done by Cloud Functions through the Admin SDK
+    // (which bypasses these rules), never by a client editing history.
     match /hazardReports/{reportId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null && request.auth.uid == request.resource.data.reporterUid;
+      allow update, delete: if false;
+    }
+
+    // hazardZones/{zoneId} — Module 5's aggregated view of the above: one
+    // document per clustered hazard, carrying the flag level and $w_2$
+    // weight routing actually reads. Written only by
+    // `onHazardReportCreated`/`decayHazardZones`/`resolveHazardZone` via the
+    // Admin SDK. Client-writable would defeat the entire anti-spam layer in
+    // one step — the aggregate is precisely the thing users must not be
+    // able to set directly.
+    match /hazardZones/{zoneId} {
+      allow read: if request.auth != null;
+      allow write: if false;
     }
 
     // crimeZones/{thanaSlug} — Module 4's static Thana crime baseline
@@ -103,6 +123,27 @@ service cloud.firestore {
     // entirely — so `allow write: if false` here is just making that
     // explicit, not the actual enforcement mechanism.
     match /crimeZones/{thanaId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // thanaAdvisories/{id} + socialSignals/{id} — current, sourced risk
+    // elevation for a single thana (news articles and corroborated social
+    // posts), and the raw posts behind the social tier.
+    //
+    // Read-only to clients and written exclusively by
+    // `recordThanaAdvisory`/`recordSocialSignal` through the Admin SDK.
+    // This matters more than for the other public collections: a
+    // client-writable advisory would let any signed-in device mark a real
+    // Dhaka neighbourhood dangerous for every user of the app, with no
+    // source and no way for anyone to notice. The callables enforce
+    // mandatory provenance (`validateAdvisory`/`validateSignal`) and the
+    // corroboration threshold; a direct write path would bypass both.
+    match /thanaAdvisories/{advisoryId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+    match /socialSignals/{signalId} {
       allow read: if request.auth != null;
       allow write: if false;
     }

@@ -52,7 +52,17 @@ class _CognitiveAnxietyScreenState extends ConsumerState<CognitiveAnxietyScreen>
     if (_disposed || !ref.read(ttsEnabledProvider)) return;
     final language = ref.read(onboardingControllerProvider).profile!.language;
     final s = Onboarding.of(language);
-    await _tts.speak('${s.cognitiveTitle}. ${s.cognitiveSubtitle}', language: language);
+    // Title + subtitle + the full set of what's being asked, all before
+    // the mic ever opens. The intro used to stop after the subtitle, so a
+    // blind user heard "a couple more questions" and then silence with a
+    // live mic — no idea how many questions, what they were, or that "yes"
+    // and "no" were the expected answers. `_askYesNo` repeats each
+    // question with its yes/no prompt as it comes up; "help" still
+    // re-reads mid-question.
+    await _tts.speak(
+      [s.cognitiveTitle, s.cognitiveSubtitle, s.cognitiveSpokenHint].join('. '),
+      language: language,
+    );
     if (_disposed || !ref.read(ttsEnabledProvider)) return;
     await _startVoiceFlow(s, language);
   }
@@ -118,7 +128,8 @@ class _CognitiveAnxietyScreenState extends ConsumerState<CognitiveAnxietyScreen>
     required String retryHint,
     required bool Function() isCancelled,
   }) async {
-    await tts.speak(question, language: language);
+    final prompt = '$question ${Onboarding.of(language).voiceAnswerYesOrNo}';
+    await tts.speak(prompt, language: language);
     while (!isCancelled()) {
       if (!await stt.ensureAvailable()) return null;
       var wantsHelp = false;
@@ -138,7 +149,7 @@ class _CognitiveAnxietyScreenState extends ConsumerState<CognitiveAnxietyScreen>
       );
       if (isCancelled()) return null;
       if (wantsHelp) {
-        await tts.speak(question, language: language);
+        await tts.speak(prompt, language: language);
         continue;
       }
       if (answer != null) return answer;
@@ -165,6 +176,13 @@ class _CognitiveAnxietyScreenState extends ConsumerState<CognitiveAnxietyScreen>
       ),
       spokenOptions: [s.cognitiveSpokenHint],
       autoSpeak: false,
+      // Re-arms this screen's own voice loop when a step fails and we stay
+      // put — `_stopCurrentScreenVoice` cancels it up front on every
+      // navigating action. See `OnboardingState.voiceRearmToken`.
+      onVoiceRestart: () {
+        _voiceStarted = false;
+        _introAndListen();
+      },
       child: Column(
         children: [
           _YesNoQuestion(

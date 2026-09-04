@@ -1,4 +1,4 @@
-# Current State (as of Module 4, Round 1 — crime/safety backend live-verified; routing frontend blocked on Maps key API access)
+# Current State (as of 2026-09-04, Session 4 — crime engine has news/social/learned layers on top of the 2009 baseline; edge collectors built; nothing deployed or device-tested yet)
 
 **Built and working:** Full onboarding for both roles (Disabled User + Caretaker), bilingual English/Bangla throughout with a first-screen language picker, voice-guided onboarding (on by default, for a blind user with no caretaker), Light/Dark theme independent of the Low Vision high-contrast accommodation, Split-Mode Dashboard (chat + suggested chips + clean map with directional arrow, fully bilingual), Guardian Hub (Overwatch map, Alert Center, Communication Hub with real voice memos, Remote Management — not yet bilingual, see below), self-service Settings for the Disabled User (a deliberate, flagged exception to "no settings menus" — see Module 2 Round 4), Crowdsource Reporting Hub with AI-summarized free-text reports, Passerby Helper overlay, Snapshot consent preference, real Google Maps rendering, and a real, **live-verified working** AI Assistant: on-device push-to-talk speech-to-text everywhere voice input was promised, and real Gemini (`gemini-3.6-flash`) function calling that changes onboarding settings and opens overlays via natural-language chat — confirmed end-to-end against the live API, Firestore, and UI (see Module 3 Round 3). **Module 4** adds a real, live-verified $w_1$ crime-safety backend (41 real Dhaka thana polygons in Firestore, a deployed `checkRouteSafety` Cloud Function doing point-in-polygon + time-of-day weighting) and a `request_route` Gemini tool wired end-to-end through the chat/voice assistant — the routing *feature* itself can't be exercised live yet because the Maps API key lacks Geocoding/Directions access (see below and Module 4's own section).
 
@@ -414,6 +414,681 @@ User said try it. Real, working, third architecture — genuinely different from
 - **Real remaining follow-up, not urgent**: the Worker doesn't retry internally on a transient failure like the `525` seen mid-testing — if the one monthly Cron Trigger firing happens to land on a bad moment, that month's data is silently skipped until the next manual check or next month's run. Worth adding a simple retry-with-backoff inside `runIngestion` at some point, but not blocking given the 65-month backfill means missing an occasional single month barely moves the rolling multiplier.
 
 ---
+
+# Session 4 (2026-09-04) — edge collectors, and giving the crime engine a memory
+
+**224 Flutter + 51 Cloud Function + 13 Worker tests, all passing.** `flutter analyze` clean
+(4 pre-existing style infos). `firebase deploy --dry-run` passes.
+
+## Cloudflare Worker collectors
+
+The Worker now hosts three jobs instead of one, for the reason already established in Module 4:
+**Cloud Functions in this project cannot reach these sites** and Cloudflare's edge can.
+
+`src/lib/` — `feed.js` (RSS 2.0 + Atom, regex-based since `workerd` has no XML parser),
+`firebase.js` (shared anonymous-session dance, previously inline), `thana_index.js` (generated),
+`thana_match.js`. `src/collectors/` — `news.js`, `social.js`. Routes: `/`, `/news`, `/social`, and a
+`CRON_JOBS` map so one Worker can host jobs on three schedules.
+
+**Every feed was verified live before being written into the code**, not assumed:
+- `thedailystar.net/news/crime-justice/rss.xml` — 200, crime-specific, 10 items
+- `thedailystar.net/rss.xml` — 200
+- `en.prothomalo.com/feed` — 200; `prothomalo.com/feed/` 302s to `/stories.rss`
+- `reddit.com/r/{dhaka,bangladesh}/new/.rss` — 200 (the JSON API is 403 without OAuth, hence RSS)
+
+**X/Twitter and Facebook are deliberately absent.** Both need paid or authenticated search APIs; the
+alternative is scraping behind bot protection, which breaks silently and unpredictably. A source that
+fails quietly is worse than no source, because the safety map then goes stale with nobody noticing.
+The ingestion contract will not need to change when credentials exist.
+
+### Thana matching is the strictest part, and for a concrete reason
+
+The first item in The Daily Star's live crime feed while this was written was a killing in **Raozan,
+Chattogram** — 250 km from Dhaka. A naive keyword match would have been wrong on real row one. So:
+- A competing district/city in the text with no mention of Dhaka → discarded. Dhaka has a Kotwali and
+  a Cantonment; so does Chattogram, and so does most of the country.
+- More than one thana named → discarded, not attributed to whichever came first.
+- Whole-word matching with a bounded trailing suffix (≤3 chars, ≥3-char stem), which covers English
+  plurals ("snatchers") and Bangla case marking (গুলশান → গুলশানে) without degenerating into the
+  substring matching this codebase has been bitten by repeatedly.
+- Cheap keyword filters run **before** any Gemini call — most feed items are not crime, and most
+  crime is not about a Dhaka thana. Paying a model to establish that would be the largest avoidable
+  cost in the pipeline. A hard cap of 12 classifications per run backstops a pathological day.
+- The classification prompt is written so `none` is the expected answer: a single arrest is not
+  evidence a neighbourhood has deteriorated.
+
+`thana_index.js` is generated from the seed, and `functions/test/` asserts the two have not drifted —
+a stale slug there would post advisories matching no zone and silently do nothing, which looks
+exactly like a working pipeline.
+
+## The crime engine now has a memory
+
+**Answering the question directly: it did not, and that was a real gap.** Measured before the fix:
+Mohammadpur reads **38.0** at night with a severe advisory live and **6.1** once it expires — back
+under the threshold of 7, as though nothing had ever been reported. The engine could *react* to
+current data but could not *learn* from it, because every layer was either permanently stale (2009
+seed), uniform (citywide trend), or temporary by design (advisories).
+
+`lib/learned_baseline.js` is the missing layer. It counts **distinct months in which independent
+evidence existed** — not incidents, not articles, not posts:
+
+| Evidence months | Learned multiplier | Mohammadpur night score, no advisory |
+|---|---|---|
+| 0–3 | 1.0 (no effect at all) | 6.1 |
+| 7 | 1.27 | **7.7** — clears the threshold on its own |
+| 12+ | 1.6 (capped) | 9.7 |
+
+Deliberate properties:
+- **One news cycle cannot move it.** Three separate months minimum, matching every other
+  corroboration threshold in this codebase. Below that the effect is exactly 1.0, not a small one.
+- **Social signals never count here.** They can raise a temporary advisory; they cannot edit a
+  neighbourhood's standing score.
+- **Only confirmed (Red Flag) crowdsourced *crime* hazards count** — a Red Flag pothole says nothing
+  about a crime score.
+- **Capped at 1.6×**, far below the advisory (2×) and hotspot (5×) multipliers. This corrects a stale
+  figure; it does not become a new source of truth, and the sourced 2009 number stays recognisable.
+- **It decays on its own** — evidence ages out of a 24-month window, so a neighbourhood that improves
+  recovers with no manual intervention and no permanent state anywhere.
+- Written by the hourly sweep, idempotent within a month (it runs ~700 times a month), and trimmed to
+  the window on write so a zone document cannot grow without bound.
+
+## Verdict on "does the crime system accommodate contemporary data?"
+
+It does now, at four independent timescales, and the layering is the point — each covers what the
+others cannot:
+
+| Layer | Granularity | Currency | Can it move alone? |
+|---|---|---|---|
+| 2009 academic seed | per-thana | frozen | baseline only |
+| Citywide trend (police.gov.bd, monthly) | citywide | monthly | 0.7–1.5× |
+| News advisories | per-thana | days | up to 2×, can trigger hotspot |
+| Social signals | per-thana | hours | capped at 1.5×, never hotspot |
+| Crowdsourced $w_2$ | ~10 m | live | blocks a path outright |
+| **Learned baseline** | per-thana | months–years | up to 1.6×, persists |
+
+Remaining honest limitation: **the 2009 figure itself can never be corrected downward.** Every
+current-data layer can only raise risk. A thana that was genuinely dangerous in 2009 and is fine now
+keeps its baseline forever. That is the safe direction to be wrong in, but it is a real asymmetry and
+it should be revisited if a current per-thana source ever exists.
+
+## DEPLOYED (2026-09-04)
+
+**Cloud Functions and Firestore rules are live on `ant-assistive-nav`.** All 12 functions deployed,
+including the five new ones — `onHazardReportCreated` (Firestore trigger), `decayHazardZones`
+(hourly), `resolveHazardZone`, `recordThanaAdvisory`, `recordSocialSignal` (callables) — plus an
+updated `checkRouteSafety` carrying the advisory and learned-baseline logic. Rules released.
+
+**The first attempt was a partial failure and needed a retry.** `checkRouteSafety` and
+`seedCrimeZones` both failed with `Unable to parse JSON: SyntaxError: Unexpected token '<',
+"<!DOCTYPE "` — a Google API returning an HTML error page instead of JSON, the same transient seen
+once during an earlier dry-run. The other ten succeeded. A targeted redeploy of just those two
+succeeded immediately. **Worth remembering: the shell exit code was 0 despite the failure**, because
+the command was piped through `tail` — so this deploy would have been reported as clean if the log
+had not been read. Read the log, not the exit code.
+
+Verified after deploy, rather than assumed: `functions:list` shows all 12 with the right trigger
+types, and an unauthenticated probe of each new callable returns this codebase's own
+`"Sign-in required."` string — proving they are executing the new code and not a stale revision.
+
+## Not done
+
+- **The Cloudflare Worker is NOT deployed** — blocked on Cloudflare authentication, which is an
+  interactive browser flow. See below.
+- **Nothing is device-tested.**
+- No thana has any advisory or evidence month yet, so the news/social/learned layers are live but
+  inert until the Worker runs.
+- `wrangler@4` requires Node 22; this machine has Node 20, so `wrangler@3` is the version to use.
+- **Original blocker note (now partly resolved):**
+
+- ~~None of this is deployed~~ — functions are; the Worker is not. The Worker needs `wrangler deploy` and its
+  `GEMINI_API_KEY` secret; the functions need the deploy command below.
+- Collector output has never been observed against live feeds end to end — the feeds and the parsing
+  are verified, the classification and recording path is not.
+- No thana currently has any advisory or evidence month, so the new layers are inert until the
+  collectors run.
+
+# Session 3 (2026-09-04) — destination clarification, current-risk advisories, deploy readiness
+
+**224 Flutter tests + 38 Cloud Function tests, all passing.** `flutter analyze` clean (4 pre-existing
+style infos). APK builds. `firebase deploy --dry-run` passes for `functions,firestore:rules`.
+
+## Multi-turn destination clarification (the gap left open last session)
+
+An unresolved destination is now a short conversation instead of the single dead-end sentence
+*"I couldn't find that."* A user who cannot see a map does not name places the way a geocoder wants
+them named — "the eye hospital", "my daughter's school" — and Dhaka's informal addressing means even
+a real address often resolves to nothing.
+
+- `RoutingService.geocodeCandidates` returns *all* matches, not just the top hit. Returning one
+  silently discarded the thing that matters most: whether the geocoder was actually sure.
+- `RoutePlanAmbiguous` is a distinct outcome from failure. Several matches is not an error — it is a
+  question. Options are numbered and read aloud, capped at three (a spoken list is held in working
+  memory; six read-aloud addresses is a memory test, not a choice), and collapsed by proximity so a
+  building and its own entrance are not offered as a "choice".
+- `DestinationClarifier` is pure and synchronous, so the whole multi-turn dialogue is tested without
+  a network, a geocoder, or a microphone.
+- **The original name is never discarded** — each round searches for it *plus* every hint gathered so
+  far, because the original is the only part known to have come from the user.
+- **Each round asks for a different kind of clue**: area first (broad, easy, most useful for
+  narrowing a Dhaka search), then a landmark. A user who could answer "where is it?" would have
+  answered it the first time; repeating the question is how this becomes a trap.
+- **Bounded at 3 rounds.** A blind user standing on a footpath being interrogated about an address
+  they have already described twice is not being helped. The give-up message ends with two things
+  that actually work, not an apology.
+- Escape hatches: "cancel"/"বাদ দাও" always works, and simply asking for something else abandons the
+  clarification rather than trapping the user in it.
+- On success it offers to save the place — a destination that took three questions to find is exactly
+  the one worth never having to find again.
+
+**Two real matching bugs the tests caught:** every candidate for "the hospital" contains the word
+"hospital", so name-matching on it picked whichever was listed first while looking like a real
+answer (now only words *unique to one option* count); and "the one near my house" was read as picking
+option 1 (bare cardinals now only count when the reply is essentially nothing else — which also keeps
+Bangla working, since a `bn-BD` recognizer transcribes "দুই" far more often than "২").
+
+## Mohammadpur, and current-risk advisories
+
+**Answering the question directly: no, Mohammadpur is not flagged in the existing source.** It is
+9.35 crimes/km² in the 2009 table → score 3.8, against a hotspot threshold of 7.7. The base data is
+17 years old and cannot know what a neighbourhood is like now; the citywide trend multiplier cannot
+help either, since it is one number applied uniformly to all 41 thanas.
+
+New `thanaAdvisories` layer, with two source tiers:
+
+- **`news`** — a citable published article. Can reach any severity, including the one that promotes a
+  thana to notorious-hotspot temporal behaviour (spiking from dusk rather than 8 PM).
+- **`social`** — corroborated posts. Capped at `high`, **can never promote to hotspot**, and expires
+  in 14 days rather than 60.
+
+`ai_developer_prompt.md` originally forbade social-media scraping; the project owner explicitly
+overruled that this session, so it is in — on its own tier, because the reasoning behind the original
+rule does not stop being true just because the rule was lifted. An unsourced post is weaker evidence
+than a published article; rumour about a neighbourhood propagates faster than correction, attaches
+disproportionately to poorer areas, and this app converts whatever it believes directly into "the app
+will not walk you through there", delivered to someone who cannot see the map and cannot check.
+
+Safeguards, all tested:
+- **Provenance is enforced, not expected.** No source URL and publication date → rejected outright.
+  Social signals additionally require an author handle, because corroboration counted per *post*
+  instead of per *account* is not a threshold at all.
+- **Corroboration reuses Module 5's Red Flag rule exactly** — 3 distinct accounts in a 72-hour window,
+  counted by author. One account posting twenty times corroborates nothing. One anti-spam rule in the
+  codebase, not two that can drift.
+- **Advisories can only raise risk, never lower it**, and are capped at 2.0×.
+- **They taper rather than expiring off a cliff**, and the hourly sweep retires stale ones — a
+  neighbourhood must be able to *stop* being flagged.
+- **The strongest live advisory wins, not the newest** — a severe advisory from six weeks ago says
+  more than a mild one from yesterday.
+- Provenance is returned to the client in the verdict, so an elevated score traces back to a URL.
+- `thanaAdvisories`/`socialSignals` are read-only to clients; a client-writable advisory would let any
+  signed-in device mark a real neighbourhood dangerous for everyone, unsourced.
+
+Ingestion is via `recordThanaAdvisory`/`recordSocialSignal` callables rather than in-function
+scrapers, for the reason already established by `recordCityCrimeMonth`: **Cloud Functions in this
+project cannot reach these sites** (confirmed with police.gov.bd from two regions). Collection belongs
+in the existing Cloudflare Worker; these are the contracts it posts through. **The Worker-side
+collectors are not written yet** — the backend contract, scoring, corroboration, decay and rules are.
+
+## `seedCrimeZones` no longer needs re-running
+
+The hotspot flag is now derived at read time from data already stored on each zone
+(`baseCrimeScore` + `dataSource`) rather than from a persisted `notoriousHotspot` field.
+`densityToScore` is monotonic, so thresholding the score selects exactly the same thanas as
+thresholding the density — asserted by a test over the whole table rather than assumed. A persisted
+flag still wins if present.
+
+This removes a manual step from deployment, and that is the point: `seedCrimeZones` is an
+authenticated callable, so re-running it is a bearer-token dance, and **a safety rule that silently
+does nothing until someone remembers to perform it is a rule that will eventually be wrong in
+production.**
+
+## Deployment status
+
+`firebase deploy --only functions,firestore:rules --dry-run` passes. Project `ant-assistive-nav`,
+authenticated, dependencies installed, discovery lists all 12 functions including the five new ones
+(`onHazardReportCreated`, `decayHazardZones`, `resolveHazardZone`, `recordThanaAdvisory`,
+`recordSocialSignal`). No composite index is required — every new query is equality-only, which
+Firestore serves by merging single-field indexes.
+
+One transient `Unable to parse JSON` on the first dry-run did not reproduce; the discovery endpoint
+was verified serving a valid manifest directly.
+
+# Session 2 (2026-09-04) — voice flexibility, saved places, spoken turn-by-turn navigation
+
+**203 Flutter tests + 19 Cloud Function tests, all passing.** `flutter analyze` clean (4 pre-existing
+`prefer_initializing_formals` infos). `flutter build apk --debug` succeeds. Nothing here is
+device-tested yet.
+
+## Crime module — hotspots now derived from the existing source, not invented
+
+The seed's source is real and citable (Chowdhury 2011, Table 2, from DMP HQ Jan–Mar 2009 data,
+crimes/km²). Rather than hand-listing "notorious" neighbourhoods, `isNotoriousHotspot` computes them:
+a thana qualifies at **≥ mean + 2σ** of the *academically-sourced* entries only. On the current table
+that selects exactly one — **Paltan** (29.77/km², ~3.1σ above the mean, nearly double the next
+thana). Worth stating plainly: the module plan's own example is "specific alleys in Mirpur", and the
+**source data does not support it** (Mirpur is 4.64/km², below the city mean). The data wins over the
+example, and a test asserts nobody quietly adds Mirpur back by hand.
+
+Interpolated (neighbour-estimated) entries can never be hotspots — a 5× multiplier on a guess
+compounds the guess instead of flagging a fact. The flag re-derives itself, so fresher densities
+update the hotspot set rather than preserving a 2009 opinion forever. `notoriousHotspot` is a
+separate axis from `categoryHint`, not a replacement: Paltan is a commercial core *and* an outlier,
+and collapsing the two would discard the daytime-footfall signal.
+
+**Also examined and deliberately not changed:** `densityToScore`'s min-max normalization is
+compressed by Paltan's outlier — only 1 of 41 thanas clears the daytime threshold. Log-scaling
+"fixes" that by pushing 26 of 41 over it, which is the everything-is-red failure the plan itself
+warns about for hazard decay. Changing the safety scale on my own preference rather than on evidence
+would silently alter routing citywide, so the documented derivation stands and the temporal
+multiplier does the discriminating.
+
+## Voice: flexible phrasing instead of exact phrases
+
+New `core/services/voice_matching.dart`. Matching is now on **word presence, not word order or
+adjacency**: a spec names the words that carry the meaning, and the utterance matches if they are in
+it somewhere, however arranged. Three parts, because loosening a matcher that fires real actions is
+dangerous in a specific way — free chat has far more room for an innocent sentence to collide with a
+keyword than a closed option list does:
+
+- `anchors` — the content words. At least one must appear.
+- `context` — words that disambiguate an everyday anchor ("dark" + "screen"/"mode"/"theme"), required
+  for any anchor that shows up in ordinary speech.
+- `blockers` — veto words: negations, and question framings ("is there a pothole?" must not file a
+  report; "what does dark mode do?" must not change the theme).
+
+Every matcher was migrated: routing, theme, language, verbosity, text size, on/off toggles, and the
+self-describing trait settings. Concretely, all of these now work and previously cost a full Gemini
+round trip: *"i wanna go to Gulshan"*, *"let's go to New Market"*, *"how do i get to Dhanmondi"*,
+*"bring me to work"*, *"make the screen darker"*, *"disable the wake word"*, *"give me more detail
+when you talk"*.
+
+**Bangla case-suffix tolerance** (`containsTermInflected`): Bangla attaches case markers to nouns —
+অফিস → অফিসে, বাসা → বাসায়. Strict word equality failed on the single most common way a Bangla
+speaker names a destination. Only a *trailing* extension counts, and only on a stem of ≥3 characters,
+so this cannot degenerate back into substring matching — "না" can never prefix-match নারায়ণগঞ্জ.
+
+**False positives the audit caught and fixed:** a bare `going to` in the route pattern matched *"is it
+going to rain before I get there"* and started walking the user somewhere; question framings changed
+settings.
+
+## Saved / frequent places
+
+`SavedPlace` on `UserProfile`, an optional onboarding step (`FrequentPlacesScreen`), voice
+save/remove, and resolution during routing.
+
+- **Latency**: "take me to work" resolves with **no geocode and no model call**, and works offline.
+- **Reachability**: "work", "Ma's house", "the clinic" are not geocodable strings — no prompting turns
+  them into coordinates. Saving them once is what makes those destinations possible at all.
+- `save_place` with no address saves the user's **current coordinates** — "save this as my office",
+  said while standing there. That is the most reliable way to record a Dhaka destination, since
+  informal addressing means many real places have no string a map can resolve.
+- Synonyms per kind, so someone who saved "work" is still understood saying "office", and vice versa.
+- **Ambiguity is asked about, never guessed.** Two places matching "my relative" produces "did you
+  mean Ma's house, or Bhai's house?" and plans no route at all. Walking someone to the wrong
+  relative's house is a failure they may not notice until they arrive.
+- Saving over an existing label *moves* it rather than adding a duplicate, which would otherwise
+  resolve ambiguously forever.
+- The onboarding step is genuinely optional — "skip"/"done" at any prompt ends it.
+
+**Bug found while wiring:** the ambiguity question was being swallowed by the generic
+"something went wrong planning that route" branch, so the user was never asked. Fixed by hoisting the
+check above every per-call error branch.
+
+## Spoken turn-by-turn navigation
+
+Previously the app planned a route and drew an arrow. It never said which way to turn — the sighted
+half of the feature only.
+
+- `RoutingService` now requests and parses **manoeuvres** (`steps=true` from OSRM, and the equivalent
+  from Google), normalized to a backend-agnostic `ManeuverKind` so neither vendor's vocabulary leaks
+  into the narration or the bilingual strings.
+- `NavigationNarrator` — a pure state machine over `(steps, routePoints, position)`, tested by
+  walking synthetic GPS tracks. Built around two failure modes: **saying too little** (a missed turn
+  leaves a blind user walking confidently the wrong way) and **saying too much** (an assistant that
+  re-announces every tick becomes noise, and is talking over the ambient sound a blind pedestrian
+  actually navigates by). Three distance bands per turn, never repeated, never re-issued on GPS
+  jitter.
+- `NavigationController` — subscribes to GPS, speaks each cue, and fires the three haptic patterns
+  Module 7 allows. Starts automatically when a route is accepted: for a user who cannot see the map,
+  a planned-but-silent route is not usable at all.
+- Bilingual phrasing puts **distance before direction** ("In 50 metres, turn left") — speech is
+  linear, and the listener needs urgency before instruction. Unnamed roads are omitted rather than
+  read as "turn left onto unnamed road", which sounds like information and carries none. Off-route
+  says **stop and re-route**, never "turn around": telling a blind pedestrian on a Dhaka street to
+  reverse direction without seeing what is behind them is not a safe instruction.
+
+**Two real design bugs the tests caught before any device saw them:**
+1. `reachedRadiusMeters` (20 m) sat *above* the imminent announce band (15 m), so the narrator retired
+   every manoeuvre before its instruction could fire — **"Now, turn left" was unreachable code**. The
+   user got both warnings and then silence at the actual corner. Now 15 m against a 25 m band, with a
+   test asserting the invariant.
+2. The documented "resync after a GPS gap" was not actually implemented — a step only counted as
+   reached while the user was *within* the radius, so a dropped fix that returned with them well past
+   a corner left guidance stuck on that turn forever. Progress is now measured along the route
+   polyline, not by proximity to corners. The same fix cured off-route firing at the start of every
+   correct route (manoeuvre points are only the corners; the origin is not one).
+
+## Read-back confirmation on voice input
+
+A sighted user dictating a phone number glances at the field and sees a dropped digit. That glance is
+the entire error-correction mechanism, and a blind user does not have it — a misheard value is
+committed silently and surfaces later as a contact that does not ring or a code that never works.
+
+Shared `VoiceConfirm.readBackAndConfirm`, now applied to the pairing code, both safe-haven addresses,
+every `VoiceDictateButton` field, and the new places step (emergency contacts already had it). Digits
+are **spaced and grouped in threes** before being spoken — a TTS engine reads "01712345678" as one
+enormous number, which is unverifiable by ear and defeats the point. Unclear answers re-ask rather
+than assuming either way: assuming yes commits something the user was rejecting, assuming no discards
+something correct.
+
+## Local vs LLM split, and latency
+
+`test/local_vs_llm_coverage_test.dart` is the audit, as a test rather than a claim: 37 routine
+phrasings (both languages) asserted to resolve locally, 7 genuinely hard requests asserted to still
+defer, and 8 innocent sentences asserted to do nothing.
+
+Where the latency went:
+- **Saved places** remove a geocode *and* a model call from the most common request in the app.
+- **Flexible matching** moved a large class of routine commands off the model — everything in that
+  corpus is now zero-network.
+- The boundary is deliberate: `add_emergency_contact`, message add/remove, and anything needing real
+  comprehension still go to Gemini. A local guess there corrupts real contact data.
+- Streamed replies (`generateContentStream`) were already in place and verified working, so the first
+  words appear while the rest is still arriving.
+
+## Background listening & streamed Gemini — both already existed; two real bugs fixed
+
+Verified present and wired: `WakeWordForegroundService.kt` + manifest entry + `BackgroundListeningService`
++ lifecycle observer; and `generateContentStream` + `onPartialText` consumed by the chat controller.
+
+1. **`AppLifecycleState.inactive` started the foreground service.** `inactive` fires transiently while
+   the app is still on screen — notification shade, incoming-call banner, permission dialog, app
+   switcher — so an ongoing "listening in the background" notification appeared in front of a user who
+   had backgrounded nothing, and flapped, since `inactive` is also passed through on the way back to
+   `resumed`. Now only `paused`/`hidden`.
+2. **`POST_NOTIFICATIONS` was declared but never requested at runtime.** Android 13+ made it a runtime
+   permission, so the foreground service's ongoing notification silently never appeared — and an
+   invisible foreground service is exactly what aggressive OEM battery managers (MIUI, the device
+   under test) kill first. Now requested when background listening starts, so the prompt arrives with
+   a reason attached.
+
+## What is NOT done
+
+- **Nothing in this session is device-tested**, and nothing in Module 5 is deployed.
+- **Destination "triangulation" is partial.** Saved places, ambiguity questions, and flexible
+  extraction are in. What is *not* built is a multi-turn clarification loop for an unknown place —
+  today a failed geocode says "I couldn't find that" rather than asking "is it near a landmark you
+  know?" and combining answers across turns. That needs conversational state the chat controller does
+  not carry yet.
+- The `_kindFor` guess in the places screen is a heuristic; a wrong guess costs nothing (the label
+  always matches) but it is not clever.
+- Turn-by-turn depends on OSRM's `steps`, which is a demo server with no uptime guarantee. With no
+  steps the app says so and falls back to arrow-and-distance rather than going silent.
+
+# OPEN BUGS round — 2026-09-04 session: all five closed, plus new bugs found by testing
+
+Every bug in the previous list was root-caused and fixed, and each fix is locked down by a test that
+**fails on the old code and passes on the new** (verified by reverting and re-running, not assumed).
+Full suite: **76 Flutter tests + 18 Cloud Function tests, all passing**; `flutter analyze` clean
+(3 pre-existing `prefer_initializing_formals` infos, untouched); `flutter build apk --debug` succeeds.
+
+## 1. [FIXED] Black dashboard after onboarding — root cause found
+
+`SplitModeDashboardScreen`'s body was `Column(children: [Visibility(maintainState: true, child:
+Expanded(...)), Expanded(...)])`. `Expanded` is a `ParentDataWidget` and **must be a direct child of
+a Flex** — `Visibility` inserts its own render object between them, so it threw
+`Incorrect use of ParentDataWidget` during build. That takes down the entire `body` subtree while the
+`Scaffold`'s `AppBar` still renders, which is exactly the reported symptom ("only the settings button
+renders"). Reproduced in an isolated widget test before touching the code.
+
+Fixed by replacing it with `Offstage` around an explicitly-sized box inside a `LayoutBuilder`.
+`Offstage` does precisely the job the `Visibility(maintainState: true)` was there for — child stays
+mounted and laid out (wake-word/STT session and chat scroll position survive) but is not painted, not
+hit-tested, and `sizedByParent` reports `constraints.smallest`, so it takes zero room and the map's
+`Expanded` fills the body when expanded. Verified against Flutter's own `RenderOffstage` source.
+
+`test/split_mode_dashboard_test.dart` — 3 tests: no ParentDataWidget error, 60/40 split by default,
+map fills the body when expanded while `ChatStreamPanel` stays mounted. All 3 fail on the old code.
+Swept the rest of `lib/` for the same misuse: no other occurrence.
+
+## 2. [VERIFIED + a new bug found] `spokenTextToDigits`
+
+The previously-applied "triple 3, 1 0" fix is **correct** — 8 unit tests over merged tokens, separate
+word tokens, both multipliers, punctuation, filler words, and Bangla multiplier words all pass
+(`test/spoken_digits_test.dart`).
+
+**New bug found while testing it**: Bengali numerals (০-৯) were silently dropped entirely. Dart's
+`\d` is ASCII-only, so a `bn-BD` transcript of a dictated phone number survived token cleanup (those
+characters are inside the Bangla block the cleanup regex deliberately keeps), matched no digit *word*
+either, and fell out through the "unrecognized word" branch. A Bangla-speaking blind user dictating
+their own phone number got a **silently empty field** — the worst failure mode for someone who can't
+see that nothing was entered. Fixed with `_asAsciiDigit`, which normalizes both ASCII and Bengali
+numerals; 3 more tests cover it, including multipliers applied to Bengali numerals.
+
+## 3. [FIXED across every screen, and now enforced by test] "Narrate all options before listening"
+
+Audited all 8 screens that bypass `OnboardingScaffold` with `autoSpeak: false`:
+
+- `deaf_hearing_screen.dart` — **was broken**, fixed. Now speaks title + subtitle + both option
+  labels/descriptions before the mic opens; `_spokenOptions` is shared with `build`'s `spokenOptions`
+  and the mid-loop "help" reply so the three can't drift apart again (drifting is how this happened).
+- `cognitive_anxiety_screen.dart` — **was broken**, fixed. Speaks title + subtitle + `cognitiveSpokenHint`
+  (both questions) up front, and each `_askYesNo` now appends a new localized "Answer yes or no."
+  so the user knows what a valid answer sounds like *before* the mic opens, not only on "help".
+- `safe_havens_screen.dart` — partial gap, fixed (screen overview added to the intro).
+- `user_pairing_screen.dart` — partial gap, fixed. Also removed a **stale comment** in
+  `onboarding_strings.dart` still describing the reverted "brief intro, full options on request" design.
+- `verbosity_voice_screen.dart`, `magic_button_contacts_screen.dart`, `passerby_messages_screen.dart`
+  — audited, already correct, left alone.
+
+`test/onboarding_narration_test.dart` drives the **real screens** with a recording TTS and an
+unavailable mic, and asserts on what was actually spoken before the first listen — a rule enforced
+only in the shared shell silently stops applying to whoever opts out of it, which is exactly how these
+drifted. Confirmed it catches the original deaf-screen gap by reverting just that hunk.
+
+**New i18n bug the test caught**: `'Option 1:'` was hardcoded English in six screens, so Bangla
+narration read "Option 1: [Bangla label]" — and a `bn-BD` voice pronounces a bare ASCII "1" with an
+English accent mid-sentence. Added `Onboarding.spokenOptionLabel(int)` (→ "বিকল্প ১", with Bengali
+numerals) and replaced all of them. The test found an `Option 3` that the first sweep missed.
+
+## 4. [FIXED — reproduced first] Duplicate "Welcome to ANT" screen
+
+Reproduced deterministically before changing anything (`test/onboarding_stale_listener_test.dart`).
+The mechanism is **not** what earlier rounds assumed:
+
+`_stopCurrentScreenVoice()` stopped the mic, but **stopping the mic does not stop the loop**.
+`listenOnce` just returns having captured nothing, which `listenForVoiceChoice` reads as "the user
+said something I couldn't match" — so it counts a miss, speaks the retry hint, **re-reads the entire
+option list after two misses**, and reopens the mic. Its only cancel signal is `stepGeneration`, which
+`_goTo` hasn't bumped yet because it is still behind the Firestore `await`. The repro logs
+`miss #1` and a second `listenOnce` immediately after the user answers **by tapping**. For a user who
+can't see the screen, a screen they already answered reading its title and options at them again *is*
+that screen coming back.
+
+Fixed by making `_stopCurrentScreenVoice()` an actual cancellation — it now bumps `stepGeneration`
+too, which every screen's loop already checks. Safe because `stepGeneration` is used *only* as a
+cancellation token (`OnboardingFlowScreen` keys on `ValueKey(step)`), verified before relying on it.
+
+**Regression this would have introduced, caught and fixed**: cancelling on *every* navigating action
+made the cancellation permanent when the navigation then *failed*, leaving a fully-mounted screen with
+no voice at all — and onboarding errors are only ever drawn as red text, so a blind user would hit a
+silent dead end. Added `OnboardingState.voiceRearmToken`: `_failCurrentStep` bumps it, the scaffold
+listens for it, **speaks the error** (which never happened before, for any screen) and re-arms the
+loop — via a new `onVoiceRestart` hook for the 7 custom-loop screens. Covered by a second test.
+
+**Larger bug surfaced by that work**: thirteen profile-writing controller methods (`setVisionLevel`,
+`setDeafHearing`, `setSafeHavens`, …) awaited a Firestore write with **no error handling whatsoever**.
+An offline or permission-denied write threw straight past them into the framework as an unhandled
+async error: the step silently never advanced, nothing was shown, nothing was spoken. That is the
+crash-instead-of-degrade behaviour `ai_developer_prompt.md`'s "Graceful Offline Degradation" rule
+exists to prevent. `_persist` now returns success and every navigating call site bails on failure into
+`_failCurrentStep`.
+
+## 5. [VERIFIED] OSM map / Google Maps
+
+Both map panels now render under test with `RoutingConfig.useOpenStreetMap = true` — the dashboard's
+via `test/split_mode_dashboard_test.dart` (`flutter_map`'s own OSM tile-policy warning in the output
+is live proof `FlutterMap` actually initialized), and the Guardian's via a new
+`guardian_hub_test.dart` case that supplies a real location so `_buildOsmMap` is reached. The old
+empty-state test never touched that code path, which is why the `NetworkTileProvider` const-headers
+crash could hide there.
+
+**Hardening while in the area**: `INTERNET` was declared only in the debug/profile manifests, where
+the Flutter template puts it for the dev-time VM connection. Checked whether that actually breaks
+release builds rather than assuming — it does not, the Firebase AARs merge it in transitively — but
+depending on a transitive dependency for the app's own core permission isn't something to leave to
+chance, so it's now declared explicitly in the main manifest.
+
+---
+
+# NEW BUGS found by testing this session (none of these were reported)
+
+## `LocalIntentMatcher` — four real bugs, all confirmed by test before fixing
+
+This runs *before* Gemini and executes what it matches directly, with no model in the loop to
+sanity-check it, so a wrong match silently changes a real accessibility setting.
+
+1. **Bangla "I cannot hear" turned Deaf/text mode OFF.** Bangla negates *after* the verb, so the
+   affirmative phrase "শুনতে পাই" ("I can hear") is a literal prefix of "শুনতে পাই না" ("I cannot
+   hear") — plain `contains` matched the wrong list and set the exact opposite of what was said.
+2. **"ভিড়ে আমার অস্বস্তি লাগে না" ("crowds don't bother me") turned crowd anxiety ON** — same shape.
+   Both fixed by a shared post-match negation check (`_negatedAfter`) that inspects only the
+   immediately-following word, so a negation elsewhere in a longer message can't flip an unrelated clause.
+3. **Routing to any destination whose *name* contains "না" was silently swallowed.** The Bangla
+   negation guard was a bare `text.contains('না')` — which is also the first two characters of
+   নারায়ণগঞ্জ (Narayanganj), নাখালপাড়া (Nakhalpara) and নারিন্দা (Narinda), all real Dhaka-area
+   destinations. Now a whole-word check. Same lesson as the already-fixed "male" inside "female".
+4. **A message naming both options picked whichever list was checked first** — "switch from dark mode
+   to light mode" set **dark**, the mode being switched away from. Now returns `null` on any
+   ambiguous pair (theme, language, verbosity, text size, and both sides of a boolean setting), which
+   falls through to Gemini — the documented contract for anything this matcher isn't confident about.
+   Guessing was never the right answer here.
+
+`test/local_intent_matcher_test.dart` — 14 tests.
+
+## `classifyTraitYesNo` — the worst bug found this session
+
+**The app's own suggested Deaf answer classified as "hearing is fine".** The bare yes/no shortcut ran
+*before* the specific present/absent phrase lists. "কানে শুনি না" ("I don't hear with my ears") — the
+exact phrase the app reads out to the user as the Deaf option — ends in the bare-no particle "না" and
+is under the 15-character shortcut threshold, so a Deaf user repeating back what they had just been
+told to say was recorded as hearing perfectly well, and the **entire Deaf/Hard-of-Hearing
+accommodation silently never turned on.**
+
+Fixed by ordering: phrase lists (which already have negation baked in) are strictly more specific
+than a bare particle and must win. Also made the bare yes/no fallback whole-word — "no" lives inside
+"know", "another" and "normal"; "yes" inside "yesterday", so "I know I do" came back as a flat
+refusal. `test/onboarding_voice_test.dart` — 9 tests.
+
+---
+
+# Module 5 — Community Crowdsourcing & Temporal Safety
+
+Source: `05_module_plan_crowdsourcing.md`. Backend logic is pure and unit-tested away from Firestore
+(`functions/test/hazard_logic.test.js`, 18 tests, `npm test` in `functions/`) — these are the
+decisions that close a road for every user of the app, so they are not left to only be exercised
+through a deployed function.
+
+## Step 1 — Multi-modal reporting
+- **UI input** already existed (Crowdsource Reporting Hub, three categories, GPS captured on submit).
+- **Voice input** upgraded from "open the form" to going *straight to the named hazard*:
+  `LocalIntentMatcher` now recognizes 13 distinctive hazards in both languages ("report an open
+  manhole" → `roadHazard`/`openManhole`), threaded through a new `HazardReportPrefill` →
+  `AssistantTurn` → `ChatState` → `CrowdsourceReportingHub`, which skips the steps the command already
+  answered. Gemini's `open_hazard_report` tool schema gained the same optional args so both paths agree.
+  - A **report verb is required** ("report"/"flag"/"there's a"): without it, "is there a pothole near
+    me?" would file a report about a pothole the user was only asking about. Reports close roads for
+    other people, so a false one costs more than a missed one. Tested explicitly.
+  - Only hazards with an unmistakable name are listed. A bare "blocked"/"broken" could be any of
+    several sub-categories, and a wrong guess files a real report under the wrong type — which then
+    clusters with the wrong reports and decays on the wrong schedule.
+  - A prefilled sub-category that isn't valid for its category is dropped rather than trusted; a test
+    asserts every phrase in the table produces a real `hazardSubCategoryKeys` entry.
+- **Passive TFLite input** is Module 6's detector — not built here.
+
+## Step 2 — Validation & anti-spam (`functions/lib/hazard_clustering.js`)
+Reports are never read directly by routing. They cluster by hazard *type* + 10 m haversine radius
+(great-circle, not a lat/lng box — at Dhaka's latitude a degree of longitude is ~9 km shorter than a
+degree of latitude, which would skew a 10 m radius into an ellipse; tested).
+- **Yellow Flag** (1 report) → $w_2$ = 4, below the threshold: warns, never reroutes.
+- **Red Flag** (3 *distinct reporters* within 24 h) → $w_2$ = 9, above it: actively avoided.
+- Counting distinct **reporters, not documents**, is the whole anti-spam rule — one person tapping
+  submit four times stays Yellow (tested). `flagFor` is the single definition of "confirmed", shared
+  by the incremental create-trigger and the hourly rebuild, with a test asserting the two can never
+  disagree — if they did, a road could be closed by one path and reopened by the other.
+
+## Step 3 — Data decay (`functions/lib/hazard_decay.js`, `decayHazardZones` hourly cron)
+- Crime spikes: 48 h. Temporary blocks (construction, waterlogging): 7 days, **clock reset by
+  re-flagging** ("unless re-flagged"). Structural blocks (stairs-only, no curb cut, no tactile paving,
+  no sidewalk): **permanent**.
+- Anything not explicitly structural is treated as temporary — the safe direction to be wrong in: a
+  structural problem wrongly aged out is re-reported by the next person who hits it, whereas a cleared
+  obstruction kept forever permanently detours every future user around a path that is fine.
+- Permanent blocks only leave via `resolveHazardZone`, wired end to end: "it's fixed" / "ঠিক হয়ে গেছে"
+  → matched locally (before the report matcher, so "the broken ramp is fixed" clears it rather than
+  opening a form to report it again) → scoped to the hazards on the user's *active route* (resolving
+  by proximity alone would let a passing remark clear a hazard someone else's route depends on) →
+  `resolveHazardZone`. With no route active it says so rather than silently doing nothing.
+- The hourly sweep **rebuilds from scratch** rather than patching, so any drift the incremental
+  trigger introduces self-heals within the hour instead of persisting; expired reports are deleted so
+  the collection doesn't grow without bound.
+
+## Step 4 — Temporal crime weighting (`functions/lib/temporal_weighting.js`)
+Rewritten to the module plan's own worked numbers. The previous version capped everything at 1.6x,
+which **could not produce the behaviour the plan describes at all**: against a 1-10 base score and a
+threshold of 7, no realistic commercial score could cross the line at night, so "avoid empty
+commercial districts at midnight" never actually happened. Now:
+- Commercial core / transit hub: **3.0x** after 8 PM (the plan's Motijheel example), 1.0x by day.
+- New `notorious_hotspot` typology: elevated all day, 3.0x from dusk (6 PM), **5.0x** at night — the
+  plan's "maxes out at 5x after dusk", and the only typology keyed to dusk rather than to 8 PM.
+- Residential stays flat (1.2x); unknown typologies never spike (tested).
+- Safe to make sharp because `RoutePlanningService` degrades to the lowest-risk candidate rather than
+  failing when nothing clears the threshold — so this changes *which* route is chosen, never leaves a
+  user with no route. A test asserts a mid-range commercial score crosses the threshold at night and
+  not by day, i.e. that the mechanism actually changes a routing decision.
+
+## Wiring
+- `checkRouteSafety` now returns `blockingHazards`/`hazardWarnings` alongside the existing $w_1$
+  fields, scored on the same 1-10 scale against the same threshold. Hazard-on-route uses a **25 m**
+  radius, deliberately wider than the 10 m clustering radius: clustering asks "are these the same
+  thing?" (wants to be tight), this asks "will the walker encounter it?" (has to absorb GPS error on
+  both the reporter's phone and the route geometry). Erring toward a warning the user walks safely
+  past beats the opposite error, which walks a blind user into an open manhole.
+- Hazard-zone cache TTL is 60 s, not the crime zones' 10 min — a report about the road someone is
+  walking down right now is worth little if it takes ten minutes to become visible.
+- `SafetyVerdict` decodes both lists and **defaults to empty when they're absent**, so a client newer
+  than the deployed function degrades to Module 4 behaviour instead of failing every route (tested).
+- Bilingual warnings worded as *somebody's report*, not fact ("a user reported", "কেউ জানিয়েছে") — a
+  Yellow Flag is exactly one unverified person's word, and telling a blind user something is
+  definitely there when it might not be trains them to distrust every warning, including the confirmed
+  ones. A confirmed hazard with no way around it gets its own, much stronger sentence that is never
+  skipped or softened. Only one hazard is named even when several are on the route: a spoken list is
+  not something a walking user can hold onto.
+- Firestore rules: `hazardReports` is create-only under the caller's own uid (a client able to write
+  someone else's `reporterUid` could manufacture a Red Flag alone) with no update/delete — a report is
+  evidence. `hazardZones` is read-only to clients; client-writable would defeat the entire anti-spam
+  layer in one step.
+
+**Bug found and fixed while wiring**: adding `RouteSafetyService` to `FunctionCallExecutor` made the
+whole class unconstructible without an initialized Firebase app, because the default reaches for
+`FirebaseFunctions.instance` in the constructor — even for the many calls (every `update_setting`,
+both `open_*` overlays) that never touch Firebase. All three dependencies are now `late final`.
+
+## Not done / needs the user
+- **Nothing in Module 5 has been deployed or device-tested.** `npx firebase-tools deploy --only
+  functions,firestore:rules` from the repo root is the next step; `decayHazardZones` is a new
+  scheduled function and `onHazardReportCreated` a new Firestore trigger, so both need a deploy before
+  any of this is live. The `hazardZones` `where("flag", "in", [...])` query may need a composite index
+  — Firestore will print the exact creation link on first run.
+- No thana is tagged `notorious_hotspot` yet in `data/dhaka_thana_crime_seed.js`; the typology is
+  implemented and tested but currently unused until real hotspots are identified and justified with a
+  source, the same provenance rule the rest of that file already follows.
+- Passive TFLite hazard pins (Step 1.3) belong to Module 6.
+- `functions/`'s Node.js 20 runtime is still deprecated (decommissioned 2026-10-30).
+
+---
+
+# Previous OPEN BUGS list (all resolved above, kept for the repro details)
 
 # OPEN BUGS — reported live by the user, 2026-09-03/04 device-testing round (start fresh session here)
 

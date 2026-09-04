@@ -1,4 +1,5 @@
 import '../../features/dashboard/models/hazard_report.dart';
+import '../services/routing_service.dart' show ManeuverKind;
 import 'app_language.dart';
 
 /// All UI text for the Split-Mode Dashboard, My Settings, the Crowdsource
@@ -33,6 +34,19 @@ class Dashboard {
   String get chatVoiceUnavailable =>
       _t('Voice input isn\'t available on this device.', 'এই ডিভাইসে ভয়েস ইনপুট নেই।');
   String get chatSendSemantics => _t('Send message', 'বার্তা পাঠান');
+  String get chatTypeInsteadSemantics => _t('Type instead', 'বদলে লিখুন');
+
+  /// Spoken right after a read-back, so the escape route is part of the
+  /// same breath as the thing being confirmed — a user who has to remember
+  /// a cancel word from an earlier screen does not have one.
+  String cancelWindowPrompt(int seconds) => _t(
+        'Sending in $seconds seconds. Say cancel to stop, or change it to say it again.',
+        '$seconds সেকেন্ডে পাঠানো হবে। থামাতে বলুন বাতিল, আবার বলতে চাইলে বলুন বদলাও।',
+      );
+  String get cancelWindowCancelled => _t('Cancelled. Nothing was sent.', 'বাতিল হয়েছে। কিছু পাঠানো হয়নি।');
+  String cancelWindowReadBack(String value) =>
+      _t('You said: $value.', 'আপনি বলেছেন: $value।');
+  String get chatCloseKeyboardSemantics => _t('Close the keyboard', 'কীবোর্ড বন্ধ করুন');
   String get chatAssistantTyping => _t('Assistant is typing', 'সহকারী লিখছে');
   String chatYouSaid(String text) => _t('You said: $text', 'আপনি বলেছেন: $text');
   String chatAssistantSaid(String text) => _t('Assistant said: $text', 'সহকারী বলেছে: $text');
@@ -76,6 +90,284 @@ class Dashboard {
     }
     return _t('Continue ahead — $km km to go.', 'সামনে এগিয়ে যান — বাকি আছে $km কিলোমিটার।');
   }
+
+  // Working out where an unknown destination actually is.
+  //
+  // The rule these follow: **never ask the same question twice.** A user
+  // who could answer "where is it?" would have answered it the first time.
+  // Each round asks for a different kind of clue — an area, then a
+  // landmark — because that is how a person actually helps someone find a
+  // place they cannot name precisely.
+
+  /// First round: ask for the area. Broad, easy to answer, and the single
+  /// most useful thing for narrowing a Dhaka search.
+  String clarifyAskArea(String place) => _t(
+        "I couldn't find $place. Which area is it in — Dhanmondi, Mirpur, Uttara, somewhere else?",
+        '$place খুঁজে পেলাম না। এটা কোন এলাকায় — ধানমন্ডি, মিরপুর, উত্তরা, নাকি অন্য কোথাও?',
+      );
+
+  /// Second round: ask for a landmark. Someone who could not name the area
+  /// can usually still name what is next to it.
+  String clarifyAskLandmark(String place) => _t(
+        "Still not finding $place. Is there a landmark near it — a market, a hospital, a big road, "
+            'a bus stop?',
+        '$place এখনো পাচ্ছি না। এর কাছাকাছি চেনা কিছু আছে — কোনো বাজার, হাসপাতাল, বড় রাস্তা, বাস স্ট্যান্ড?',
+      );
+
+  /// Asked when the geocoder found several genuinely different places.
+  /// Numbered, because a user who cannot see a list cannot point at one.
+  String clarifyChooseOption(List<String> labels) {
+    final numbered = [
+      for (var i = 0; i < labels.length; i++)
+        _bn ? '${_bengaliNumeral(i + 1)}, ${labels[i]}' : '${i + 1}, ${labels[i]}',
+    ].join('. ');
+    return _t(
+      'I found a few places by that name. $numbered. Which one — say the number, or the name.',
+      'ওই নামে কয়েকটা জায়গা পেয়েছি। $numbered। কোনটা — নম্বরটা বলুন, বা নামটা বলুন।',
+    );
+  }
+
+  String _bengaliNumeral(int n) => n
+      .toString()
+      .split('')
+      .map((c) => String.fromCharCode(0x09E6 + (c.codeUnitAt(0) - 0x30)))
+      .join();
+
+  /// Given up after [DestinationClarification.maxAttempts].
+  ///
+  /// Ends with something the user can actually do, not an apology. Being
+  /// told "sorry, I failed" while standing on a footpath is worthless; being
+  /// told the two things that *do* work is not.
+  String clarifyGaveUp(String place) => _t(
+        "I still can't place $place, and I don't want to send you the wrong way. Two things that will "
+            'work: if you have been there before, ask someone nearby for the area name and tell me that. '
+            'Or, once you are there, say "save this place" and I will remember it for next time.',
+        '$place কোথায় সেটা এখনো বুঝতে পারছি না, আর ভুল পথে পাঠাতে চাই না। দুটো উপায় আছে: আগে গিয়ে থাকলে '
+            'আশেপাশের কাউকে এলাকার নাম জিজ্ঞেস করে আমাকে বলুন। অথবা একবার পৌঁছে গিয়ে "এই জায়গাটা সেভ করো" '
+            'বললে পরেরবারের জন্য আমি মনে রাখব।',
+      );
+
+  String get clarifyCancelled =>
+      _t('Alright, I have dropped that.', 'ঠিক আছে, ওটা বাদ দিলাম।');
+
+  /// Re-asked when a reply carried nothing usable.
+  String get clarifyUnclear => _t(
+        "Sorry, I didn't catch that. Tell me anything you know about where it is, "
+            'or say "cancel" to stop looking.',
+        'দুঃখিত, বুঝতে পারিনি। জায়গাটা সম্পর্কে যা জানেন বলুন, অথবা খোঁজা বন্ধ করতে "বাদ" বলুন।',
+      );
+
+  /// Said after a clarified destination finally resolves. Offers to save it,
+  /// because a place that took three questions to find is precisely the one
+  /// worth never having to find again.
+  String clarifyResolvedOfferSave(String place) => _t(
+        'Found it. Say "save this place" when you get there and I will remember $place for next time.',
+        'পেয়ে গেছি। পৌঁছে গিয়ে "এই জায়গাটা সেভ করো" বললে $place পরেরবারের জন্য মনে রাখব।',
+      );
+
+  // Saved places — frequent destinations ("work", "Ma's house") the user
+  // can ask for by name.
+
+  String savedPlaceRouting(String label) =>
+      _t('Heading to $label — I have that saved, so no need to look it up.',
+          '$label-এর দিকে যাচ্ছি — এটা আমার সেভ করা আছে, খুঁজতে হবে না।');
+
+  String savedPlaceStored({required String label, required bool usedCurrentLocation}) =>
+      usedCurrentLocation
+          ? _t('Saved where you are now as "$label". Say "take me to $label" any time.',
+              'আপনি এখন যেখানে আছেন সেটা "$label" নামে সেভ করলাম। যেকোনো সময় "$label-এ নিয়ে চলো" বলুন।')
+          : _t('Saved "$label". Say "take me to $label" any time.',
+              '"$label" সেভ করলাম। যেকোনো সময় "$label-এ নিয়ে চলো" বলুন।');
+
+  String savedPlaceRemoved(String label) =>
+      _t('Removed "$label" from your saved places.', '"$label" আপনার সেভ করা জায়গা থেকে সরিয়ে দিলাম।');
+
+  String get savedPlaceUnknown =>
+      _t("I don't have a place saved by that name.", 'ওই নামে কোনো জায়গা সেভ করা নেই।');
+
+  /// Asked instead of guessing when a spoken name matches more than one
+  /// saved place. Walking someone to the wrong relative's house is a
+  /// failure they may not notice until they arrive.
+  String savedPlaceAmbiguous(List<String> options) {
+    final list = options.join(_bn ? ', নাকি ' : ', or ');
+    return _t('I have more than one place like that — did you mean $list?',
+        'ওই রকম একাধিক জায়গা সেভ করা আছে — আপনি কি $list বোঝাচ্ছেন?');
+  }
+
+  String get savedPlaceNeedsLocation => _t(
+        "I can't tell where you are right now, so I can't save this spot. "
+            'Tell me the address instead and I will save that.',
+        'আপনি এখন কোথায় আছেন বুঝতে পারছি না, তাই এই জায়গাটা সেভ করতে পারলাম না। '
+            'ঠিকানাটা বলুন, সেটাই সেভ করে রাখি।',
+      );
+
+  /// Read back before a voice-given value is committed.
+  ///
+  /// Every dictated value in this app gets spoken back for confirmation,
+  /// and this is the shared wording. A sighted user glances at the field
+  /// and sees the recognizer dropped a digit; a blind user has no such
+  /// moment, so the read-back *is* their only chance to catch it. Digits
+  /// are spaced out by the caller (see `spokenDigitsForReadback`) because
+  /// a text-to-speech engine reads "01712" as a single enormous number
+  /// otherwise, which is unverifiable by ear.
+  String confirmHeardValue({required String fieldLabel, required String value}) => _t(
+        'I heard $fieldLabel: $value. Is that right? Say yes to keep it, or no to say it again.',
+        '$fieldLabel শুনলাম: $value। ঠিক আছে? রাখতে "হ্যাঁ" বলুন, আবার বলতে "না" বলুন।',
+      );
+
+  String get confirmValueAccepted => _t('Got it.', 'ঠিক আছে।');
+  String get confirmValueRetry => _t('No problem — say it again.', 'সমস্যা নেই — আবার বলুন।');
+
+  // Turn-by-turn navigation narration.
+  //
+  // Phrased for someone who cannot see the road, which changes the wording
+  // in two specific ways from what a sighted navigation app says:
+  //
+  // - **Direction first, distance second.** "Turn left in 50 metres" makes
+  //   the listener hold a direction while waiting for the distance; "In 50
+  //   metres, turn left" lets them hear how urgent it is before the
+  //   instruction lands. Speech is linear — order is the interface.
+  // - **No street names when the backend has none.** Dhaka is full of
+  //   unnamed lanes, and "turn left onto unnamed road" is worse than "turn
+  //   left": it sounds like information and carries none.
+
+  String maneuverDirection(ManeuverKind kind) => switch (kind) {
+        ManeuverKind.depart => _t('set off', 'রওনা দিন'),
+        ManeuverKind.straight => _t('keep going straight', 'সোজা যেতে থাকুন'),
+        ManeuverKind.slightLeft => _t('bear slightly left', 'একটু বাঁ দিকে চাপুন'),
+        ManeuverKind.left => _t('turn left', 'বাঁ দিকে ঘুরুন'),
+        ManeuverKind.sharpLeft => _t('take the sharp left', 'জোরে বাঁ দিকে ঘুরুন'),
+        ManeuverKind.slightRight => _t('bear slightly right', 'একটু ডান দিকে চাপুন'),
+        ManeuverKind.right => _t('turn right', 'ডান দিকে ঘুরুন'),
+        ManeuverKind.sharpRight => _t('take the sharp right', 'জোরে ডান দিকে ঘুরুন'),
+        ManeuverKind.uTurn => _t('turn around', 'পেছনে ঘুরুন'),
+        ManeuverKind.roundabout => _t('go around the roundabout', 'গোল চত্বর ঘুরে যান'),
+        ManeuverKind.crossing => _t('cross the road', 'রাস্তা পার হন'),
+        ManeuverKind.arrive => _t('you have arrived', 'আপনি পৌঁছে গেছেন'),
+      };
+
+  /// Rounded to something a walking person can actually judge — 10 m steps
+  /// up close, 50 m further out. Reading "in 187 metres" aloud is precision
+  /// nobody can pace out and takes longer to say than it is worth.
+  String spokenDistance(double meters) {
+    if (meters < 20) return _t('a few steps', 'কয়েক কদম');
+    final rounded = meters < 100 ? (meters / 10).round() * 10 : (meters / 50).round() * 50;
+    return _bn ? '$rounded মিটার' : '$rounded metres';
+  }
+
+  /// Far-out and mid-range warning: distance first, then the turn.
+  String navigateTurnAhead({
+    required ManeuverKind kind,
+    required double meters,
+    String streetName = '',
+  }) {
+    final direction = maneuverDirection(kind);
+    final distance = spokenDistance(meters);
+    if (streetName.isEmpty) {
+      return _t('In $distance, $direction.', '$distance পরে, $direction।');
+    }
+    return _t('In $distance, $direction onto $streetName.', '$distance পরে, $streetName-এ $direction।');
+  }
+
+  /// The instruction itself, at the turn.
+  String navigateTurnNow({required ManeuverKind kind, String streetName = ''}) {
+    final direction = maneuverDirection(kind);
+    if (streetName.isEmpty) return _t('Now, $direction.', 'এখন, $direction।');
+    return _t('Now, $direction onto $streetName.', 'এখন, $streetName-এ $direction।');
+  }
+
+  /// Final manoeuvre — says so, so the user knows to start looking for the
+  /// door rather than the next street.
+  String navigateFinalTurn({required ManeuverKind kind, String streetName = ''}) {
+    final direction = maneuverDirection(kind);
+    return streetName.isEmpty
+        ? _t('$direction — your destination is just ahead.', '$direction — গন্তব্য একদম সামনেই।')
+        : _t('$direction onto $streetName — your destination is just ahead.',
+            '$streetName-এ $direction — গন্তব্য একদম সামনেই।');
+  }
+
+  String get navigateArrived =>
+      _t('You have arrived at your destination.', 'আপনি গন্তব্যে পৌঁছে গেছেন।');
+
+  /// Said once when the user leaves the route corridor.
+  ///
+  /// Deliberately does not bark "make a U-turn": a blind pedestrian who has
+  /// drifted needs to *stop* before doing anything else, and being told to
+  /// reverse direction immediately, on a Dhaka street, without being able to
+  /// see what is behind them, is not a safe instruction. Stop, then
+  /// re-plan.
+  String get navigateOffRoute => _t(
+        'It looks like we have come off the route. Stop somewhere safe when you can, '
+            'and say "re-route" and I will find the way from where you are now.',
+        'মনে হচ্ছে আমরা পথ থেকে সরে গেছি। সুবিধা মতো নিরাপদ জায়গায় দাঁড়ান, '
+            'আর "নতুন পথ" বলুন — আমি এখান থেকে আবার পথ খুঁজে দেব।',
+      );
+
+  /// Spoken when navigation starts, before the first manoeuvre.
+  String navigateStarted({required String destination, required double totalMeters}) => _t(
+        'Starting navigation to $destination, ${spokenDistance(totalMeters)} in total. '
+            'I will tell you each turn as it comes.',
+        '$destination-এর দিকে যাত্রা শুরু করছি, মোট ${spokenDistance(totalMeters)}। '
+            'প্রতিটি মোড় আসার আগে আমি বলে দেব।',
+      );
+
+  String get navigateStopped => _t('Navigation stopped.', 'পথ দেখানো বন্ধ করলাম।');
+
+  /// Used when a route was planned but the backend returned no manoeuvres,
+  /// so there is nothing to narrate turn by turn.
+  String navigateNoStepsFallback({required String destination, required double meters}) => _t(
+        'I have the route to $destination, ${spokenDistance(meters)} away, but no turn-by-turn '
+            'directions for it. Follow the arrow, and ask me any time where to go next.',
+        '$destination-এর পথ পেয়েছি, দূরত্ব ${spokenDistance(meters)}, তবে মোড়ে মোড়ে নির্দেশ পাইনি। '
+            'তীর অনুসরণ করুন, আর যেকোনো সময় আমাকে জিজ্ঞেস করুন কোন দিকে যেতে হবে।',
+      );
+
+  // Module 5 — crowdsourced hazard warnings on an active route.
+  //
+  // Deliberately worded as somebody's report rather than as fact ("a user
+  // reported", "কেউ জানিয়েছে"): a Yellow Flag is exactly one unverified
+  // person's word, and telling a blind user something is definitely there
+  // when it might not be trains them to distrust every warning the app
+  // gives — including the confirmed ones that matter most.
+
+  /// One unconfirmed report on the path ahead. Warns without rerouting.
+  String hazardWarningAhead(String hazardLabel) => _t(
+        'Heads up — a user reported $hazardLabel on the way. Take care as you approach.',
+        'খেয়াল রাখবেন — সামনে $hazardLabel আছে বলে কেউ জানিয়েছে। কাছে গেলে সাবধানে থাকবেন।',
+      );
+
+  /// Several people independently reported the same thing — this is the
+  /// route being actively steered away from it.
+  String hazardConfirmedAvoided(String hazardLabel) => _t(
+        'Several people reported $hazardLabel on the direct path, so I have routed you around it.',
+        'সরাসরি পথে $hazardLabel আছে বলে কয়েকজন জানিয়েছেন, তাই আমি ঘুরিয়ে অন্য পথে নিয়ে যাচ্ছি।',
+      );
+
+  /// No alternative existed, so the user is being walked toward a hazard
+  /// that multiple people have confirmed. The most important sentence this
+  /// module produces — it never gets softened or skipped.
+  String hazardConfirmedUnavoidable(String hazardLabel) => _t(
+        'Warning: several people reported $hazardLabel on this path and I could not find a way around it. '
+            'Please go slowly, and ask someone nearby for help if you need it.',
+        'সতর্কতা: এই পথে $hazardLabel আছে বলে কয়েকজন জানিয়েছেন, আর ঘুরে যাওয়ার কোনো পথ পাইনি। '
+            'ধীরে ধীরে যাবেন, দরকার হলে আশেপাশের কাউকে সাহায্য করতে বলবেন।',
+      );
+
+  /// Offered after the user has been warned about a structural block —
+  /// those never expire on their own (see `hazard_decay.js`), so somebody
+  /// walking past a rebuilt ramp is the only thing that clears them.
+  String get hazardResolvePrompt => _t(
+        'If it is fixed now, say "it is fixed" and I will clear it for everyone.',
+        'যদি এখন ঠিক হয়ে গিয়ে থাকে, "ঠিক হয়ে গেছে" বলুন — আমি সবার জন্য সরিয়ে দেব।',
+      );
+  String get hazardResolvedConfirmation => _t(
+        'Thank you — cleared. Other users will not be routed around it any more.',
+        'ধন্যবাদ — সরিয়ে দিয়েছি। এখন থেকে আর কাউকে ঘুরিয়ে নেওয়া হবে না।',
+      );
+  String get hazardResolveNothingToClear => _t(
+        "There is no reported hazard on your route to clear right now.",
+        'এখন আপনার পথে সরানোর মতো কোনো বিপদের খবর নেই।',
+      );
 
   // Passerby Helper overlay / picker
   String get passerbyPickerTitle => _t('What do you need to say?', 'কী বলতে চান?');

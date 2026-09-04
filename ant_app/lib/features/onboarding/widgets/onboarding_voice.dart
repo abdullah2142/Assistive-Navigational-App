@@ -123,22 +123,48 @@ bool? classifyTraitYesNo(
   final trimmed = heard.trim();
   if (trimmed.isEmpty) return null;
   final lower = trimmed.toLowerCase();
-  // Bare yes/no only trusted for a short utterance — a longer sentence
-  // that happens to contain "yes" in passing shouldn't short-circuit past
-  // the more specific phrase checks below.
-  if (trimmed.length <= 15) {
-    if (bareNo.any((w) => lower == w.toLowerCase() || lower.contains(w.toLowerCase()) || trimmed.contains(w))) {
-      return false;
-    }
-    if (bareYes.any((w) => lower == w.toLowerCase() || lower.contains(w.toLowerCase()) || trimmed.contains(w))) {
-      return true;
-    }
-  }
+
+  // The specific phrase lists are checked FIRST, before any bare yes/no.
+  //
+  // They used to be checked second, and that was a real bug with a very
+  // bad failure mode: Bangla negates *after* the verb, so the app's own
+  // suggested Deaf answer — "কানে শুনি না" ("I don't hear with my ears") —
+  // ends in the bare-no particle "না" and is short enough to hit the bare
+  // shortcut below. A Deaf user repeating back the exact phrase the app
+  // had just read out to them was classified as hearing perfectly well,
+  // and the entire Deaf/Hard-of-Hearing accommodation silently never
+  // turned on.
+  //
+  // Ordering is the fix, not more phrases: a phrase from these lists
+  // already has its negation baked in (see this function's doc comment)
+  // and is strictly more specific than a bare particle, so it must win.
   final hasPresent = presentPhrases.any((p) => lower.contains(p.toLowerCase()) || trimmed.contains(p));
   final hasAbsent = absentPhrases.any((p) => lower.contains(p.toLowerCase()) || trimmed.contains(p));
-  if (hasPresent == hasAbsent) return null; // neither, or a genuine conflict — ask again rather than guess
-  return hasPresent;
+  if (hasPresent != hasAbsent) return hasPresent;
+
+  // Nothing specific matched (or both sides did) — fall back to a bare
+  // yes/no, and only for a short utterance: a longer sentence that happens
+  // to contain "yes" in passing shouldn't decide the answer.
+  if (trimmed.length > 15) return null;
+  // Whole words, never substrings — "no" lives inside "know", "another"
+  // and "normal"; "yes" inside "yesterday". Same lesson as [fuzzyVoiceMatch]
+  // matching "male" inside "female": "I know I do" came back as a flat
+  // refusal.
+  final words = _spokenWords(lower);
+  if (bareNo.any((w) => words.contains(w.toLowerCase()))) return false;
+  if (bareYes.any((w) => words.contains(w.toLowerCase()))) return true;
+  return null;
 }
+
+/// Whitespace-separated words with punctuation stripped. Keeps ASCII word
+/// characters and the whole Bangla Unicode block (ঀ-৿) — the same class
+/// `spokenTextToDigits` uses — so the Bangla danda in "না।" is removed
+/// while the word itself survives.
+Set<String> _spokenWords(String text) => text
+    .split(RegExp(r'\s+'))
+    .map((w) => w.replaceAll(RegExp(r'[^\wঀ-৿]'), ''))
+    .where((w) => w.isNotEmpty)
+    .toSet();
 
 /// Every phrasing recognized as "I need the options read out", not just the
 /// literal words "help"/"hint" — deliberately broad (explicit user

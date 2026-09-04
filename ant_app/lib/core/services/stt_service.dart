@@ -82,16 +82,61 @@ class SttService {
   /// the system default (which is what was silently mistranscribing it),
   /// pass the standard `bn-BD` id directly and let the recognizer attempt
   /// it. English still resolves purely from the scanned list, unchanged.
+  /// Regional variants to prefer, best acoustic match first, for a user
+  /// speaking English in Dhaka.
+  ///
+  /// Taking simply the first locale whose id starts with `en` is not the
+  /// harmless default it looks like. On the Redmi 10C this was tested on,
+  /// the device's list is alphabetical and begins `en_AU, en_CA, en_IN,
+  /// ...` — so every English-speaking user was being transcribed by an
+  /// **Australian English** model. Bangladeshi English is South Asian in
+  /// its vowels and rhythm; `en_IN` is trained on precisely that family and
+  /// is by far the closest available, with `en_GB` next (Bangladeshi
+  /// English is British-derived, and place names here are romanised on
+  /// British conventions) ahead of the American and Antipodean models.
+  ///
+  /// This matters more here than in a typical app. Every command in this
+  /// app is spoken, the users cannot see a mistranscription to correct it,
+  /// and the words most likely to be mangled are Dhaka place names — the
+  /// exact input that has to be right for routing to work at all.
+  static const _englishPreference = ['en_in', 'en_gb', 'en_us', 'en_bd'];
+
+  /// The locale id to ask the recognizer for, or null to accept the
+  /// system default. Pure and separated from the plugin so the ordering
+  /// rule above is directly testable without a device.
+  @visibleForTesting
+  static String? pickLocaleId(List<String> available, AppLanguage language) {
+    final prefix = language == AppLanguage.bangla ? 'bn' : 'en';
+    String normalised(String id) => id.toLowerCase().replaceAll('-', '_');
+
+    if (language == AppLanguage.english) {
+      for (final wanted in _englishPreference) {
+        for (final id in available) {
+          if (normalised(id) == wanted) return id;
+        }
+      }
+    }
+    // No preferred variant present (or Bangla, where any Bangla pack at all
+    // is a better outcome than none): fall back to the first of the right
+    // language rather than to the system default.
+    for (final id in available) {
+      if (normalised(id).startsWith(prefix)) return id;
+    }
+    return null;
+  }
+
   Future<String?> _resolveLocaleId(AppLanguage language) async {
     final prefix = language == AppLanguage.bangla ? 'bn' : 'en';
     try {
       final available = await _speech.locales();
       debugPrint('[Stt] wanted prefix="$prefix", device locales=${available.map((l) => l.localeId).toList()}');
-      for (final locale in available) {
-        if (locale.localeId.toLowerCase().startsWith(prefix)) {
-          debugPrint('[Stt] resolved locale="${locale.localeId}" (${locale.name})');
-          return locale.localeId;
-        }
+      final match = pickLocaleId(
+        available.map((l) => l.localeId).toList(),
+        language,
+      );
+      if (match != null) {
+        debugPrint('[Stt] resolved locale="$match"');
+        return match;
       }
       if (language == AppLanguage.bangla) {
         debugPrint('[Stt] no offline Bangla pack found — trying bn-BD directly (online recognition)');
@@ -174,12 +219,7 @@ class SttService {
     required Duration pauseFor,
     required Duration listenFor,
   }) async {
-    // A reliable, app-controlled "listening started" cue — requested
-    // explicitly live: the OS's own mic-start sound wasn't consistently
-    // audible/present, leaving no dependable signal for a user who can't
-    // see the mic icon change color that it's actually safe to start
-    // talking now.
-    HapticFeedback.lightImpact();
+    await _signalListening();
     final cloud = _cloudStt;
     if (cloud != null && CloudSttConfig.isConfigured) {
       final usedCloud = await _listenOnceViaCloud(
@@ -328,6 +368,28 @@ class SttService {
   /// timers eventually caught up), a real bug once there were two possible
   /// backends instead of one. Safe to call both unconditionally: stopping
   /// a backend that was never started is a no-op on either side.
+  /// The "start speaking now" cue.
+  ///
+  /// Two buzzes rather than one, and `heavyImpact` rather than `light`.
+  /// Reported from real use: the light single tap was easy to miss
+  /// entirely, especially in a pocket, on a busy street, or by a user
+  /// whose attention is on traffic — and a cue you cannot feel is the same
+  /// as no cue, which leaves someone talking into a microphone that is not
+  /// open yet.
+  ///
+  /// Distinct from the single buzz navigation uses for a turn and the
+  /// double-then-pause for arrival, so the three stay tellable apart —
+  /// `07_module_plan_haptics.md`'s whole point is a small, learnable
+  /// vocabulary rather than a rich one.
+  Future<void> _signalListening() async {
+    HapticFeedback.heavyImpact();
+    await Future<void>.delayed(const Duration(milliseconds: 90));
+    HapticFeedback.heavyImpact();
+    // A short beat before the mic opens, so the buzz is not still running
+    // while the user starts their first word.
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+  }
+
   Future<void> stop() async {
     await _speech.stop();
     await _cloudStt?.stop();

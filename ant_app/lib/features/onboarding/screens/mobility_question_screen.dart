@@ -23,9 +23,9 @@ class MobilityQuestionScreen extends ConsumerWidget {
       onBack: controller.goBack,
       language: language,
       spokenOptions: [
-        'Option 1: ${s.mobilityWhiteCaneLabel}.',
-        'Option 2: ${s.mobilityWheelchairLabel}.',
-        'Option 3: ${s.mobilityUnassistedLabel}.',
+        '${s.spokenOptionLabel(1)}: ${s.mobilityWhiteCaneLabel}.',
+        '${s.spokenOptionLabel(2)}: ${s.mobilityWheelchairLabel}.',
+        '${s.spokenOptionLabel(3)}: ${s.mobilityUnassistedLabel}.',
       ],
       voiceChoices: [
         OnboardingVoiceChoice(

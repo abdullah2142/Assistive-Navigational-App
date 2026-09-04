@@ -112,12 +112,33 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
       if (!mounted) return;
       setState(() => _myLocation = LatLng(position.latitude, position.longitude));
       if (RoutingConfig.useOpenStreetMap && _lastFittedRoute == null) {
-        _osmController.move(_toLL(_myLocation!), 16);
+        // Deferred a frame: `initialCenter` is read once at construction, and
+        // the fix is on the location arriving afterwards — which on a real
+        // device it always does (confirmed from a device log: two builds at
+        // `myLocation=null` before the first fix landed). If that fix happens
+        // to arrive before `FlutterMap` has attached this controller, moving
+        // it now is silently lost and the user is left looking at the
+        // city-centre fallback.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _lastFittedRoute != null) return;
+          _osmController.move(_toLL(_myLocation!), _myLocationZoom);
+        });
       }
     } catch (_) {
       // Graceful degradation — the map just falls back to the Dhaka default.
     }
   }
+
+  /// Zoom used when the camera is showing *where the user is* rather than a
+  /// whole route.
+  ///
+  /// Was 16, which frames a neighbourhood — several hundred metres across,
+  /// with the user a dot in it. That is the wrong scale for this map's
+  /// actual job: it is read over the user's shoulder by a caretaker, or
+  /// glanced at by a low-vision user, to answer "where am I and what is
+  /// immediately around me". 17.5 puts individual street names and the
+  /// footpath the route follows at legible size.
+  static const double _myLocationZoom = 17.5;
 
   RouteChoice? _lastFittedRoute;
 
@@ -234,17 +255,31 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
 
   Widget _buildMap(RouteChoice? route) {
     final d = Dashboard.of(widget.language);
+    debugPrint('[Map] building — openStreetMap=${RoutingConfig.useOpenStreetMap} '
+        'mapsConfigured=${MapsConfig.isConfigured} myLocation=$_myLocation');
     if (RoutingConfig.useOpenStreetMap) {
       return FlutterMap(
         mapController: _osmController,
         options: MapOptions(
           initialCenter: _toLL(_myLocation ?? _dhakaFallback),
-          initialZoom: 16,
+          initialZoom: _myLocationZoom,
         ),
         children: [
           TileLayer(
             urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             userAgentPackageName: 'com.ant.assistive.ant_app',
+            // Tile failures were completely silent — a map that renders no
+            // tiles looks identical to a map that was never asked to, and
+            // "the dashboard shows a blank placeholder" was reported with
+            // nothing in the logs to explain it. The tile server itself
+            // answers 200 to this exact User-Agent (verified directly), so
+            // whatever goes wrong is client-side and needs to say so.
+            errorTileCallback: (tile, error, stackTrace) {
+              debugPrint('[Map] tile failed ${tile.coordinates}: $error');
+            },
+            // Drop failed tiles from the cache so a transient failure isn't
+            // remembered as a permanent grey square.
+            evictErrorTileStrategy: EvictErrorTileStrategy.dispose,
             // Deliberately not a `const` map — `flutter_map`'s tile
             // provider mutates the headers map it's given internally
             // (confirmed live: "Unsupported operation: Cannot modify
@@ -275,7 +310,8 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
       return MapUnavailablePlaceholder(message: d.mapLiveViewLabel, subtitle: d.mapUnavailableSubtitle);
     }
     return gmaps.GoogleMap(
-      initialCameraPosition: gmaps.CameraPosition(target: _myLocation ?? _dhakaFallback, zoom: 16),
+      initialCameraPosition:
+          gmaps.CameraPosition(target: _myLocation ?? _dhakaFallback, zoom: _myLocationZoom),
       style: _cleanMapStyle,
       myLocationEnabled: true,
       myLocationButtonEnabled: false,

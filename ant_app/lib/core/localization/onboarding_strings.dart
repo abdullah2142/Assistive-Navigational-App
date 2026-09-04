@@ -65,10 +65,8 @@ class Onboarding {
 
   // User pairing (disabled user enters code)
   String get userPairingTitle => _t('Enter your caretaker\'s code', 'দেখাশোনাকারীর কোড লিখুন');
-  // Deliberately states the skip option right here, not just in
-  // `userPairingSpokenHint` — that hint is no longer spoken automatically
-  // (see `OnboardingScaffold`'s "brief intro, full options on request"
-  // redesign), but "you don't actually need a caretaker" isn't a
+  // Deliberately states the skip option right here as well as in
+  // `userPairingSpokenHint` — "you don't actually need a caretaker" isn't a
   // choice-enumeration detail a user can just ask "help" for if they don't
   // already know it's an option at all — it has to be said upfront, every
   // time, or a user with no caretaker could get stuck here not realizing
@@ -273,6 +271,11 @@ class Onboarding {
       _t('Add at least one trusted contact. They\'ll get an SMS with your location if you press the Magic Button.', 'অন্তত একজন বিশ্বস্ত মানুষের নাম দিন। আপনি ম্যাজিক বাটন চাপলে তিনি আপনার অবস্থানসহ একটি SMS পাবেন।');
   String get contactsNameHint => _t('Name (e.g. Mother)', 'নাম (যেমন মা)');
   String get contactsPhoneHint => _t('Phone number', 'ফোন নম্বর');
+  // Spoken when a dictated value is read back for confirmation — the hints
+  // above carry an example in parentheses, which is useful on screen and
+  // confusing out loud.
+  String get contactsNameLabel => _t('the name', 'নামটি');
+  String get contactsPhoneLabel => _t('the phone number', 'ফোন নম্বরটি');
   String get contactsAddButton => _t('Add contact', 'পরিচিতি যোগ করুন');
   String get contactsErrorAtLeastOne =>
       _t('Please add at least one trusted contact for the Magic Button to work.', 'ম্যাজিক বাটন কাজ করার জন্য অন্তত একজনের নাম দিন।');
@@ -413,7 +416,118 @@ class Onboarding {
   List<String> get safeHavensSkipWords =>
       _bn ? const ['বাদ', 'নেই', 'স্কিপ'] : const ['skip', 'none', 'no', "don't have one", 'nothing'];
 
+  // Frequent places (optional) — destinations the user can later ask for
+  // by name instead of by address.
+  String get placesTitle => _t('Anywhere you go often?', 'নিয়মিত কোথাও যান?');
+  String get placesSubtitle => _t(
+        'If you tell me now, you can just say "take me to work" later instead of giving the whole address. '
+            'You can skip this and add them any time by saying "save this place".',
+        'এখন বলে রাখলে পরে শুধু "অফিসে নিয়ে চলো" বললেই হবে, পুরো ঠিকানা বলতে হবে না। '
+            'চাইলে এখন বাদ দিয়ে পরে যেকোনো সময় "এই জায়গাটা সেভ করো" বলেও যোগ করতে পারবেন।',
+      );
+  String get placesSpokenHint => _t(
+        'This one is optional. Tell me a place you go to often — like work, school, a relative\'s house, '
+            'or your doctor — and then its address. Say "skip" or "done" whenever you want to move on.',
+        'এটা ইচ্ছা হলে দিতে পারেন। আপনি নিয়মিত যান এমন একটা জায়গার কথা বলুন — যেমন অফিস, স্কুল, '
+            'আত্মীয়ের বাড়ি, বা ডাক্তারের চেম্বার — তারপর তার ঠিকানা। এগিয়ে যেতে চাইলে "বাদ" বা "শেষ" বলুন।',
+      );
+  String get placesNamePromptSpoken =>
+      _t('What do you want to call this place?', 'এই জায়গাটাকে কী নামে ডাকবেন?');
+  String get placesAddressPromptSpoken =>
+      _t('And what is the address?', 'আর ঠিকানাটা কী?');
+  String get placesNameLabel => _t('the place name', 'জায়গার নাম');
+  String get placesAddressLabel => _t('the address', 'ঠিকানা');
+  String get placesAddAnotherSpoken => _t(
+        'Saved. Say "another" to add one more, or "done" to move on.',
+        'সেভ হয়ে গেছে। আরেকটা যোগ করতে "আরেকটা" বলুন, নয়তো এগিয়ে যেতে "শেষ" বলুন।',
+      );
+  String get placesAddAnotherLabel => _t('Add another', 'আরেকটা যোগ করুন');
+  List<String> get placesAddAnotherSynonyms =>
+      _bn ? const ['আরেকটা', 'আরও', 'আরেকটি'] : const ['another', 'one more', 'add', 'more'];
+  String get placesSkipLabel => _t('Skip for now', 'আপাতত বাদ দিন');
+  List<String> get placesSkipSynonyms => _bn
+      ? const ['বাদ', 'শেষ', 'পরে', 'স্কিপ', 'দরকার নেই']
+      : const ['skip', 'done', 'later', 'none', 'no thanks', 'nothing', 'finished'];
+  String get placesFieldNameHint => _t('e.g. Work', 'যেমন অফিস');
+  String get placesFieldAddressHint => _t('e.g. Gulshan 1, Road 11', 'যেমন গুলশান ১, রোড ১১');
+  String get placesAddButton => _t('Add place', 'জায়গা যোগ করুন');
+  String placesSavedCount(int n) => n == 0
+      ? _t('No places saved yet.', 'এখনো কোনো জায়গা সেভ করা হয়নি।')
+      : _t('$n place${n == 1 ? '' : 's'} saved.', '$n টি জায়গা সেভ করা আছে।');
+
   // Lock-in summary
+  // ---- Voice command tour -------------------------------------------
+
+  String get commandTourTitle => _t('How to talk to the app', 'অ্যাপের সাথে যেভাবে কথা বলবেন');
+  String get commandTourSubtitle => _t(
+        'A few things you can say. You never have to remember them exactly.',
+        'কিছু কথা যা আপনি বলতে পারেন। হুবহু মনে রাখার দরকার নেই।',
+      );
+
+  /// Grouped so the user hears a *category* before its examples — a flat
+  /// list of a dozen sentences is unmemorable read aloud, and this screen
+  /// exists to leave an impression, not to be a reference.
+  /// [note] is guidance *about* a command rather than something to say —
+  /// kept in its own field so it is never narrated in the same breath as a
+  /// real example. A user who repeats a sentence like "then say send when
+  /// you are done" at the microphone gets nothing, and has no way to tell
+  /// which of the lines they were read was the one meant literally.
+  List<({String heading, List<String> examples, String? note})> get commandTourGroups => [
+        (
+          heading: _t('To go somewhere, say', 'কোথাও যেতে বলুন'),
+          examples: [
+            _t('Take me to Gulshan', 'আমি গুলশান যেতে চাই'),
+            _t('Take me home', 'বাসায় যাব'),
+            _t('Go to work', 'অফিসে যাব'),
+          ],
+          note: null,
+        ),
+        (
+          heading: _t('To report something unsafe, say', 'অনিরাপদ কিছু জানাতে বলুন'),
+          examples: [
+            _t('Report a hazard', 'বিপদ জানাও'),
+            _t("There's an open manhole", 'ম্যানহোল আছে'),
+          ],
+          note: _t(
+            'Describe it in your own words, then say "send" to file it.',
+            'নিজের ভাষায় বলুন, তারপর পাঠাতে বলুন "সেন্ড"।',
+          ),
+        ),
+        (
+          heading: _t('To change a setting, say', 'সেটিং বদলাতে বলুন'),
+          examples: [
+            _t('Make the text bigger', 'লেখা বড় করো'),
+            _t('Speak to me in Bangla', 'বাংলায় বলো'),
+            _t('Keep your answers short', 'সংক্ষেপে বলো'),
+          ],
+          note: _t(
+            'Straight after, "even bigger" keeps adjusting the same thing.',
+            'এর পরেই "আরও বড়" বললে একই জিনিস আবার বদলাবে।',
+          ),
+        ),
+        (
+          heading: _t('For help from a stranger, say', 'অপরিচিত কারও সাহায্য পেতে বলুন'),
+          examples: [
+            _t('Show my screen', 'স্ক্রিন দেখাও'),
+          ],
+          note: null,
+        ),
+      ];
+
+  String get commandTourClosing => _t(
+        'You do not have to say these exactly. Say it however feels natural, and the app will work it out. '
+        'If it misses twice, it will tell you one short phrase that always works.',
+        'এগুলো হুবহু বলতে হবে না। আপনার স্বাভাবিক ভাবেই বলুন, অ্যাপ বুঝে নেবে। '
+        'দুইবার না বুঝলে অ্যাপ আপনাকে একটি ছোট বাক্য বলে দেবে যা সবসময় কাজ করে।',
+      );
+
+  String get commandTourRepeatLabel => _t('Hear it again', 'আবার শুনুন');
+  List<String> get commandTourRepeatSynonyms =>
+      _t('again, repeat, one more time, say again', 'আবার, আরেকবার, পুনরায়').split(', ');
+  String get commandTourContinueLabel => _t('I am ready', 'আমি প্রস্তুত');
+  List<String> get commandTourContinueSynonyms =>
+      _t('ready, continue, next, ok, got it, done', 'প্রস্তুত, ঠিক আছে, পরবর্তী, বুঝেছি').split(', ');
+
   String get lockInTitle => _t('You\'re all set', 'সব প্রস্তুত');
   String get lockInSubtitle => _t(
         'Once you confirm, this setup screen goes away for good. To change anything later, '
@@ -467,6 +581,64 @@ class Onboarding {
   String get voiceListeningIndicator => _t('Listening for your answer…', 'আপনার উত্তর শুনছি…');
   String get voiceDictateSemantics => _t('Dictate this by voice', 'কথা বলে লিখুন');
   String get voiceDoneWord => _t('done', 'শেষ');
+
+  /// Appended to a spoken yes/no question so the listener knows what a
+  /// valid answer sounds like *before* the mic opens, rather than only
+  /// after asking for help — see `CognitiveAnxietyScreen`.
+  /// Spoken once, on the first screen after the language is chosen.
+  ///
+  /// A user who cannot see the screen has no way to discover that this app
+  /// is voice-driven — nothing announces it, and the alternative is finding
+  /// out by accident or not at all. It also teaches the one convention
+  /// everything else depends on: **two buzzes mean it is your turn to
+  /// speak.** Without that, the microphone opening is invisible and
+  /// inaudible, and people talk into a mic that is not listening yet.
+  ///
+  /// Deliberately short. This is the first thing anyone hears, and a long
+  /// preamble before the first question is its own kind of obstacle.
+  String get voiceIntroSpoken => _t(
+        'Before we start, two quick things. You can do everything here by voice — I will read out '
+            'your choices and you just say the one you want, and later you can change any setting '
+            'just by telling me, like "make the text bigger" or "take me to work". And whenever you '
+            'feel two short buzzes, that means I am listening and it is your turn to speak.',
+        'শুরু করার আগে দুটো কথা। এখানে সবকিছু আপনি কথা বলেই করতে পারবেন — আমি বিকল্পগুলো পড়ে শোনাব, '
+            'আপনি শুধু যেটা চান সেটা বলবেন। পরে যেকোনো সেটিংও শুধু বলেই পাল্টাতে পারবেন, যেমন '
+            '"লেখা বড় করো" বা "অফিসে নিয়ে চলো"। আর যখনই দুইবার ছোট কম্পন অনুভব করবেন, বুঝবেন আমি '
+            'শুনছি — তখন আপনি বলবেন।',
+      );
+
+  String get voiceAnswerYesOrNo =>
+      _t('Answer yes or no.', 'হ্যাঁ অথবা না বলুন।');
+
+  /// Accepted confirmations when a dictated value is read back for
+  /// checking. Wider than a bare yes/no on purpose — people confirm a
+  /// read-back with "correct", "that's it", "ঠিক আছে" far more often than
+  /// with a flat "yes", and rejecting those would make the user repeat
+  /// themselves over a value that was already right.
+  List<String> get confirmYesWords => _bn
+      ? const ['হ্যাঁ', 'হ্যা', 'জি', 'ঠিক', 'ঠিক আছে', 'হুম', 'সঠিক']
+      : const ['yes', 'yeah', 'yep', 'yup', 'correct', 'right', 'sure', 'ok', 'okay', 'perfect', 'exactly'];
+
+  List<String> get confirmNoWords => _bn
+      ? const ['না', 'নাহ', 'ভুল', 'আবার', 'ঠিক নয়']
+      : const ['no', 'nope', 'nah', 'wrong', 'incorrect', 'again', 'redo', 'change'];
+
+  /// Numbers a spoken choice — "Option 1: …", "বিকল্প ১: …".
+  ///
+  /// Was hardcoded English inline in six screens, so a Bangla user's
+  /// narration read "Option 1: [Bangla label]". The Bangla numeral matters
+  /// as much as the word: a `bn-BD` TTS voice reads a bare ASCII "1" with
+  /// an English-accented pronunciation mid-Bangla-sentence.
+  String spokenOptionLabel(int number) =>
+      _bn ? 'বিকল্প ${_bengaliNumeral(number)}' : 'Option $number';
+
+  /// ASCII digits → Bengali numerals (০-৯), for numbers spoken aloud in
+  /// Bangla. Mirrors the reverse conversion in `spokenTextToDigits`.
+  String _bengaliNumeral(int number) => number
+      .toString()
+      .split('')
+      .map((c) => String.fromCharCode(0x09E6 + (c.codeUnitAt(0) - 0x30)))
+      .join();
 
   /// Localized labels for the disability-profile enums, used by
   /// [MySettingsScreen]/[RemoteManagementScreen] chips as well as onboarding.

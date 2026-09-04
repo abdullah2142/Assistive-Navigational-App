@@ -123,6 +123,13 @@ class WakeWordService {
     _pendingBytes.clear();
     _melFrames.clear();
     _embeddings.clear();
+    // Reset the detection cooldown too. Without this, a restart that lands
+    // inside the cooldown window from the *previous* session's detection
+    // silently swallows the next wake word — the one case where "it worked
+    // once and then stopped" is exactly what the user would see.
+    _lastDetection = null;
+    _lastScoreLog = null;
+    _peakSinceLog = 0;
 
     final stream = await _recorder.startStream(
       // See `CloudSttService`'s identical config for why — the assistant's
@@ -139,7 +146,7 @@ class WakeWordService {
       ),
     );
     _audioSub = stream.listen((bytes) => _onAudioBytes(bytes, onDetected));
-    debugPrint('[WakeWord] listening started');
+    debugPrint('[WakeWord] listening started (restart-safe: buffers and cooldown cleared)');
     return true;
   }
 
@@ -172,6 +179,30 @@ class WakeWordService {
     }
   }
 
+  // Score logging was one line per frame — roughly twelve a second, which
+  // buried every other log in the app and made a real device session
+  // impossible to read. Now a periodic summary carrying the *peak* score
+  // in each window, which is the number that actually matters: if a user
+  // says the wake phrase and the peak stays near zero, the detector is not
+  // hearing them (a microphone or echo-cancellation problem); if it peaks
+  // at 0.3, it is hearing them and the threshold is wrong. One line every
+  // few seconds distinguishes those; twelve identical lines a second
+  // distinguishes nothing.
+  static const Duration _scoreLogInterval = Duration(seconds: 3);
+  DateTime? _lastScoreLog;
+  double _peakSinceLog = 0;
+
+  void _logScore(double score) {
+    _peakSinceLog = score > _peakSinceLog ? score : _peakSinceLog;
+    final now = DateTime.now();
+    _lastScoreLog ??= now;
+    if (now.difference(_lastScoreLog!) < _scoreLogInterval) return;
+    debugPrint('[WakeWord] peak=${_peakSinceLog.toStringAsFixed(3)} '
+        '(threshold $detectionThreshold) over the last ${_scoreLogInterval.inSeconds}s');
+    _lastScoreLog = now;
+    _peakSinceLog = 0;
+  }
+
   void _processChunk(Int16List pcm, void Function() onDetected) {
     final frames = _runMelspectrogram(pcm);
     for (final frame in frames) {
@@ -193,7 +224,7 @@ class WakeWordService {
 
     final embeddingWindow = _embeddings.sublist(_embeddings.length - _embeddingWindowCount);
     final score = _runWakeWordClassifier(embeddingWindow);
-    debugPrint('[WakeWord] score=${score.toStringAsFixed(3)}');
+    _logScore(score);
 
     final now = DateTime.now();
     final offCooldown = _lastDetection == null || now.difference(_lastDetection!) > _cooldown;

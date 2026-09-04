@@ -8,6 +8,7 @@
 // without touching the live project.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -55,5 +56,36 @@ void main() {
     expect(find.text('No active alerts.'), findsOneWidget);
     expect(find.text('No messages yet.'), findsOneWidget);
     expect(find.text('Waiting for the first location update…'), findsOneWidget);
+  });
+
+  // Regression guard for the OpenStreetMap swap: `flutter_map`'s tile
+  // provider mutates the headers map it's handed, so a `const` literal
+  // there crashed with "Unsupported operation: Cannot modify unmodifiable
+  // map" the moment a real location arrived and the map actually rendered.
+  // The empty-state test above never reaches that code path.
+  testWidgets('Overwatch renders a real map (OSM tile path) once a location arrives', (tester) async {
+    const disabledUserUid = 'disabled-1';
+    final profile = UserProfile(uid: 'caretaker-1', role: UserRole.caretaker, pairedUserId: disabledUserUid);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          liveLocationStreamProvider(disabledUserUid).overrideWith(
+            (ref) => Stream<LiveLocation?>.value(
+              const LiveLocation(uid: disabledUserUid, lat: 23.8103, lng: 90.4125, batteryPercent: 72),
+            ),
+          ),
+          alertsStreamProvider(disabledUserUid).overrideWith((ref) => Stream<List<GuardianAlert>>.value(const [])),
+          communicationsStreamProvider(disabledUserUid)
+              .overrideWith((ref) => Stream<List<CommunicationMessage>>.value(const [])),
+        ],
+        child: MaterialApp(home: GuardianHubScreen(profile: profile)),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(FlutterMap), findsOneWidget);
+    expect(find.text('72%'), findsOneWidget);
   });
 }

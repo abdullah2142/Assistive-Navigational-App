@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +8,7 @@ import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/stt_service.dart';
+import '../../../core/services/voice_cancel_window.dart';
 import '../../../core/services/tts_service.dart';
 import 'passerby_helper_overlay.dart';
 
@@ -168,7 +171,7 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
           return;
         }
         if (extracted.isNotEmpty) _commitToCompose(extracted);
-        if (composeController.text.trim().isNotEmpty) _submitCompose(context);
+        if (composeController.text.trim().isNotEmpty) _submitCompose(context, fromVoice: true);
       },
     );
     if (mounted) setState(() => _listening = false);
@@ -212,7 +215,7 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
           if (extracted.isNotEmpty) _commitToCompose(extracted);
           if (composeController.text.trim().isNotEmpty) {
             submitted = true;
-            _submitCompose(context);
+            _submitCompose(context, fromVoice: true);
           }
         },
       );
@@ -261,9 +264,39 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
     return null;
   }
 
-  void _submitCompose(BuildContext context) {
+  /// Shows the composed message to the passer-by.
+  ///
+  /// A dictated message gets a read-back and a window to stop it: this text
+  /// is about to be held up to a stranger, and the person holding the phone
+  /// is the one person present who cannot see what it says. A tapped submit
+  /// skips it — that text is on screen and has been read.
+  Future<void> _submitCompose(BuildContext context, {required bool fromVoice}) async {
     final text = composeController.text.trim();
     if (text.isEmpty) return;
+
+    if (fromVoice) {
+      final outcome = await VoiceCancelWindow.run(
+        tts: _tts,
+        stt: _stt,
+        language: widget.language,
+        readBack: strings.cancelWindowReadBack(text),
+        isCancelled: () => !mounted,
+      );
+      if (!mounted) return;
+      if (outcome == CancelWindowOutcome.cancelled) {
+        await _tts.speak(strings.cancelWindowCancelled, language: widget.language);
+        return;
+      }
+      if (outcome == CancelWindowOutcome.edit) {
+        _composeController.clear();
+        if (!mounted) return;
+        setState(() {});
+        unawaited(_autoListenLoop());
+        return;
+      }
+      if (!mounted) return;
+    }
+    if (!context.mounted) return;
     Navigator.of(context).pop(text);
   }
 
@@ -347,7 +380,7 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
                       child: TextField(
                         controller: composeController,
                         decoration: InputDecoration(hintText: d.passerbyPickerComposeHint),
-                        onSubmitted: (_) => _submitCompose(context),
+                        onSubmitted: (_) => _submitCompose(context, fromVoice: false),
                       ),
                     ),
                   ),
@@ -376,7 +409,7 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () => _submitCompose(context),
+                  onPressed: () => _submitCompose(context, fromVoice: false),
                   child: Text(d.passerbyPickerShowButton),
                 ),
               ),

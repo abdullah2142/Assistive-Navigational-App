@@ -1,15 +1,45 @@
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onMessagePublished } = require("firebase-functions/v2/pubsub");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
 const { getFirestore } = require("firebase-admin/firestore");
 const { google } = require("googleapis");
-const { THANA_CRIME_SEED, densityToScore } = require("./data/dhaka_thana_crime_seed");
+const {
+  THANA_CRIME_SEED,
+  densityToScore,
+  isNotoriousHotspot,
+  isHotspotZone,
+} = require("./data/dhaka_thana_crime_seed");
 const thanaGeometry = require("./data/dhaka_thana_geometry.json");
 const { decodePolyline, zonesOnRoute, toFirestoreGeometry } = require("./lib/geo");
 const { temporalMultiplier } = require("./lib/temporal_weighting");
+const {
+  validateAdvisory,
+  advisoryMultiplier,
+  advisoryImpliesHotspot,
+  strongestAdvisory,
+  DEFAULT_TTL_MS,
+} = require("./lib/thana_advisory");
+const {
+  validateSignal,
+  deriveAdvisory,
+  CORROBORATION_WINDOW_MS,
+} = require("./lib/social_signal");
+const { learnedAdjustment, recordEvidenceMonth } = require("./lib/learned_baseline");
+const {
+  buildZones,
+  belongsToZone,
+  evaluateZone,
+  flagFor,
+  hazardWeight,
+  haversineMeters,
+  FLAG_YELLOW,
+  FLAG_RED,
+} = require("./lib/hazard_clustering");
+const { isExpired, ttlMsFor } = require("./lib/hazard_decay");
 const { PEDESTRIAN_RELEVANT_CATEGORIES, fetchAndExtractLatestReport } = require("./lib/crime_report_ingestion");
 
 initializeApp();
@@ -173,6 +203,12 @@ exports.seedCrimeZones = onCall(async (request) => {
         geometry: toFirestoreGeometry(geometry),
         baseCrimeScore: densityToScore(entry.densityEstimate),
         categoryHint: entry.categoryHint,
+        // Derived, not hand-listed — see `isNotoriousHotspot`. Kept
+        // alongside `categoryHint` rather than replacing it: Paltan is a
+        // commercial core *and* an outlier, and collapsing the two would
+        // throw away the daytime-footfall signal the temporal multiplier
+        // needs.
+        notoriousHotspot: isNotoriousHotspot(entry),
         dataSource: entry.dataSource,
         updatedAt: new Date().toISOString(),
       },
@@ -253,7 +289,12 @@ exports.checkRouteSafety = onCall(async (request) => {
   }
 
   const routePoints = decodePolyline(polyline);
-  const [zones, cityTrendMultiplier] = await Promise.all([loadZones(), loadCityTrendMultiplier()]);
+  const [zones, cityTrendMultiplier, hazardZones, advisories] = await Promise.all([
+    loadZones(),
+    loadCityTrendMultiplier(),
+    loadHazardZones(),
+    loadThanaAdvisories(),
+  ]);
   const hitZones = zonesOnRoute(routePoints, zones);
 
   // Bangladesh Standard Time is a fixed UTC+6 offset (no DST) — computed
@@ -263,27 +304,583 @@ exports.checkRouteSafety = onCall(async (request) => {
 
   const threshold = 7;
   const evaluatedZones = hitZones.map((zone) => {
-    const timeMultiplier = temporalMultiplier(zone.categoryHint, dhakaHour);
+    // Derived from the stored document, not from a persisted flag — so
+    // this works against zones seeded before the hotspot rule existed,
+    // with no re-seed required. See `isHotspotZone`.
+    //
+    // A current, sourced advisory can also promote a thana to hotspot
+    // behaviour: that is how a neighbourhood which has genuinely
+    // deteriorated since 2009 (Mohammadpur being the standing example)
+    // becomes visible to routing at all, given the base table cannot know.
+    const advisory = strongestAdvisory(advisories[zone.id] || [], atMs);
+    const advisoryFactor = advisoryMultiplier(advisory, atMs);
+    // The slow half: months in which this thana had independent evidence,
+    // accumulated by the hourly sweep. This is what stops a neighbourhood
+    // reverting to its 2009 score the moment a news advisory expires.
+    const learnedFactor = learnedAdjustment(zone.evidenceMonths, atMs);
+    const hotspot = isHotspotZone(zone) || advisoryImpliesHotspot(advisory, atMs);
+    const timeMultiplier = temporalMultiplier(zone.categoryHint, dhakaHour, { isHotspot: hotspot });
     return {
       thanaName: zone.thanaName,
       baseCrimeScore: zone.baseCrimeScore,
+      notoriousHotspot: hotspot,
       temporalMultiplier: timeMultiplier,
       cityTrendMultiplier,
-      effectiveScore: Math.round(zone.baseCrimeScore * timeMultiplier * cityTrendMultiplier * 10) / 10,
+      advisoryMultiplier: advisoryFactor,
+      learnedMultiplier: learnedFactor,
+      evidenceMonths: (zone.evidenceMonths || []).length,
+      // Returned so the provenance of any elevated score is inspectable
+      // from the client, not just from the server logs — an advisory that
+      // cannot be traced back to its source should not be able to change
+      // what the app tells a user about a real neighbourhood.
+      advisory: advisory
+        ? {
+            severity: advisory.severity,
+            sourceTitle: advisory.sourceTitle,
+            sourceUrl: advisory.sourceUrl,
+            publishedAt: advisory.publishedAt,
+          }
+        : null,
+      effectiveScore:
+        Math.round(
+          zone.baseCrimeScore * timeMultiplier * cityTrendMultiplier * advisoryFactor * learnedFactor * 10,
+        ) / 10,
       dataSource: zone.dataSource,
     };
   });
 
-  const riskScore = evaluatedZones.length > 0 ? Math.max(...evaluatedZones.map((z) => z.effectiveScore)) : 1;
+  // $w_2$ — crowdsourced terrain/hazard pins the route actually passes.
+  // Scored on the same 1-10 scale as $w_1$ against the same threshold, so
+  // one comparison covers both: a confirmed (Red Flag) hazard is enough on
+  // its own to make a route unsafe, an unconfirmed (Yellow Flag) one is
+  // returned as a warning the client speaks without rerouting anybody.
+  const hitHazards = hazardsOnRoute(routePoints, hazardZones);
+  const blockingHazards = hitHazards.filter((h) => h.hazardWeight > threshold);
+  const hazardWarnings = hitHazards.filter((h) => h.hazardWeight <= threshold);
+
+  const crimeRisk = evaluatedZones.length > 0 ? Math.max(...evaluatedZones.map((z) => z.effectiveScore)) : 1;
+  const hazardRisk = hitHazards.length > 0 ? Math.max(...hitHazards.map((h) => h.hazardWeight)) : 0;
+  const riskScore = Math.max(crimeRisk, hazardRisk);
   const dangerousZones = evaluatedZones.filter((z) => z.effectiveScore > threshold);
 
   return {
-    safe: dangerousZones.length === 0,
+    safe: dangerousZones.length === 0 && blockingHazards.length === 0,
     riskScore,
     threshold,
     evaluatedZones,
     dangerousZones,
+    // Module 5 additions. Named separately from `dangerousZones` rather
+    // than merged into it: the client says different things about a
+    // *neighbourhood* being risky at this hour and about a specific
+    // reported obstruction 20 metres ahead, and only the latter can be
+    // marked resolved by the user.
+    blockingHazards,
+    hazardWarnings,
   };
+});
+
+/**
+ * Current, sourced per-thana advisories — see `lib/thana_advisory.js` for
+ * why these exist, why they require a citable source, and why they expire.
+ *
+ * Cached for a minute like hazard zones rather than ten like crime zones:
+ * these change on a news cycle, not on a decade.
+ */
+let cachedAdvisories = null;
+let cachedAdvisoriesAt = 0;
+
+async function loadThanaAdvisories() {
+  const now = Date.now();
+  if (cachedAdvisories && now - cachedAdvisoriesAt < HAZARD_CACHE_TTL_MS) {
+    return cachedAdvisories;
+  }
+  const snapshot = await getFirestore().collection("thanaAdvisories").get();
+  const byThana = {};
+  for (const doc of snapshot.docs) {
+    const advisory = doc.data();
+    (byThana[advisory.thanaSlug] ||= []).push(advisory);
+  }
+  cachedAdvisories = byThana;
+  cachedAdvisoriesAt = now;
+  return cachedAdvisories;
+}
+
+/**
+ * Records one advisory, from a named news source.
+ *
+ * A callable rather than a scraper for the same reason `recordCityCrimeMonth`
+ * is: **Cloud Functions in this project cannot reach Bangladeshi news
+ * domains** — confirmed the hard way with police.gov.bd from two regions,
+ * which is why the monthly ingest runs on a Cloudflare Worker and posts its
+ * findings in. The extraction side belongs in that same Worker; this is the
+ * contract it writes through.
+ *
+ * `validateAdvisory` is the gate, and it is deliberately strict: no source
+ * URL, no publication date, no advisory. Nothing gets to raise a real
+ * neighbourhood's danger score anonymously.
+ */
+exports.recordThanaAdvisory = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Sign-in required.");
+  }
+  const advisory = request.data || {};
+  const problem = validateAdvisory(advisory);
+  if (problem) {
+    throw new HttpsError("invalid-argument", problem);
+  }
+
+  const db = getFirestore();
+  const zone = await db.collection("crimeZones").doc(advisory.thanaSlug).get();
+  if (!zone.exists) {
+    // Refusing an unknown thana rather than storing it: an advisory that
+    // matches no zone silently does nothing forever, which looks exactly
+    // like a working pipeline.
+    throw new HttpsError("not-found", `No crimeZones document for "${advisory.thanaSlug}".`);
+  }
+
+  // Keyed by source URL so re-ingesting the same article refreshes it
+  // instead of stacking duplicates that would each count separately.
+  const id = Buffer.from(advisory.sourceUrl).toString("base64url").slice(0, 200);
+  await db.collection("thanaAdvisories").doc(id).set(
+    {
+      thanaSlug: advisory.thanaSlug,
+      severity: advisory.severity,
+      summary: (advisory.summary || "").slice(0, 500),
+      sourceUrl: advisory.sourceUrl,
+      sourceTitle: advisory.sourceTitle,
+      publishedAt: advisory.publishedAt,
+      ttlMs: typeof advisory.ttlMs === "number" ? advisory.ttlMs : DEFAULT_TTL_MS,
+      recordedAt: new Date().toISOString(),
+      recordedBy: request.auth.uid,
+    },
+    { merge: true },
+  );
+
+  cachedAdvisories = null;
+  console.log(`recordThanaAdvisory: ${advisory.severity} for ${advisory.thanaSlug} (${advisory.sourceUrl})`);
+  return { ok: true, thanaSlug: advisory.thanaSlug, severity: advisory.severity };
+});
+
+/**
+ * Records one scraped social-media post about a thana.
+ *
+ * A post on its own does **nothing** — it is stored as a signal and only
+ * becomes an advisory once enough separate accounts have said something
+ * about the same thana inside the corroboration window. See
+ * `lib/social_signal.js` for why the threshold is counted in distinct
+ * accounts rather than posts, and `lib/thana_advisory.js` for why the
+ * resulting advisory is capped and short-lived.
+ *
+ * Like `recordThanaAdvisory` and `recordCityCrimeMonth`, this is a
+ * callable rather than a scraper: Cloud Functions in this project cannot
+ * reach the sites in question, so collection runs on the Cloudflare Worker
+ * and posts its findings in through this contract.
+ */
+exports.recordSocialSignal = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Sign-in required.");
+  }
+  const signal = request.data || {};
+  const problem = validateSignal(signal);
+  if (problem) {
+    throw new HttpsError("invalid-argument", problem);
+  }
+
+  const db = getFirestore();
+  const zone = await db.collection("crimeZones").doc(signal.thanaSlug).get();
+  if (!zone.exists) {
+    throw new HttpsError("not-found", `No crimeZones document for "${signal.thanaSlug}".`);
+  }
+
+  // Keyed by post URL, so re-scraping the same post cannot inflate the
+  // count — the corroboration threshold is only meaningful if one post
+  // counts once.
+  const id = Buffer.from(signal.postUrl).toString("base64url").slice(0, 200);
+  await db.collection("socialSignals").doc(id).set(
+    {
+      thanaSlug: signal.thanaSlug,
+      authorHandle: signal.authorHandle,
+      postUrl: signal.postUrl,
+      postedAt: signal.postedAt,
+      excerpt: (signal.excerpt || "").slice(0, 300),
+      platform: signal.platform || "unknown",
+      recordedAt: new Date().toISOString(),
+    },
+    { merge: true },
+  );
+
+  // Re-derive this thana's social advisory from everything currently live.
+  const signalsSnap = await db
+    .collection("socialSignals")
+    .where("thanaSlug", "==", signal.thanaSlug)
+    .get();
+  const nowMs = Date.now();
+  const derived = deriveAdvisory(signal.thanaSlug, signalsSnap.docs.map((d) => d.data()), nowMs);
+
+  const advisoryRef = db.collection("thanaAdvisories").doc(`social-${signal.thanaSlug}`);
+  if (derived) {
+    await advisoryRef.set({ ...derived, recordedAt: new Date().toISOString() }, { merge: true });
+  } else {
+    // Below the threshold — make sure any previously derived advisory is
+    // withdrawn rather than left standing on evidence that has since aged
+    // out. A neighbourhood must be able to stop being flagged.
+    await advisoryRef.delete().catch(() => {});
+  }
+
+  cachedAdvisories = null;
+  return {
+    ok: true,
+    corroborated: derived != null,
+    corroboratingAuthors: derived?.corroboratingAuthors ?? 0,
+  };
+});
+
+/**
+ * Module 5 — Community Crowdsourcing & Temporal Safety ($w_2$).
+ *
+ * `hazardReports/{id}` holds the raw pins users drop (written by the app's
+ * Crowdsource Reporting Hub). `hazardZones/{id}` holds the aggregated view
+ * routing actually reads: reports about the same hazard type within 10
+ * metres of each other, collapsed into one document carrying a flag level
+ * (see `lib/hazard_clustering.js`) and a $w_2$ weight.
+ *
+ * Routing never reads `hazardReports` directly — see that module's doc
+ * comment for why one person's word must not be able to close a road.
+ */
+
+let cachedHazardZones = null;
+let cachedHazardZonesAt = 0;
+// Deliberately much shorter than `ZONE_CACHE_TTL_MS`. Crime zones are a
+// static dataset refreshed monthly at most; hazard zones change the moment
+// any user reports anything, and a report about the road someone is walking
+// down right now is worth very little if it takes ten minutes to become
+// visible.
+const HAZARD_CACHE_TTL_MS = 60 * 1000;
+
+async function loadHazardZones() {
+  const now = Date.now();
+  if (cachedHazardZones && now - cachedHazardZonesAt < HAZARD_CACHE_TTL_MS) {
+    return cachedHazardZones;
+  }
+  const snapshot = await getFirestore().collection("hazardZones").where("flag", "in", [FLAG_YELLOW, FLAG_RED]).get();
+  cachedHazardZones = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  cachedHazardZonesAt = now;
+  return cachedHazardZones;
+}
+
+/**
+ * How close a route has to pass to a hazard pin to count as hitting it.
+ *
+ * Wider than the 10 m clustering radius on purpose, and for a different
+ * reason: clustering asks "are these two reports about the same thing?",
+ * which wants to be tight, while this asks "will the person walking this
+ * line encounter this?", which has to absorb GPS error on both the
+ * reporter's phone and the route geometry. 25 m is roughly a Dhaka street
+ * width plus consumer-GPS error, and errs toward warning about something
+ * the user then walks safely past — the opposite error walks a blind user
+ * into an open manhole.
+ */
+const HAZARD_ROUTE_RADIUS_M = 25;
+
+function hazardsOnRoute(routePoints, hazardZones) {
+  return hazardZones.filter((hazard) =>
+    routePoints.some(
+      (point) =>
+        haversineMeters({ lat: point.lat, lng: point.lng }, { lat: hazard.lat, lng: hazard.lng }) <=
+        HAZARD_ROUTE_RADIUS_M,
+    ),
+  );
+}
+
+/**
+ * Folds one newly-submitted report into its zone, creating the zone if this
+ * is the first report of its kind there.
+ *
+ * A create trigger rather than a scheduled recompute because the latency
+ * matters: the user who just reported an open manhole is standing next to
+ * it, and so is whoever the app routes past it in the next few minutes.
+ * The hourly sweep (`decayHazardZones`) still re-derives everything from
+ * scratch, so a trigger that misfires self-heals within the hour rather
+ * than corrupting the aggregate permanently.
+ */
+exports.onHazardReportCreated = onDocumentCreated("hazardReports/{reportId}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const report = { id: snap.id, ...snap.data() };
+  const createdAtMs = report.createdAt?.toMillis?.() ?? Date.now();
+  if (typeof report.lat !== "number" || typeof report.lng !== "number") {
+    console.log(`onHazardReportCreated: report ${snap.id} has no coordinates — nothing to cluster.`);
+    return;
+  }
+
+  const db = getFirestore();
+  // Only same-type zones can possibly match, and there are few of them —
+  // filtering server-side keeps this from scanning the whole collection as
+  // the city fills up with pins.
+  const candidates = await db
+    .collection("hazardZones")
+    .where("category", "==", report.category)
+    .where("subCategory", "==", report.subCategory)
+    .get();
+
+  const existing = candidates.docs.find((doc) => belongsToZone(report, doc.data()));
+  const nowMs = Date.now();
+
+  if (!existing) {
+    const evaluation = evaluateZone([{ ...report, createdAtMs }], nowMs);
+    await db.collection("hazardZones").add({
+      lat: report.lat,
+      lng: report.lng,
+      category: report.category,
+      subCategory: report.subCategory,
+      reporterLastSeenMs: evaluation.reporterLastSeenMs,
+      reporterUids: [report.reporterUid],
+      reportCount: 1,
+      flag: evaluation.flag,
+      hazardWeight: hazardWeight(evaluation.flag),
+      firstReportedAt: new Date(createdAtMs).toISOString(),
+      lastReportedAt: new Date(createdAtMs).toISOString(),
+      // Null for a structural block that never ages out — see
+      // `lib/hazard_decay.js`.
+      ttlMs: ttlMsFor(report.category, report.subCategory),
+      resolvedAt: null,
+    });
+    return;
+  }
+
+  const zone = existing.data();
+  // Rebuild the flag from the reporter set rather than incrementing a
+  // counter: distinct *reporters inside the 24h window* is the anti-spam
+  // rule, and a stored count that drifts from the actual set is exactly how
+  // that rule gets quietly defeated. `flagFor` is the same function the
+  // hourly rebuild uses, so the incremental and authoritative paths cannot
+  // disagree about what "confirmed" means.
+  const reporterLastSeenMs = { ...(zone.reporterLastSeenMs || {}) };
+  reporterLastSeenMs[report.reporterUid] = Math.max(
+    reporterLastSeenMs[report.reporterUid] || 0,
+    createdAtMs,
+  );
+  const flag = flagFor(reporterLastSeenMs, nowMs);
+  await existing.ref.update({
+    reporterLastSeenMs,
+    reporterUids: Object.keys(reporterLastSeenMs),
+    reportCount: (zone.reportCount || 0) + 1,
+    flag,
+    hazardWeight: hazardWeight(flag),
+    // Re-flagging refreshes a temporary block's clock — the module plan's
+    // "decays after 7 days *unless re-flagged*".
+    lastReportedAt: new Date(createdAtMs).toISOString(),
+    // A zone someone has just reported again is, self-evidently, not
+    // resolved any more.
+    resolvedAt: null,
+  });
+});
+
+/**
+ * Step 3 — the hourly scrub. Re-derives every zone from the reports still
+ * alive underneath it, so expired reports stop influencing routing and
+ * zones with nothing left behind them disappear entirely.
+ *
+ * Rebuilding rather than patching in place is the point: it is the one
+ * operation that can repair any drift the incremental trigger above
+ * introduced, so the aggregate can be wrong for at most an hour rather
+ * than indefinitely.
+ */
+exports.decayHazardZones = onSchedule(
+  { schedule: "every 1 hours", timeZone: "Asia/Dhaka" },
+  async () => {
+    const db = getFirestore();
+    const nowMs = Date.now();
+
+    const reportsSnap = await db.collection("hazardReports").get();
+    const live = [];
+    const expiredRefs = [];
+    for (const doc of reportsSnap.docs) {
+      const data = doc.data();
+      const report = {
+        id: doc.id,
+        ...data,
+        createdAtMs: data.createdAt?.toMillis?.() ?? null,
+        lastSeenAtMs: data.lastSeenAt?.toMillis?.() ?? null,
+        resolvedAtMs: data.resolvedAt ? Date.parse(data.resolvedAt) : null,
+      };
+      if (isExpired(report, nowMs)) {
+        expiredRefs.push(doc.ref);
+      } else {
+        live.push(report);
+      }
+    }
+
+    const rebuilt = buildZones(live, nowMs);
+    const zonesSnap = await db.collection("hazardZones").get();
+
+    const batch = db.batch();
+    // Zones are fully replaced, not diffed — there are few of them, and a
+    // rebuild whose whole job is to be authoritative should not be trying
+    // to preserve state it just recomputed.
+    zonesSnap.docs.forEach((doc) => batch.delete(doc.ref));
+    for (const zone of rebuilt) {
+      batch.set(db.collection("hazardZones").doc(), {
+        lat: zone.lat,
+        lng: zone.lng,
+        category: zone.category,
+        subCategory: zone.subCategory,
+        reporterLastSeenMs: zone.reporterLastSeenMs,
+        reporterUids: zone.reporterUids,
+        reportCount: zone.reportCount,
+        flag: zone.flag,
+        hazardWeight: zone.hazardWeight,
+        lastReportedAt: new Date(zone.lastReportedAtMs).toISOString(),
+        ttlMs: ttlMsFor(zone.category, zone.subCategory),
+        resolvedAt: null,
+      });
+    }
+    // Expired reports are deleted, not just ignored — otherwise the sweep
+    // re-reads them forever and the collection grows without bound.
+    expiredRefs.forEach((ref) => batch.delete(ref));
+    await batch.commit();
+
+    // Expired advisories go out on the same sweep — a stale "dangerous"
+    // label on a real neighbourhood is the exact harm `thana_advisory.js`
+    // is structured to avoid, so it should not depend on anyone noticing.
+    const advisorySnap = await db.collection("thanaAdvisories").get();
+    const staleAdvisories = advisorySnap.docs.filter((doc) => advisoryMultiplier(doc.data(), nowMs) <= 1);
+    if (staleAdvisories.length > 0) {
+      const advisoryBatch = db.batch();
+      staleAdvisories.forEach((doc) => advisoryBatch.delete(doc.ref));
+      await advisoryBatch.commit();
+      cachedAdvisories = null;
+    }
+
+    // Social signals past the corroboration window can never contribute
+    // again, so they are storage with no purpose.
+    const signalsSnap = await db.collection("socialSignals").get();
+    const staleSignals = signalsSnap.docs.filter((doc) => {
+      const posted = Date.parse(doc.data().postedAt);
+      return Number.isNaN(posted) || nowMs - posted > CORROBORATION_WINDOW_MS;
+    });
+    if (staleSignals.length > 0) {
+      const signalBatch = db.batch();
+      staleSignals.forEach((doc) => signalBatch.delete(doc.ref));
+      await signalBatch.commit();
+    }
+
+    const evidenceUpdates = await recordEvidenceMonths(db, rebuilt, nowMs);
+
+    cachedHazardZones = null;
+    cachedZones = null;
+    console.log(
+      `decayHazardZones: ${live.length} live reports -> ${rebuilt.length} zones; ` +
+        `deleted ${expiredRefs.length} expired reports, ${staleAdvisories.length} expired advisories, ` +
+        `${staleSignals.length} stale social signals; ${evidenceUpdates} thanas gained an evidence month.`,
+    );
+  },
+);
+
+/**
+ * Marks the current month as an evidence month for any thana that has one.
+ *
+ * Runs on the hourly sweep rather than on ingestion because the question is
+ * "was there evidence *this month*", which is a property of the month, not
+ * of any single article or report — and asking it repeatedly is harmless,
+ * since a month is only ever recorded once.
+ *
+ * Deliberately reads only **news-tier** advisories and **confirmed** (Red
+ * Flag) crowdsourced crime zones. Social chatter and single unconfirmed
+ * reports can raise a temporary advisory; neither may edit a
+ * neighbourhood's standing score.
+ */
+async function recordEvidenceMonths(db, hazardZones, nowMs) {
+  const [zonesSnap, advisoriesSnap] = await Promise.all([
+    db.collection("crimeZones").get(),
+    db.collection("thanaAdvisories").get(),
+  ]);
+
+  const newsAdvisoryThanas = new Set(
+    advisoriesSnap.docs
+      .map((doc) => doc.data())
+      .filter((a) => (a.sourceTier || "news") === "news" && advisoryMultiplier(a, nowMs) > 1)
+      .map((a) => a.thanaSlug),
+  );
+
+  // Confirmed crime hazards, located inside whichever thana polygon
+  // contains them. Only `category === "crime"` counts — a Red Flag pothole
+  // says nothing about a neighbourhood's crime score.
+  const confirmedCrime = hazardZones.filter((z) => z.flag === FLAG_RED && z.category === "crime");
+  const zones = zonesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  const crimeThanas = new Set();
+  for (const hazard of confirmedCrime) {
+    const hit = zonesOnRoute([{ lat: hazard.lat, lng: hazard.lng }], zones)[0];
+    if (hit) crimeThanas.add(hit.id);
+  }
+
+  const batch = db.batch();
+  let updates = 0;
+  for (const doc of zonesSnap.docs) {
+    const updated = recordEvidenceMonth(
+      doc.data().evidenceMonths,
+      {
+        hasNewsAdvisory: newsAdvisoryThanas.has(doc.id),
+        hasConfirmedCrimeReports: crimeThanas.has(doc.id),
+      },
+      nowMs,
+    );
+    if (!updated) continue;
+    batch.update(doc.ref, { evidenceMonths: updated });
+    updates += 1;
+  }
+  if (updates > 0) await batch.commit();
+  return updates;
+}
+
+/**
+ * Step 3's escape hatch: the only way a permanent structural block ever
+ * leaves the map.
+ *
+ * Marks every report behind a zone resolved so the next sweep clears it.
+ * Any signed-in user may resolve — the people who know a ramp has been
+ * rebuilt are the people walking past it, and requiring the *original*
+ * reporter would leave stale blocks standing forever once that person moves
+ * away or stops using the app. A wrongly-resolved hazard is re-reported by
+ * the next user who hits it and is back at Yellow immediately.
+ */
+exports.resolveHazardZone = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Sign-in required.");
+  }
+  const { zoneId } = request.data || {};
+  if (typeof zoneId !== "string" || zoneId.length === 0) {
+    throw new HttpsError("invalid-argument", "A `zoneId` string is required.");
+  }
+
+  const db = getFirestore();
+  const zoneRef = db.collection("hazardZones").doc(zoneId);
+  const zoneSnap = await zoneRef.get();
+  if (!zoneSnap.exists) {
+    throw new HttpsError("not-found", "No such hazard zone.");
+  }
+  const zone = zoneSnap.data();
+
+  const reportsSnap = await db
+    .collection("hazardReports")
+    .where("category", "==", zone.category)
+    .where("subCategory", "==", zone.subCategory)
+    .get();
+
+  const resolvedAt = new Date().toISOString();
+  const batch = db.batch();
+  let resolved = 0;
+  for (const doc of reportsSnap.docs) {
+    if (!belongsToZone(doc.data(), zone)) continue;
+    batch.update(doc.ref, { resolvedAt, resolvedBy: request.auth.uid });
+    resolved += 1;
+  }
+  batch.update(zoneRef, { flag: "none", hazardWeight: 0, resolvedAt, resolvedBy: request.auth.uid });
+  await batch.commit();
+
+  cachedHazardZones = null;
+  console.log(`resolveHazardZone: ${zoneId} resolved by ${request.auth.uid} (${resolved} reports).`);
+  return { resolved };
 });
 
 /**

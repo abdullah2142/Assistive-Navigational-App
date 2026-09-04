@@ -6,8 +6,10 @@ import '../services/background_listening_service.dart';
 import '../services/cloud_stt_service.dart';
 import '../services/function_call_executor.dart';
 import '../services/gemini_assistant_service.dart';
+import '../services/navigation_controller.dart';
 import '../services/route_planning_service.dart';
 import '../services/stt_service.dart';
+import '../../core/providers/tts_providers.dart';
 import '../services/wake_word_service.dart';
 
 final wakeWordServiceProvider = Provider<WakeWordService>((ref) {
@@ -42,6 +44,10 @@ final sttServiceProvider = Provider<SttService>(
   (ref) => SttService(wakeWord: ref.watch(wakeWordServiceProvider), cloudStt: ref.watch(cloudSttServiceProvider)),
 );
 
+/// Shared so the chat controller's own clarification loop plans routes
+/// through exactly the same path the function-call executor does.
+final routePlanningServiceProvider = Provider<RoutePlanningService>((ref) => RoutePlanningService());
+
 /// What a function call (settings change, overlay trigger, route request)
 /// actually *does* — shared between the Gemini function-calling path and
 /// `LocalIntentMatcher`'s local-pattern path, so both produce identical
@@ -51,7 +57,7 @@ final sttServiceProvider = Provider<SttService>(
 final functionCallExecutorProvider = Provider<FunctionCallExecutor>((ref) {
   return FunctionCallExecutor(
     pairingService: ref.watch(pairingServiceProvider),
-    routePlanning: RoutePlanningService(),
+    routePlanning: ref.watch(routePlanningServiceProvider),
   );
 });
 
@@ -61,4 +67,14 @@ final functionCallExecutorProvider = Provider<FunctionCallExecutor>((ref) {
 final geminiAssistantServiceProvider = Provider<GeminiAssistantService?>((ref) {
   if (!GeminiConfig.isConfigured) return null;
   return GeminiAssistantService(apiKey: GeminiConfig.apiKey, executor: ref.watch(functionCallExecutorProvider));
+});
+
+
+/// Spoken turn-by-turn navigation. One per app — starting a new route
+/// replaces the previous session rather than running two narrators over
+/// the same voice.
+final navigationControllerProvider = Provider<NavigationController>((ref) {
+  final controller = NavigationController(tts: ref.watch(ttsServiceProvider));
+  ref.onDispose(controller.dispose);
+  return controller;
 });

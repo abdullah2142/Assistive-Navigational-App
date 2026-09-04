@@ -10,6 +10,7 @@ import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../models/disability_profile_enums.dart';
 import '../models/onboarding_step.dart';
+import '../models/saved_place.dart';
 import '../models/trusted_contact.dart';
 import '../models/user_profile.dart';
 import '../models/user_role.dart';
@@ -42,6 +43,7 @@ class OnboardingState {
     this.errorMessage,
     this.history = const [],
     this.stepGeneration = 0,
+    this.voiceRearmToken = 0,
   });
 
   final OnboardingStep step;
@@ -54,6 +56,18 @@ class OnboardingState {
   /// listener to misfire against the *next* screen's own narration — a
   /// real bug confirmed live, see `_goTo`'s doc comment).
   final int stepGeneration;
+
+  /// Bumped when a step *fails* and the user is being left on it.
+  ///
+  /// [stepGeneration] is a one-way cancel — once a screen's voice loop sees
+  /// it change it exits for good, which is correct when we're leaving that
+  /// screen but wrong when we aren't. `_stopCurrentScreenVoice` bumps the
+  /// generation the moment a navigating method starts, so a save that then
+  /// throws would otherwise leave a fully-mounted screen with no voice at
+  /// all — and onboarding errors are only ever *shown*, never spoken, so a
+  /// blind user would be stuck on a silent dead end with no idea why.
+  /// Screens re-arm their narrate-then-listen loop when this changes.
+  final int voiceRearmToken;
 
   /// Only authoritative before [profile] exists (language selection and
   /// role selection, the two screens shown pre-signin) — once a
@@ -76,6 +90,7 @@ class OnboardingState {
     bool clearError = false,
     List<OnboardingStep>? history,
     int? stepGeneration,
+    int? voiceRearmToken,
   }) =>
       OnboardingState(
         step: step ?? this.step,
@@ -86,6 +101,7 @@ class OnboardingState {
         errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
         history: history ?? this.history,
         stepGeneration: stepGeneration ?? this.stepGeneration,
+        voiceRearmToken: voiceRearmToken ?? this.voiceRearmToken,
       );
 }
 
@@ -159,6 +175,37 @@ class OnboardingController extends Notifier<OnboardingState> {
   void _stopCurrentScreenVoice() {
     ref.read(sttServiceProvider).stop();
     ref.read(ttsServiceProvider).stop();
+    // Bumping the cancellation token matters as much as stopping the
+    // devices, and was the missing half of this fix. Stopping the mic ends
+    // the current `listenOnce`, but it does not end the *loop* around it:
+    // that loop sees a session that returned nothing, reads it as "the user
+    // said something I couldn't match", speaks the retry hint, re-reads the
+    // whole option list after two such misses, and opens the mic again —
+    // all while we're still awaiting the Firestore write, because `_goTo`
+    // (the only other thing that bumps the generation) hasn't run yet.
+    //
+    // Confirmed by a reproducing widget test: answering a question by
+    // *tapping* it left the screen narrating its own title and options
+    // again straight afterwards, which for a user who can't see the screen
+    // is indistinguishable from that screen coming back — the reported
+    // "duplicate Welcome to ANT screen".
+    debugPrint('[Onboarding] _stopCurrentScreenVoice: cancelling voice for '
+        'generation ${state.stepGeneration}');
+    state = state.copyWith(stepGeneration: state.stepGeneration + 1);
+  }
+
+  /// Records a failure and hands the current screen's voice back to it.
+  ///
+  /// Every caller of [_stopCurrentScreenVoice] that can throw must end up
+  /// here, or the cancellation above becomes permanent for a screen we
+  /// never actually left. See [OnboardingState.voiceRearmToken].
+  void _failCurrentStep(Object error) {
+    debugPrint('[Onboarding] step failed, re-arming screen voice: $error');
+    state = state.copyWith(
+      isLoading: false,
+      errorMessage: error.toString(),
+      voiceRearmToken: state.voiceRearmToken + 1,
+    );
   }
 
   Future<void> chooseRole(UserRole role) async {
@@ -176,7 +223,7 @@ class OnboardingController extends Notifier<OnboardingState> {
         _goTo(OnboardingStep.userPairingCodeEntry);
       }
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      _failCurrentStep(e);
     }
   }
 
@@ -197,7 +244,7 @@ class OnboardingController extends Notifier<OnboardingState> {
         }
       });
     } catch (e) {
-      state = state.copyWith(errorMessage: e.toString());
+      _failCurrentStep(e);
     }
   }
 
@@ -214,7 +261,7 @@ class OnboardingController extends Notifier<OnboardingState> {
       state = state.copyWith(profile: updated, isLoading: false);
       _goTo(OnboardingStep.visionQuestion);
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      _failCurrentStep(e);
     }
   }
 
@@ -233,9 +280,26 @@ class OnboardingController extends Notifier<OnboardingState> {
   // right after). Stopping the mic here would race that next listen
   // attempt. Every navigating caller below calls `_stopCurrentScreenVoice()`
   // itself, before this.
-  Future<void> _persist(UserProfile updated) async {
+  ///
+  /// Returns whether the write actually succeeded. Callers must check it
+  /// and bail rather than navigating on regardless: every one of these used
+  /// to `await` this with no error handling at all, so an offline or
+  /// permission-denied write threw straight past them into the framework as
+  /// an unhandled async error — the step silently never advanced, nothing
+  /// was shown, and nothing was spoken. That is exactly the crash-instead-
+  /// of-degrade behaviour `ai_developer_prompt.md`'s "Graceful Offline
+  /// Degradation" rule exists to prevent. Failure now routes through
+  /// [_failCurrentStep], which surfaces the error and re-arms the screen's
+  /// voice so the user can hear what happened and retry.
+  Future<bool> _persist(UserProfile updated) async {
     state = state.copyWith(profile: updated);
-    await ref.read(profileServiceProvider).saveProfile(updated);
+    try {
+      await ref.read(profileServiceProvider).saveProfile(updated);
+      return true;
+    } catch (e) {
+      _failCurrentStep(e);
+      return false;
+    }
   }
 
   Future<void> setVisionLevel(VisionLevel level) async {
@@ -251,7 +315,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     final updated = level == VisionLevel.none
         ? profile.copyWith(visionLevel: level, themePreference: ThemePreference.dark)
         : profile.copyWith(visionLevel: level);
-    await _persist(updated);
+    if (!await _persist(updated)) return;
     // Low Vision still gets a Light/Dark say — it's an independent
     // accessibility axis, not a fixed theme substituted in its place (see
     // theme_resolver.dart) — so it's only None that skips themePreference,
@@ -267,7 +331,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     _stopCurrentScreenVoice();
-    await _persist(profile.copyWith(contrastLevel: contrastLevel, fontScale: fontScale));
+    if (!await _persist(profile.copyWith(contrastLevel: contrastLevel, fontScale: fontScale))) return;
     _goTo(OnboardingStep.themePreference);
   }
 
@@ -275,7 +339,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     _stopCurrentScreenVoice();
-    await _persist(profile.copyWith(themePreference: preference));
+    if (!await _persist(profile.copyWith(themePreference: preference))) return;
     _goTo(OnboardingStep.mobilityQuestion);
   }
 
@@ -283,7 +347,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     _stopCurrentScreenVoice();
-    await _persist(profile.copyWith(mobilityAid: aid));
+    if (!await _persist(profile.copyWith(mobilityAid: aid))) return;
     _goTo(OnboardingStep.cognitiveAnxietyQuestion);
   }
 
@@ -294,10 +358,11 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     _stopCurrentScreenVoice();
-    await _persist(profile.copyWith(
+    final saved = await _persist(profile.copyWith(
       crowdedPlacesAnxious: crowdedPlacesAnxious,
       complexInstructionsHard: complexInstructionsHard,
     ));
+    if (!saved) return;
     _goTo(OnboardingStep.deafHearingQuestion);
   }
 
@@ -305,7 +370,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     _stopCurrentScreenVoice();
-    await _persist(profile.copyWith(isDeafOrHardOfHearing: isDeafOrHardOfHearing));
+    if (!await _persist(profile.copyWith(isDeafOrHardOfHearing: isDeafOrHardOfHearing))) return;
     // Spoken onboarding guidance defaults on for Visually Impaired users with
     // no one to read the screen for them (see ttsEnabledProvider) — but it's
     // useless noise for someone who can't hear it, so switch it off the
@@ -321,7 +386,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     _stopCurrentScreenVoice();
-    await _persist(profile.copyWith(verbosity: verbosity, voiceId: voiceId));
+    if (!await _persist(profile.copyWith(verbosity: verbosity, voiceId: voiceId))) return;
     // Applied immediately, not just persisted — every onboarding screen from
     // here on narrates with the voice just picked instead of the default.
     ref.read(ttsServiceProvider).setVoiceId(voiceId);
@@ -345,6 +410,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     if ((state.profile?.magicButtonContacts.length ?? 0) < 1) {
       state = state.copyWith(
         errorMessage: Onboarding.of(state.profile!.language).contactsErrorAtLeastOne,
+        voiceRearmToken: state.voiceRearmToken + 1,
       );
       return;
     }
@@ -355,7 +421,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     _stopCurrentScreenVoice();
-    await _persist(profile.copyWith(passerbyHelperMessages: messages));
+    if (!await _persist(profile.copyWith(passerbyHelperMessages: messages))) return;
     _goTo(OnboardingStep.snapshotConsent);
   }
 
@@ -363,7 +429,7 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     _stopCurrentScreenVoice();
-    await _persist(profile.copyWith(snapshotConsent: preference));
+    if (!await _persist(profile.copyWith(snapshotConsent: preference))) return;
     _goTo(OnboardingStep.safeHavens);
   }
 
@@ -371,8 +437,8 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     _stopCurrentScreenVoice();
-    await _persist(profile.copyWith(homeAddress: homeAddress, safePlaceAddress: safePlaceAddress));
-    _goTo(OnboardingStep.lockIn);
+    if (!await _persist(profile.copyWith(homeAddress: homeAddress, safePlaceAddress: safePlaceAddress))) return;
+    _goTo(OnboardingStep.frequentPlaces);
   }
 
   /// Caretaker-side equivalent of [confirmLockIn] — there is no disability
@@ -384,9 +450,131 @@ class OnboardingController extends Notifier<OnboardingState> {
     final profile = state.profile;
     if (profile == null) return;
     _stopCurrentScreenVoice();
-    await _persist(profile.copyWith(onboardingComplete: true));
+    if (!await _persist(profile.copyWith(onboardingComplete: true))) return;
     _goTo(OnboardingStep.complete);
   }
+
+  /// Optional — the whole step can be skipped with an empty list.
+  ///
+  /// Saved places are a convenience, not a requirement, and a user part-way
+  /// through a long accessibility interview should not be made to invent
+  /// destinations to get past a screen. They can add them later by just
+  /// saying "save this as my office" while standing there, which is a
+  /// better moment to capture one anyway.
+  Future<void> setFrequentPlaces(List<SavedPlace> places) async {
+    final profile = state.profile;
+    if (profile == null) return;
+    _stopCurrentScreenVoice();
+    final routable = places.where((p) => p.isRoutable).toList();
+    if (!await _persist(profile.copyWith(savedPlaces: routable))) return;
+    _goTo(OnboardingStep.commandTour);
+  }
+
+  /// Re-narrates the command tour.
+  ///
+  /// Bumping the generation is what re-runs it: the scaffold speaks on
+  /// entering a step, so "hear it again" is the same thing as arriving
+  /// again. Nothing is persisted — this screen collects no answer.
+  void repeatCommandTour() {
+    _stopCurrentScreenVoice();
+    _goTo(OnboardingStep.commandTour);
+  }
+
+  /// Leaves the command tour for the final review.
+  ///
+  /// Nothing to save: this step teaches rather than asks, so it has no
+  /// answer to persist and cannot fail.
+  void finishCommandTour() {
+    _stopCurrentScreenVoice();
+    _goTo(OnboardingStep.lockIn);
+  }
+
+  /// **Development only.** Signs in, writes a complete dummy profile, and
+  /// drops straight to the dashboard.
+  ///
+  /// Onboarding is deliberately long — it is a full accessibility interview
+  /// with voice narration at every step — which makes it a real obstacle
+  /// when the thing being tested is the dashboard. This skips it.
+  ///
+  /// Guarded by [kDebugMode] at both ends: the button that calls it is not
+  /// built in a release binary, and this method refuses to run in one even
+  /// if something else calls it. Two gates rather than one, because a
+  /// backdoor that silently fabricates a disability profile and marks
+  /// onboarding complete is not something to leave one edit away from
+  /// shipping.
+  ///
+  /// The values are chosen to make the dashboard immediately *useful*, not
+  /// merely valid — real Dhaka coordinates on the saved places so
+  /// "take me to work" routes on the first try, and contacts/messages
+  /// populated so the Magic Button and Passerby surfaces have something to
+  /// show.
+  Future<void> devSkipOnboarding() async {
+    if (!kDebugMode) {
+      debugPrint('[Onboarding] devSkipOnboarding ignored — not a debug build.');
+      return;
+    }
+    _stopCurrentScreenVoice();
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final user = await ref.read(authServiceProvider).ensureSignedIn();
+      final profile = _dummyProfile(user.uid, state.language);
+      // Written to Firestore rather than only held in memory, because
+      // `AppRoot` routes off the persisted profile — an in-memory shortcut
+      // would bounce straight back to onboarding on the next rebuild.
+      await ref.read(profileServiceProvider).saveProfile(profile);
+      ref.read(ttsServiceProvider).setVoiceId(profile.voiceId);
+      state = state.copyWith(profile: profile, isLoading: false, step: OnboardingStep.complete);
+      debugPrint('[Onboarding] devSkipOnboarding: wrote dummy profile for ${user.uid}');
+    } catch (e) {
+      _failCurrentStep(e);
+    }
+  }
+
+  /// Exposed only so tests can assert the shortcut produces a profile that
+  /// is genuinely usable, not merely well-formed.
+  @visibleForTesting
+  UserProfile debugDummyProfile(String uid, AppLanguage language) => _dummyProfile(uid, language);
+
+  UserProfile _dummyProfile(String uid, AppLanguage language) => UserProfile(
+        uid: uid,
+        role: UserRole.disabledUser,
+        language: language,
+        displayName: 'Test User',
+        // The app's primary user. Also the most demanding path — full
+        // narration, dark theme, voice-first everything — so anything
+        // tested against this profile is tested against the hard case.
+        visionLevel: VisionLevel.none,
+        mobilityAid: MobilityAid.whiteCane,
+        verbosity: VerbosityLevel.descriptive,
+        crowdedPlacesAnxious: true,
+        complexInstructionsHard: false,
+        isDeafOrHardOfHearing: false,
+        themePreference: ThemePreference.dark,
+        snapshotConsent: SnapshotConsentPreference.askEachTime,
+        magicButtonContacts: const [
+          TrustedContact(name: 'Ma', phoneNumber: '01711111111', relationship: 'Mother', isPrimary: true),
+          TrustedContact(name: 'Rakib', phoneNumber: '01822222222', relationship: 'Brother'),
+        ],
+        homeAddress: 'House 12, Road 5, Dhanmondi, Dhaka',
+        safePlaceAddress: 'Dhanmondi 27 pharmacy',
+        passerbyHelperMessages: Onboarding.of(language).defaultPasserbyMessages,
+        // Real coordinates, so routing and turn-by-turn work on the first
+        // try instead of needing a geocode that may not resolve.
+        savedPlaces: const [
+          SavedPlace(label: 'work', kind: SavedPlaceKind.work, address: 'Gulshan 1, Dhaka', lat: 23.7808, lng: 90.4142),
+          SavedPlace(label: 'school', kind: SavedPlaceKind.school, address: 'Dhanmondi, Dhaka', lat: 23.7461, lng: 90.3742),
+          SavedPlace(label: "Ma's house", kind: SavedPlaceKind.family, address: 'Mirpur 10, Dhaka', lat: 23.8069, lng: 90.3687),
+        ],
+        // Both off deliberately. A profile with no vision computes
+        // `voiceAutoListen: true`, which reopens the microphone after every
+        // utterance — correct for a real blind user, and constant
+        // interference when the point is to poke at the dashboard. Flip
+        // either back on from My Settings when that is what is being
+        // tested.
+        wakeWordEnabled: false,
+        voiceAutoListen: false,
+        onboardingComplete: true,
+      );
 
   Future<void> confirmLockIn() async {
     final profile = state.profile;
@@ -394,11 +582,11 @@ class OnboardingController extends Notifier<OnboardingState> {
     _stopCurrentScreenVoice();
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      await _persist(profile.copyWith(onboardingComplete: true));
+      if (!await _persist(profile.copyWith(onboardingComplete: true))) return;
       state = state.copyWith(isLoading: false);
       _goTo(OnboardingStep.complete);
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: e.toString());
+      _failCurrentStep(e);
     }
   }
 }

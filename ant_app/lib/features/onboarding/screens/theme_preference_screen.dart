@@ -25,8 +25,8 @@ class ThemePreferenceScreen extends ConsumerWidget {
       onBack: controller.goBack,
       language: language,
       spokenOptions: [
-        'Option 1: ${s.themeLightLabel}. ${s.themeLightDescription}',
-        'Option 2: ${s.themeDarkLabel}. ${s.themeDarkDescription}',
+        '${s.spokenOptionLabel(1)}: ${s.themeLightLabel}. ${s.themeLightDescription}',
+        '${s.spokenOptionLabel(2)}: ${s.themeDarkLabel}. ${s.themeDarkDescription}',
       ],
       voiceChoices: [
         OnboardingVoiceChoice(

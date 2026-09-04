@@ -1,5 +1,6 @@
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import 'destination_clarifier.dart';
 import 'route_safety_service.dart';
 import 'routing_service.dart';
 
@@ -15,6 +16,7 @@ class RouteChoice {
     required this.initialBearingDegrees,
     required this.verdict,
     required this.wasRerouted,
+    this.steps = const [],
   });
 
   final String destinationLabel;
@@ -23,6 +25,11 @@ class RouteChoice {
   final double durationSeconds;
   final double initialBearingDegrees;
   final SafetyVerdict verdict;
+
+  /// Turn-by-turn manoeuvres for spoken navigation, in order. Empty when
+  /// the backend returned no step detail — `NavigationController` then
+  /// falls back to distance-and-bearing guidance rather than going silent.
+  final List<RouteStep> steps;
 
   /// True when the fastest (first) route Google offered was unsafe and this
   /// is a safer alternative instead — what triggers the "I've adjusted your
@@ -46,6 +53,17 @@ class RoutePlanFailed extends RoutePlanResult {
   final String reason;
 }
 
+/// The name matched several genuinely different places.
+///
+/// Not a failure — the geocoder did its job, there is simply more than one
+/// answer. Picking the highest-scoring one silently is the worst option
+/// available: a user who cannot see the map has no way to notice it chose
+/// wrong until they have walked to the wrong place.
+class RoutePlanAmbiguous extends RoutePlanResult {
+  const RoutePlanAmbiguous(this.options);
+  final List<GeocodeCandidate> options;
+}
+
 /// Orchestrates Step 4 of the crime module plan: request a route, safety
 /// check it, and reroute via Google's own walking-route alternatives if the
 /// fastest option crosses a dangerous Thana — entirely client-side
@@ -64,10 +82,30 @@ class RoutePlanningService {
     required String destinationQuery,
     required LatLng origin,
     DateTime? at,
+    /// Already-known coordinates for the destination, from a saved place.
+    ///
+    /// When present the geocoding round trip is skipped entirely — the
+    /// single biggest latency saving in this path, and the only way
+    /// destinations like "work" or "my sister's house" resolve at all,
+    /// since no geocoder turns those strings into a location. Also what
+    /// keeps a user's everyday destinations reachable with no connectivity.
+    LatLng? knownDestination,
+    /// Human-readable name to speak back, when it differs from the raw
+    /// query — a saved place's label rather than its full street address.
+    String? destinationLabel,
   }) async {
-    final destination = await _routing.geocode(destinationQuery);
+    var destination = knownDestination;
+    var label = destinationLabel;
     if (destination == null) {
-      return const RoutePlanFailed('destination_not_found');
+      final candidates =
+          DestinationClarifier.distinctOptions(await _routing.geocodeCandidates(destinationQuery));
+      if (candidates.isEmpty) return const RoutePlanFailed('destination_not_found');
+      if (candidates.length > 1) return RoutePlanAmbiguous(candidates);
+      destination = candidates.single.location;
+      // The geocoder's own description is more useful to say back than the
+      // raw query — "Ibn Sina Hospital, Dhanmondi" confirms *which* place
+      // was understood, where echoing "the hospital" confirms nothing.
+      label ??= candidates.single.spokenLabel;
     }
 
     final candidates = await _routing.walkingRoutes(origin: origin, destination: destination);
@@ -99,11 +137,12 @@ class RoutePlanningService {
     final chosen = best!;
     final verdict = bestVerdict!;
     return RoutePlanned(RouteChoice(
-      destinationLabel: destinationQuery,
+      destinationLabel: label ?? destinationQuery,
       points: chosen.points,
       distanceMeters: chosen.distanceMeters,
       durationSeconds: chosen.durationSeconds,
       initialBearingDegrees: chosen.initialBearingDegrees,
+      steps: chosen.steps,
       verdict: verdict,
       wasRerouted: !identical(chosen, candidates.first),
     ));

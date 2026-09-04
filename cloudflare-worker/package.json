@@ -1,0 +1,11 @@
+{
+  "name": "ant-crime-collectors",
+  "description": "Edge collectors for the ANT safety engine: monthly police crime figures, news-sourced thana advisories, and corroborated social signals.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  }
+}

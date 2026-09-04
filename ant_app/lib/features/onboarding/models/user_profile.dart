@@ -1,5 +1,6 @@
 import '../../../core/localization/app_language.dart';
 import 'disability_profile_enums.dart';
+import 'saved_place.dart';
 import 'trusted_contact.dart';
 import 'user_role.dart';
 
@@ -34,6 +35,7 @@ class UserProfile {
     this.language = AppLanguage.english,
     this.snapshotConsent = SnapshotConsentPreference.askEachTime,
     this.wakeWordEnabled = false,
+    this.savedPlaces = const [],
     bool? voiceAutoListen,
   }) : voiceAutoListen = voiceAutoListen ?? (visionLevel != VisionLevel.full || complexInstructionsHard);
 
@@ -106,6 +108,12 @@ class UserProfile {
   // overrides the computed default and is what actually gets persisted.
   final bool voiceAutoListen;
 
+  /// Places this user goes to often, so "take me to work" resolves
+  /// instantly — no geocoding, no language model, no follow-up question.
+  /// Collected optionally during onboarding and editable afterwards by
+  /// voice ("save this as my office"). See [SavedPlace].
+  final List<SavedPlace> savedPlaces;
+
   bool get requiresVisualCalibration => visionLevel == VisionLevel.low;
 
   Map<String, dynamic> toJson() => {
@@ -132,6 +140,7 @@ class UserProfile {
         'snapshotConsent': snapshotConsent.name,
         'wakeWordEnabled': wakeWordEnabled,
         'voiceAutoListen': voiceAutoListen,
+        'savedPlaces': savedPlaces.map((p) => p.toJson()).toList(),
       };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -166,6 +175,9 @@ class UserProfile {
         // rather than being silently opted out. `null` here is what lets
         // the constructor's own default-computation run.
         voiceAutoListen: json['voiceAutoListen'] as bool?,
+        savedPlaces: (json['savedPlaces'] as List<dynamic>? ?? [])
+            .map((p) => SavedPlace.fromJson(p as Map<String, dynamic>))
+            .toList(),
       );
 
   UserProfile copyWith({
@@ -191,6 +203,7 @@ class UserProfile {
     SnapshotConsentPreference? snapshotConsent,
     bool? wakeWordEnabled,
     bool? voiceAutoListen,
+    List<SavedPlace>? savedPlaces,
   }) =>
       UserProfile(
         uid: uid,
@@ -221,5 +234,6 @@ class UserProfile {
         // the smart default off a field that might be changing in this
         // same `copyWith` call (e.g. `visionLevel`).
         voiceAutoListen: voiceAutoListen ?? this.voiceAutoListen,
+        savedPlaces: savedPlaces ?? this.savedPlaces,
       );
 }

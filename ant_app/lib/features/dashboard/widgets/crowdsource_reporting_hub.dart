@@ -10,6 +10,7 @@ import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/stt_service.dart';
+import '../../../core/services/voice_cancel_window.dart';
 import '../../../core/services/tts_service.dart';
 import '../../../core/utils/ai_text_summarizer.dart';
 import '../../onboarding/models/disability_profile_enums.dart';
@@ -37,11 +38,17 @@ class CrowdsourceReportingHub extends ConsumerStatefulWidget {
     required this.language,
     required this.voiceAutoListen,
     this.mobilityAid = MobilityAid.unassisted,
+    this.prefill,
   });
 
   final String reporterUid;
   final AppLanguage language;
   final bool voiceAutoListen;
+
+  /// Set when a voice command already said what the hazard is ("report an
+  /// open manhole") — those steps are skipped rather than asked again. See
+  /// [HazardReportPrefill].
+  final HazardReportPrefill? prefill;
 
   /// Reorders the Accessibility Block sub-category list to put whatever's
   /// most likely relevant to *this* reporter first (see
@@ -58,6 +65,7 @@ class CrowdsourceReportingHub extends ConsumerStatefulWidget {
     required AppLanguage language,
     required bool voiceAutoListen,
     MobilityAid mobilityAid = MobilityAid.unassisted,
+    HazardReportPrefill? prefill,
   }) {
     return Navigator.of(context).push(
       PageRouteBuilder(
@@ -68,6 +76,7 @@ class CrowdsourceReportingHub extends ConsumerStatefulWidget {
           language: language,
           voiceAutoListen: voiceAutoListen,
           mobilityAid: mobilityAid,
+          prefill: prefill,
         ),
       ),
     );
@@ -78,8 +87,12 @@ class CrowdsourceReportingHub extends ConsumerStatefulWidget {
 }
 
 class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHub> {
-  HazardCategory? _category;
-  String? _subCategoryKey;
+  late HazardCategory? _category = widget.prefill?.category;
+  // Only honoured when it is a real sub-category of the prefilled category
+  // — a voice command that produced something unrecognized drops the user
+  // on the sub-category step to pick by hand, which is strictly better than
+  // filing a report under a key nothing can read back.
+  late String? _subCategoryKey = _validPrefillSubCategory();
   final _descriptionController = TextEditingController();
   bool _submitting = false;
   bool _listening = false;
@@ -101,8 +114,19 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
   // silently applied to the new step instead.
   int _stepGeneration = 0;
 
-  static const _submitPhrasesEn = ['submit', 'send it', 'send this', 'submit this', 'submit report'];
-  static const _submitPhrasesBn = ['পাঠাও', 'পাঠান', 'সাবমিট'];
+  static const _submitPhrasesEn = [
+    'submit', 'send', 'send it', 'send this', 'submit this', 'submit report', 'done', 'finish',
+  ];
+  // Includes Bangla *transliterations* of the English words, not just their
+  // Bangla translations. Dhaka speech mixes English command words into
+  // Bangla sentences constantly, and a `bn-BD` recognizer writes them in
+  // Bangla script — so a user who says "send" while the app is in Bangla
+  // gets back "সেন্ড", which matched nothing here and was silently appended
+  // to the hazard description instead of submitting it. Confirmed from a
+  // real device log.
+  static const _submitPhrasesBn = [
+    'পাঠাও', 'পাঠান', 'পাঠিয়ে দাও', 'সাবমিট', 'সেন্ড', 'সেন্ড করো', 'শেষ', 'হয়ে গেছে',
+  ];
 
   // What's actually been said so far, across possibly several separate
   // utterances with pauses in between — a user describing an incident may
@@ -181,6 +205,13 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
       _committedDescription = '';
     });
     _narrateAndListenForStep();
+  }
+
+  String? _validPrefillSubCategory() {
+    final prefill = widget.prefill;
+    if (prefill?.subCategory == null) return null;
+    final valid = Dashboard.of(widget.language).hazardSubCategoryKeys(prefill!.category);
+    return valid.contains(prefill.subCategory) ? prefill.subCategory : null;
   }
 
   /// Narrates the current step aloud, then — only when
@@ -332,7 +363,7 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
           if (extracted.isNotEmpty) _commitToDescription(extracted);
           if (!_isOther || _descriptionController.text.trim().isNotEmpty) {
             submitted = true;
-            _submit();
+            _submit(fromVoice: true);
           } else {
             _speak(_d.crowdsourceDescribePromptSpoken);
           }
@@ -365,8 +396,8 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
   // fallback below, since a root alone is too loose to safely apply to a
   // long, free-form description that might happen to mention something
   // similar in passing.
-  static const _submitRootsEn = ['submit', 'send'];
-  static const _submitRootsBn = ['পাঠা', 'সাবমিট'];
+  static const _submitRootsEn = ['submit', 'send', 'done', 'finish'];
+  static const _submitRootsBn = ['পাঠা', 'সাবমিট', 'সেন্ড', 'শেষ'];
 
   /// Returns the description text with a trailing submit phrase stripped
   /// off (possibly empty, meaning "submit whatever was already there"), or
@@ -397,9 +428,51 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
     return null;
   }
 
-  Future<void> _submit() async {
+  /// Files the report.
+  ///
+  /// [fromVoice] reports came through dictation, so the user has never seen
+  /// what was transcribed and gets a read-back plus a window to stop it
+  /// (see [VoiceCancelWindow]). A tap on the Submit button does not: the
+  /// text is on screen, the person tapping it has already read it, and
+  /// interrupting them to say it back out loud would be noise.
+  Future<void> _submit({required bool fromVoice}) async {
     final rawDescription = _descriptionController.text.trim();
     if (_isOther && rawDescription.isEmpty) return;
+
+    if (fromVoice) {
+      final hazard = _d.hazardSubCategoryLabel(_subCategoryKey!);
+      final readBack = rawDescription.isEmpty
+          ? _d.cancelWindowReadBack(hazard)
+          : _d.cancelWindowReadBack('$hazard. $rawDescription');
+      final outcome = await VoiceCancelWindow.run(
+        tts: _tts,
+        stt: _stt,
+        language: widget.language,
+        readBack: readBack,
+        isCancelled: () => !mounted,
+      );
+      if (!mounted) return;
+      switch (outcome) {
+        case CancelWindowOutcome.cancelled:
+          await _speak(_d.cancelWindowCancelled);
+          return;
+        case CancelWindowOutcome.edit:
+          // Clear and re-ask rather than appending to what was misheard —
+          // the user said it was wrong, so keeping it would mean they have
+          // to somehow talk their way out of text they cannot see.
+          _descriptionController.clear();
+          if (!mounted) return;
+          setState(() {});
+          // Re-narrates the final step and reopens dictation. Bumping the
+          // generation happens inside, which also cancels the listener this
+          // cancel window was itself running under.
+          unawaited(_narrateAndListenForStep());
+          return;
+        case CancelWindowOutcome.proceed:
+          break;
+      }
+      if (!mounted) return;
+    }
 
     setState(() => _submitting = true);
     double? lat;
@@ -732,7 +805,9 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _submitting || (_isOther && rawText.isEmpty) ? null : _submit,
+            onPressed: _submitting || (_isOther && rawText.isEmpty)
+                ? null
+                : () => _submit(fromVoice: false),
             child: _submitting
                 ? const SizedBox(
                     height: 22,

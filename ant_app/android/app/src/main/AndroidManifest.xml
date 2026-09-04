@@ -1,4 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Declared here, not just in the debug/profile source sets (where the
+         Flutter template puts it, purely for the dev-time VM connection).
+         Everything this app does off-device — Firebase, Gemini, Cloud
+         STT/TTS, OpenStreetMap tiles, OSRM routing — needs it in release
+         builds too. It currently also arrives transitively via the Firebase
+         AARs' own manifests, so release builds aren't broken today, but
+         relying on a transitive dependency for the app's own core
+         permission is not something to leave to chance. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <!-- AI Assistant module (voice input) and Guardian voice memos both
@@ -50,6 +59,31 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Renders with Skia instead of Impeller.
+
+             Impeller silently drops the OSM raster tiles on Adreno 6xx: the
+             tiles download (HTTP 200, valid PNGs, 2.5 MB pulled in one
+             session) and `errorTileCallback` never fires, but nothing is
+             painted, so the map shows as a blank grey panel. Vector layers
+             on the same map — the route polyline, the location dot — draw
+             correctly, which is what made this look like a data problem
+             rather than a rendering one for so long.
+
+             Reproduced and fixed on a Redmi 10C (Adreno 610, MIUI 14):
+             identical build, this line the only difference, blank grey ->
+             full map. That class of device is not an edge case for this
+             app — a budget Xiaomi is the typical handset for the users it
+             is being built for in Dhaka.
+
+             Flutter now prints "Impeller opt-out deprecated" on boot, so
+             this escape hatch is on its way out. When it goes, the fallback
+             is a tile provider that decodes to `dart:ui.Image` itself
+             rather than relying on the default image pipeline. Revisit on
+             the next Flutter upgrade; until then a deprecation warning is a
+             far better outcome than a blind user's map being blank. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyBhpaxU8ZdJ-3xGt-fTRfChMa5zIwEJiYI" />

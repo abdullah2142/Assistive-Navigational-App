@@ -44,6 +44,18 @@ class _DeafHearingScreenState extends ConsumerState<DeafHearingScreen> {
     super.dispose();
   }
 
+  /// The full spoken option list. Shared by [build]'s `spokenOptions` and
+  /// [_introAndListen] so the two can't drift apart — they did: the intro
+  /// spoke only the title and subtitle, leaving a blind user listening to
+  /// an open mic with no idea what a valid answer sounded like. Options are
+  /// always narrated *before* the mic opens (see `OnboardingScaffold`'s
+  /// `_speakThenListen` for the same rule and why it was reverted back to
+  /// this); "help" mid-loop still repeats them.
+  List<String> _spokenOptions(Onboarding s) => [
+        '${s.spokenOptionLabel(1)}: ${s.deafYesLabel}. ${s.deafYesDescription}',
+        '${s.spokenOptionLabel(2)}: ${s.deafNoLabel}. ${s.deafNoDescription}',
+      ];
+
   /// Uses `classifyTraitYesNo` instead of the generic choice-matching
   /// mechanism — this question's two answers are direct opposites, which
   /// word-overlap fuzzy matching handles badly (see that function's doc
@@ -54,7 +66,10 @@ class _DeafHearingScreenState extends ConsumerState<DeafHearingScreen> {
     if (_disposed || !ref.read(ttsEnabledProvider)) return;
     final language = ref.read(onboardingControllerProvider).profile!.language;
     final s = Onboarding.of(language);
-    await _tts.speak('${s.deafTitle}. ${s.deafSubtitle}', language: language);
+    await _tts.speak(
+      [s.deafTitle, s.deafSubtitle, ..._spokenOptions(s)].join('. '),
+      language: language,
+    );
     if (_disposed || !ref.read(ttsEnabledProvider) || _voiceStarted) return;
     _voiceStarted = true;
     await _voiceLoop(s, language);
@@ -91,10 +106,7 @@ class _DeafHearingScreenState extends ConsumerState<DeafHearingScreen> {
       );
       if (cancelled()) return;
       if (wantsHelp) {
-        await tts.speak(
-          '${s.deafYesLabel}: ${s.deafYesDescription} ${s.deafNoLabel}: ${s.deafNoDescription}',
-          language: language,
-        );
+        await tts.speak(_spokenOptions(s).join('. '), language: language);
         continue;
       }
       if (answer != null) {
@@ -116,11 +128,15 @@ class _DeafHearingScreenState extends ConsumerState<DeafHearingScreen> {
       subtitle: s.deafSubtitle,
       onBack: controller.goBack,
       language: language,
-      spokenOptions: [
-        'Option 1: ${s.deafYesLabel}. ${s.deafYesDescription}',
-        'Option 2: ${s.deafNoLabel}. ${s.deafNoDescription}',
-      ],
+      spokenOptions: _spokenOptions(s),
       autoSpeak: false,
+      // Re-arms this screen's own voice loop when a step fails and we stay
+      // put — `_stopCurrentScreenVoice` cancels it up front on every
+      // navigating action. See `OnboardingState.voiceRearmToken`.
+      onVoiceRestart: () {
+        _voiceStarted = false;
+        _introAndListen();
+      },
       child: Column(
         children: [
           BigChoiceCard(

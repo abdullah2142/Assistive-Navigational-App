@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -35,6 +36,7 @@ class OnboardingScaffold extends ConsumerStatefulWidget {
     this.language = AppLanguage.english,
     this.autoSpeak = true,
     this.voiceChoices = const [],
+    this.onVoiceRestart,
   });
 
   final String title;
@@ -66,6 +68,12 @@ class OnboardingScaffold extends ConsumerStatefulWidget {
   /// sequential yes/no questions) drives `listenForVoiceChoice` itself
   /// rather than using this — see `CognitiveAnxietyScreen`.
   final List<OnboardingVoiceChoice> voiceChoices;
+
+  /// How to restart voice guidance on a screen that drives its own loop
+  /// ([autoSpeak] false) after a failed step — see
+  /// [OnboardingState.voiceRearmToken]. Screens using this shell's own
+  /// narrate-then-listen loop leave it null and get [_speakThenListen].
+  final VoidCallback? onVoiceRestart;
 
   @override
   ConsumerState<OnboardingScaffold> createState() => _OnboardingScaffoldState();
@@ -142,10 +150,33 @@ class _OnboardingScaffoldState extends ConsumerState<OnboardingScaffold> {
     if (!_disposed) setState(() => _listening = false);
   }
 
+  /// Speaks the failure out loud — onboarding errors are otherwise only
+  /// ever rendered as red text, invisible to the user this whole flow is
+  /// built for — then hands the screen its voice back.
+  Future<void> _announceFailureAndRestart() async {
+    if (_disposed || !ref.read(ttsEnabledProvider)) return;
+    final error = ref.read(onboardingControllerProvider).errorMessage;
+    if (error != null) await _tts.speak(error, language: widget.language);
+    if (_disposed) return;
+    final restart = widget.onVoiceRestart;
+    if (restart != null) {
+      restart();
+    } else {
+      await _speakThenListen();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final ttsEnabled = ref.watch(ttsEnabledProvider);
     final s = Onboarding.of(widget.language);
+
+    ref.listen(
+      onboardingControllerProvider.select((s) => s.voiceRearmToken),
+      (previous, next) {
+        if (previous != next) _announceFailureAndRestart();
+      },
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -161,6 +192,25 @@ class _OnboardingScaffoldState extends ConsumerState<OnboardingScaffold> {
                 ),
               ),
         actions: [
+          // Development-only shortcut past the whole interview. Wrapped in
+          // `kDebugMode` so it is not merely hidden in release — the tree
+          // never contains it, and Dart's tree shaker drops the branch
+          // outright. See `OnboardingController.devSkipOnboarding`, which
+          // refuses to run in a release build even if reached.
+          if (kDebugMode)
+            Semantics(
+              button: true,
+              label: 'Developer: skip onboarding with test data',
+              child: IconButton(
+                icon: const Icon(Icons.fast_forward_rounded),
+                tooltip: 'DEV: skip to dashboard',
+                onPressed: () {
+                  _tts.stop();
+                  _stt.stop();
+                  ref.read(onboardingControllerProvider.notifier).devSkipOnboarding();
+                },
+              ),
+            ),
           Semantics(
             button: true,
             label: ttsEnabled ? s.voiceOnSemantics : s.voiceOffSemantics,

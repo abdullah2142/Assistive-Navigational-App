@@ -25,8 +25,11 @@ class RoleSelectionScreen extends ConsumerWidget {
       isLoading: state.isLoading,
       language: state.language,
       spokenOptions: [
-        'Option 1: ${s.roleDisabledUserLabel}. ${s.roleDisabledUserDescription}',
-        'Option 2: ${s.roleCaretakerLabel}. ${s.roleCaretakerDescription}',
+        // First screen after the language picker, so this is where the app
+        // introduces itself. See `voiceIntroSpoken`.
+        s.voiceIntroSpoken,
+        '${s.spokenOptionLabel(1)}: ${s.roleDisabledUserLabel}. ${s.roleDisabledUserDescription}',
+        '${s.spokenOptionLabel(2)}: ${s.roleCaretakerLabel}. ${s.roleCaretakerDescription}',
       ],
       voiceChoices: [
         OnboardingVoiceChoice(

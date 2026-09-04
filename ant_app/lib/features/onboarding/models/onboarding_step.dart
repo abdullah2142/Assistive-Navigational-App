@@ -15,6 +15,8 @@ enum OnboardingStep {
   passerbyMessages,
   snapshotConsent,
   safeHavens,
+  frequentPlaces,
+  commandTour,
   lockIn,
   complete,
 }

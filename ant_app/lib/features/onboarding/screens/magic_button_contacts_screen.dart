@@ -241,6 +241,13 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
       onPrimaryAction: controller.continueFromContacts,
       spokenOptions: [s.contactsSpokenHint],
       autoSpeak: false,
+      // Re-arms this screen's own voice loop when a step fails and we stay
+      // put — `_stopCurrentScreenVoice` cancels it up front on every
+      // navigating action. See `OnboardingState.voiceRearmToken`.
+      onVoiceRestart: () {
+        _voiceStarted = false;
+        _introAndListen();
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -281,7 +288,11 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
                 ),
               ),
               const SizedBox(width: 8),
-              VoiceDictateButton(controller: _nameController, language: language),
+              VoiceDictateButton(
+                controller: _nameController,
+                language: language,
+                fieldLabel: s.contactsNameLabel,
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -300,7 +311,12 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
                 ),
               ),
               const SizedBox(width: 8),
-              VoiceDictateButton(controller: _phoneController, language: language, isPhoneNumber: true),
+              VoiceDictateButton(
+                controller: _phoneController,
+                language: language,
+                isPhoneNumber: true,
+                fieldLabel: s.contactsPhoneLabel,
+              ),
             ],
           ),
           const SizedBox(height: 12),

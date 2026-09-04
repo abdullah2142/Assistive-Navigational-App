@@ -13,6 +13,10 @@ import '../../../core/services/route_planning_service.dart';
 import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../models/chat_message.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
+
+import '../../../core/services/destination_clarifier.dart';
+import '../models/hazard_report.dart';
 import '../models/suggested_chip.dart';
 
 class ChatState {
@@ -20,7 +24,10 @@ class ChatState {
     this.messages = const [],
     this.isAssistantTyping = false,
     this.pendingOverlayAction,
+    this.pendingHazardPrefill,
     this.pendingRoute,
+    this.pendingClarification,
+    this.lastSettingChanged,
   });
 
   final List<ChatMessage> messages;
@@ -33,6 +40,12 @@ class ChatState {
   /// [ChatController.clearPendingOverlay].
   final SuggestedChipAction? pendingOverlayAction;
 
+  /// Accompanies a [pendingOverlayAction] of
+  /// [SuggestedChipAction.reportHazard] when the command that triggered it
+  /// already named the hazard — cleared by the same
+  /// [ChatController.clearPendingOverlay] call.
+  final HazardReportPrefill? pendingHazardPrefill;
+
   /// Set when `request_route` (Module 4) successfully planned a route — the
   /// map widget watches this to draw the polyline and rotate the giant
   /// directional arrow. Stays set (unlike `pendingOverlayAction`, which is a
@@ -40,19 +53,38 @@ class ChatState {
   /// [ChatController.clearRoute].
   final RouteChoice? pendingRoute;
 
+  /// Set while the assistant is working out where a destination actually
+  /// is. Its presence changes how the *next* message is read: an answer to
+  /// the question just asked, rather than a fresh command. See
+  /// [DestinationClarification].
+  final DestinationClarification? pendingClarification;
+
+  /// The setting the user most recently changed by voice, so a bare
+  /// follow-up ("even bigger") knows what it is adjusting. See
+  /// `LocalIntentMatcher.match`'s `recentSetting`.
+  final String? lastSettingChanged;
+
   ChatState copyWith({
     List<ChatMessage>? messages,
     bool? isAssistantTyping,
     SuggestedChipAction? pendingOverlayAction,
+    HazardReportPrefill? pendingHazardPrefill,
     bool clearOverlay = false,
     RouteChoice? pendingRoute,
     bool clearRoute = false,
+    DestinationClarification? pendingClarification,
+    bool clearClarification = false,
+    String? lastSettingChanged,
   }) =>
       ChatState(
         messages: messages ?? this.messages,
         isAssistantTyping: isAssistantTyping ?? this.isAssistantTyping,
         pendingOverlayAction: clearOverlay ? null : (pendingOverlayAction ?? this.pendingOverlayAction),
+        pendingHazardPrefill: clearOverlay ? null : (pendingHazardPrefill ?? this.pendingHazardPrefill),
         pendingRoute: clearRoute ? null : (pendingRoute ?? this.pendingRoute),
+        pendingClarification:
+            clearClarification ? null : (pendingClarification ?? this.pendingClarification),
+        lastSettingChanged: lastSettingChanged ?? this.lastSettingChanged,
       );
 }
 
@@ -112,6 +144,158 @@ class ChatController extends Notifier<ChatState> {
     return {'setting': 'text_size', 'value': newScale.toStringAsFixed(2)};
   }
 
+  /// Handles one turn of the "where is that, exactly?" conversation.
+  ///
+  /// Returns true when the reply was consumed as an answer. Returns false
+  /// when it was plainly a new instruction instead — a user is allowed to
+  /// abandon a half-finished clarification by simply asking for something
+  /// else, and forcing them to formally cancel first would be its own trap.
+  Future<bool> _continueClarification(
+    DestinationClarification pending,
+    String reply,
+    UserProfile profile,
+    Position? location,
+    Dashboard d,
+  ) async {
+    // An unmistakable command wins over the pending question. Only route
+    // requests and the safety-critical triggers qualify — a stray settings
+    // phrase should not silently discard the destination being worked out.
+    final escape = LocalIntentMatcher.match(reply, profile.language);
+    if (escape != null &&
+        const {'request_route', 'open_passerby_helper', 'open_hazard_report'}.contains(escape.name)) {
+      state = state.copyWith(clearClarification: true);
+      return false;
+    }
+
+    final outcome = DestinationClarifier.interpret(
+      reply: reply,
+      pending: pending,
+      language: profile.language,
+    );
+
+    switch (outcome) {
+      case ClarificationCancelled():
+        state = state.copyWith(clearClarification: true);
+        await _appendAssistantReply(d.clarifyCancelled, profile);
+        return true;
+
+      case ClarificationUnclear():
+        // Exhausted, or nothing usable in the reply. Either way, stop
+        // asking the same thing — see `clarifyGaveUp`, which ends with
+        // something the user can actually do.
+        if (pending.isExhausted) {
+          state = state.copyWith(clearClarification: true);
+          await _appendAssistantReply(d.clarifyGaveUp(pending.originalQuery), profile);
+        } else {
+          await _appendAssistantReply(d.clarifyUnclear, profile);
+        }
+        return true;
+
+      case ClarificationResolved(:final candidate):
+        state = state.copyWith(clearClarification: true);
+        await _planClarifiedRoute(
+          query: candidate.label,
+          label: candidate.spokenLabel,
+          known: candidate.location,
+          profile: profile,
+          location: location,
+          d: d,
+        );
+        return true;
+
+      case ClarificationRefined(:final updated):
+        state = state.copyWith(pendingClarification: updated);
+        await _planClarifiedRoute(
+          query: updated.combinedQuery,
+          label: null,
+          known: null,
+          profile: profile,
+          location: location,
+          d: d,
+          pending: updated,
+        );
+        return true;
+    }
+  }
+
+  /// Retries routing with whatever the clarification has learned so far,
+  /// and asks the next question if it still is not enough.
+  Future<void> _planClarifiedRoute({
+    required String query,
+    required String? label,
+    required LatLng? known,
+    required UserProfile profile,
+    required Position? location,
+    required Dashboard d,
+    DestinationClarification? pending,
+  }) async {
+    if (location == null) {
+      await _appendAssistantReply(d.mapUnavailableSubtitle, profile);
+      return;
+    }
+    state = state.copyWith(isAssistantTyping: true);
+    final result = await ref.read(routePlanningServiceProvider).plan(
+          destinationQuery: query,
+          destinationLabel: label,
+          knownDestination: known,
+          origin: LatLng(location.latitude, location.longitude),
+        );
+    state = state.copyWith(isAssistantTyping: false);
+
+    switch (result) {
+      case RoutePlanned(:final choice):
+        state = state.copyWith(pendingRoute: choice, clearClarification: true);
+        // A place that took several questions to find is exactly the one
+        // worth never having to find again.
+        await _appendAssistantReply(
+          '${d.savedPlaceRouting(choice.destinationLabel)} '
+          '${d.clarifyResolvedOfferSave(choice.destinationLabel)}',
+          profile,
+        );
+        _startNavigation(choice, profile);
+
+      case RoutePlanAmbiguous(:final options):
+        state = state.copyWith(
+          pendingClarification: (pending ?? DestinationClarification(originalQuery: query))
+              .offering(options),
+        );
+        await _appendAssistantReply(
+          d.clarifyChooseOption(options.map((o) => o.spokenLabel).toList()),
+          profile,
+        );
+
+      case RoutePlanFailed(:final reason):
+        if (reason != 'destination_not_found' || pending == null) {
+          state = state.copyWith(clearClarification: true);
+          await _appendAssistantReply(d.hazardResolveNothingToClear, profile);
+          return;
+        }
+        if (pending.isExhausted) {
+          state = state.copyWith(clearClarification: true);
+          await _appendAssistantReply(d.clarifyGaveUp(pending.originalQuery), profile);
+          return;
+        }
+        // Each round asks for a *different* kind of clue. A user who could
+        // answer "where is it?" would have answered it the first time.
+        await _appendAssistantReply(
+          pending.attempts <= 1
+              ? d.clarifyAskArea(pending.originalQuery)
+              : d.clarifyAskLandmark(pending.originalQuery),
+          profile,
+        );
+    }
+  }
+
+  /// Begins spoken turn-by-turn guidance the moment a route is accepted.
+  ///
+  /// Not gated behind a "start navigation" tap: for a user who cannot see
+  /// the map, a planned-but-silent route is not usable at all — the arrow
+  /// and the polyline are the sighted half of this feature, and the spoken
+  /// directions are the whole of the other half.
+  void _startNavigation(RouteChoice route, UserProfile profile) {
+    ref.read(navigationControllerProvider).start(route, language: profile.language);
+  }
+
   void _appendUserMessage(String text) {
     state = state.copyWith(messages: [
       ...state.messages,
@@ -161,6 +345,17 @@ class ChatController extends Notifier<ChatState> {
       // before any GPS read) — proceed without it.
     }
 
+    // A question we just asked takes priority over reading the next
+    // message as a fresh command. Without this, "it's in Mirpur" — a
+    // perfectly good answer to "which area is it in?" — falls through to
+    // the intent matcher, matches nothing, and goes to Gemini as though
+    // the assistant had never asked anything, losing the thread entirely.
+    final pending = state.pendingClarification;
+    if (pending != null) {
+      final handled = await _continueClarification(pending, trimmed, profile, location, d);
+      if (handled) return;
+    }
+
     // Checked before ever touching Gemini — `LocalIntentMatcher` recognizes
     // the common, unambiguous settings-change/trigger commands (explicit
     // user request: save the latency and token cost of a full LLM round
@@ -168,22 +363,47 @@ class ChatController extends Notifier<ChatState> {
     // it isn't confident about). `FunctionCallExecutor` is what actually
     // applies the change — the exact same code Gemini's own function
     // calling uses, so the effect and wording are identical either way.
-    final localIntent = LocalIntentMatcher.match(trimmed, profile.language);
+    final localIntent = LocalIntentMatcher.match(
+      trimmed,
+      profile.language,
+      recentSetting: state.lastSettingChanged,
+    );
     if (localIntent != null) {
       debugPrint('[Chat] local match: ${localIntent.name} ${localIntent.args} (skipping Gemini)');
       final args = _resolveLocalIntentArgs(localIntent, profile);
       final turn = await ref
           .read(functionCallExecutorProvider)
-          .execute(name: localIntent.name, args: args, profile: profile, location: location);
+          .execute(
+            name: localIntent.name,
+            args: args,
+            profile: profile,
+            location: location,
+            // `resolve_hazard` is scoped to whatever the user is currently
+            // walking — see `_applyResolveHazard`.
+            activeRoute: state.pendingRoute,
+          );
       if (turn.updatedProfile != null) {
         await ref.read(profileServiceProvider).saveProfile(turn.updatedProfile!);
       }
       await _appendAssistantReply(turn.responseText, profile);
       if (turn.overlayAction != null) {
-        state = state.copyWith(pendingOverlayAction: turn.overlayAction);
+        state = state.copyWith(
+          pendingOverlayAction: turn.overlayAction,
+          pendingHazardPrefill: turn.hazardPrefill,
+        );
       }
       if (turn.route != null) {
         state = state.copyWith(pendingRoute: turn.route);
+        _startNavigation(turn.route!, profile);
+      }
+      if (turn.clarification != null) {
+        state = state.copyWith(pendingClarification: turn.clarification);
+      }
+      if (turn.clarification != null) {
+        state = state.copyWith(pendingClarification: turn.clarification);
+      }
+      if (localIntent.name == 'update_setting') {
+        state = state.copyWith(lastSettingChanged: args['setting'] as String?);
       }
       return;
     }
@@ -215,6 +435,8 @@ class ChatController extends Notifier<ChatState> {
         profile: profile,
         recentHistory: history,
         location: location,
+        // Scopes `resolve_hazard` to what the user is actually walking.
+        activeRoute: state.pendingRoute,
         onPartialText: (partial) {
           if (!streaming) {
             streaming = true;
@@ -248,10 +470,14 @@ class ChatController extends Notifier<ChatState> {
         await _appendAssistantReply(turn.responseText, profile);
       }
       if (turn.overlayAction != null) {
-        state = state.copyWith(pendingOverlayAction: turn.overlayAction);
+        state = state.copyWith(
+          pendingOverlayAction: turn.overlayAction,
+          pendingHazardPrefill: turn.hazardPrefill,
+        );
       }
       if (turn.route != null) {
         state = state.copyWith(pendingRoute: turn.route);
+        _startNavigation(turn.route!, profile);
       }
     } catch (e, st) {
       state = state.copyWith(isAssistantTyping: false);

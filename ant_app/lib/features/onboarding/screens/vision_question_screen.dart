@@ -23,9 +23,9 @@ class VisionQuestionScreen extends ConsumerWidget {
       onBack: controller.goBack,
       language: language,
       spokenOptions: [
-        'Option 1: ${s.visionNoneLabel}. ${s.visionNoneDescription}',
-        'Option 2: ${s.visionLowLabel}. ${s.visionLowDescription}',
-        'Option 3: ${s.visionFullLabel}. ${s.visionFullDescription}',
+        '${s.spokenOptionLabel(1)}: ${s.visionNoneLabel}. ${s.visionNoneDescription}',
+        '${s.spokenOptionLabel(2)}: ${s.visionLowLabel}. ${s.visionLowDescription}',
+        '${s.spokenOptionLabel(3)}: ${s.visionFullLabel}. ${s.visionFullDescription}',
       ],
       voiceChoices: [
         OnboardingVoiceChoice(

@@ -1,4 +1,5 @@
 import '../localization/app_language.dart';
+import 'voice_matching.dart';
 
 /// A function call [LocalIntentMatcher] is confident enough about to run
 /// without ever asking Gemini — same shape `FunctionCallExecutor.execute`
@@ -41,13 +42,54 @@ class LocalIntent {
 class LocalIntentMatcher {
   LocalIntentMatcher._();
 
-  static LocalIntent? match(String rawText, AppLanguage language) {
+  /// Bangla negation particles, as *whole words*.
+  ///
+  /// Bangla negates after the verb ("যাব না" — "will go not"), so a
+  /// negation particle sits at the end of the very phrase being matched,
+  /// where a plain `contains` check cannot see it: "শুনতে পাই" ("I can
+  /// hear") is a literal prefix of "শুনতে পাই না" ("I cannot hear"), so
+  /// the affirmative phrase list matched the negative sentence and set the
+  /// setting to the exact opposite of what was said. English negates
+  /// *before* the verb ("i am not deaf" does not contain "i am deaf"), so
+  /// it is naturally immune to this and needs no equivalent handling.
+  static const _bnNegationParticles = {'না', 'নাই', 'নেই', 'নয়', 'নি'};
+
+  /// Whole *word*, never a substring. "না" is also the first two characters
+  /// of a great many ordinary Bangla words — including real Dhaka-area
+  /// place names a user will absolutely ask to be routed to (নারায়ণগঞ্জ /
+  /// Narayanganj, নাখালপাড়া / Nakhalpara, নারিন্দা / Narinda). Treating a
+  /// bare substring as negation silently swallowed every one of those route
+  /// requests. Same lesson as `fuzzyVoiceMatch`'s "male" inside "female".
+  static final _tokenSplit = RegExp(r'\s+');
+  static final _stripPunctuation = RegExp(r'[।?!.,;:\u0964\u0965"\u2018\u2019\u201c\u201d]');
+
+  static Iterable<String> _words(String text) =>
+      text.split(_tokenSplit).map((w) => w.replaceAll(_stripPunctuation, '')).where((w) => w.isNotEmpty);
+
+  /// [recentSetting] is the setting the user most recently changed, if any.
+  ///
+  /// It exists so a follow-up can lean on the conversation instead of
+  /// repeating itself. "Make the text bigger" then "even bigger" is how
+  /// people actually adjust things — but the second sentence has no word
+  /// naming *what* to enlarge, so the context requirement that stops
+  /// "it's getting dark outside" from flipping the theme also rejected it,
+  /// and the user was told nothing had been understood.
+  ///
+  /// Reported from real use. The relaxation is narrow on purpose: it only
+  /// applies to the one setting that was just changed, so a bare
+  /// comparative can never reach a setting the user was not already
+  /// talking about.
+  static LocalIntent? match(String rawText, AppLanguage language, {String? recentSetting}) {
     final text = rawText.trim();
     if (text.isEmpty) return null;
     final lower = text.toLowerCase();
     final bn = language == AppLanguage.bangla;
 
+    final followUp = _matchFollowUp(text, recentSetting);
+    if (followUp != null) return followUp;
+
     return _matchPairing(text) ??
+        _matchResolveHazard(lower, text) ??
         _matchOverlay(lower, text, bn) ??
         _matchBooleanSetting(lower, text) ??
         _matchTheme(lower, text) ??
@@ -110,12 +152,146 @@ class LocalIntentMatcher {
     'সমস্যা জানাও',
   ];
 
+  /// Named hazards, so "report an open manhole" opens the Reporting Hub
+  /// *on that hazard* instead of at the top of a three-level menu — Step 1
+  /// of `05_module_plan_crowdsourcing.md` ("without breaking their stride").
+  ///
+  /// Keys are the same stable `subCategory` identities
+  /// `Dashboard.hazardSubCategoryKeys` uses and `HazardReport` stores. Only
+  /// hazards with a distinctive, unmistakable name are listed: "pothole"
+  /// and "manhole" are only ever one thing, whereas a bare "blocked" or
+  /// "broken" could mean any of several sub-categories, and guessing wrong
+  /// files a real report under the wrong hazard type — which then clusters
+  /// with the wrong reports and decays on the wrong schedule.
+  static const _namedHazards = <({String category, String subCategory, List<String> en, List<String> bn})>[
+    (category: 'crime', subCategory: 'mugging', en: ['mugging', 'mugged', 'robbery'], bn: ['ছিনতাই']),
+    (category: 'crime', subCategory: 'harassment', en: ['harassment', 'harassed'], bn: ['উত্যক্ত']),
+    (category: 'crime', subCategory: 'stalking', en: ['stalking', 'being followed'], bn: ['পিছু নিচ্ছে', 'পিছু নেওয়া']),
+    (category: 'crime', subCategory: 'poorLighting', en: ['no street light', 'poor lighting', 'no lighting'], bn: ['রাস্তায় আলো নেই']),
+    (category: 'roadHazard', subCategory: 'openManhole', en: ['open manhole', 'manhole'], bn: ['ম্যানহোল']),
+    (category: 'roadHazard', subCategory: 'pothole', en: ['pothole', 'broken road'], bn: ['গর্ত', 'রাস্তা ভাঙা']),
+    (category: 'roadHazard', subCategory: 'flooding', en: ['flooding', 'waterlogging', 'water logged'], bn: ['পানি জমে']),
+    (category: 'roadHazard', subCategory: 'construction', en: ['construction'], bn: ['নির্মাণকাজ']),
+    (category: 'roadHazard', subCategory: 'debrisFallenTree', en: ['fallen tree'], bn: ['গাছ পড়ে']),
+    (category: 'accessibilityBlock', subCategory: 'stairsOnly', en: ['stairs only', 'only stairs', 'no ramp'], bn: ['শুধু সিঁড়ি', 'র‍্যাম্প নেই']),
+    (category: 'accessibilityBlock', subCategory: 'brokenRamp', en: ['broken ramp'], bn: ['ঢালু পথ ভাঙা']),
+    (category: 'accessibilityBlock', subCategory: 'noCurbCut', en: ['no curb cut', 'no kerb cut'], bn: ['ঢালু পথ নেই']),
+    (category: 'accessibilityBlock', subCategory: 'blockedByVendors', en: ['vendors blocking', 'blocked by vendors', 'hawkers'], bn: ['হকার']),
+  ];
+
+  /// Verbs that turn a hazard *mention* into a hazard *report*.
+  ///
+  /// Required, and that requirement is the whole safeguard here: without it
+  /// "is there a manhole near me?" would file a report about a manhole the
+  /// user was only asking about. Reports feed a system that closes roads
+  /// for other people, so a false one costs more than a missed one.
+  static const _reportVerbsEn = ['report', 'flag', 'there is a', "there's a", 'there is an', "there's an", 'i see a', 'i see an'];
+  static const _reportVerbsBn = ['জানাও', 'রিপোর্ট', 'আছে'];
+
   static LocalIntent? _matchOverlay(String lower, String text, bool bn) {
     if (_showScreenEn.any(lower.contains) || _showScreenBn.any(text.contains)) {
       return const LocalIntent('open_passerby_helper', {});
     }
+
+    final isReport = _reportVerbsEn.any(lower.contains) || _reportVerbsBn.any(text.contains);
+    if (isReport) {
+      for (final hazard in _namedHazards) {
+        if (hazard.en.any(lower.contains) || hazard.bn.any(text.contains)) {
+          return LocalIntent('open_hazard_report', {
+            'category': hazard.category,
+            'subCategory': hazard.subCategory,
+          });
+        }
+      }
+    }
+
     if (_hazardEn.any(lower.contains) || _hazardBn.any(text.contains)) {
       return const LocalIntent('open_hazard_report', {});
+    }
+    return null;
+  }
+
+  // ---- follow-up ("even bigger", "a bit more") --------------------------
+
+  /// Bare comparatives, per setting and direction. Matched only when that
+  /// same setting was the last one changed.
+  static const _followUps = <({String setting, String value, List<String> words})>[
+    (setting: 'text_size', value: '_bigger', words: [
+      'bigger', 'even bigger', 'larger', 'more', 'a bit more', 'again', 'increase',
+      'বড়', 'আরও বড়', 'আরেকটু', 'আরও',
+    ]),
+    (setting: 'text_size', value: '_smaller', words: [
+      'smaller', 'even smaller', 'less', 'a bit less', 'decrease',
+      'ছোট', 'আরও ছোট', 'কম',
+    ]),
+    (setting: 'verbosity', value: 'minimalist', words: [
+      'shorter', 'even shorter', 'less', 'briefer', 'সংক্ষেপে', 'আরও ছোট', 'কম',
+    ]),
+    (setting: 'verbosity', value: 'descriptive', words: [
+      'longer', 'more', 'even more', 'more detail', 'বিস্তারিত', 'আরও', 'বেশি',
+    ]),
+  ];
+
+  /// A follow-up has to be *short*. "Even bigger" is an adjustment;
+  /// "bigger crowds make me anxious" is a sentence that happens to contain
+  /// the word, and treating it as one would resize the user's text for no
+  /// reason they could connect to anything they said.
+  static const int _maxFollowUpWords = 4;
+
+  static LocalIntent? _matchFollowUp(String text, String? recentSetting) {
+    if (recentSetting == null) return null;
+    final words = voiceWords(text);
+    if (words.isEmpty || words.length > _maxFollowUpWords) return null;
+    if (containsAny(words, kQuestionBlockers) || containsAny(words, kAllNegations)) return null;
+
+    // Both directions of the same setting present ("bigger or smaller?") is
+    // a question, not an instruction.
+    final hits = _followUps
+        .where((f) => f.setting == recentSetting && containsAny(words, f.words))
+        .toList();
+    if (hits.length != 1) return null;
+    return LocalIntent('update_setting', {'setting': hits.first.setting, 'value': hits.first.value});
+  }
+
+  // ---- resolve_hazard ----------------------------------------------------
+
+  /// "It's fixed" — the only way a structural block (stairs with no ramp, a
+  /// missing curb cut) ever leaves the map, since those deliberately never
+  /// decay on a timer. See `functions/lib/hazard_decay.js`.
+  ///
+  /// Matched before [_matchOverlay] so "the broken ramp is fixed" clears
+  /// the hazard rather than opening a form to report it again — the phrase
+  /// contains a named hazard *and* a resolution, and only one of those two
+  /// readings is what anybody means by it.
+  static const _resolvedEn = [
+    'it is fixed',
+    "it's fixed",
+    'it has been fixed',
+    // Bare "is fixed" rather than only "it is fixed": people name the thing
+    // ("the broken ramp is fixed"), which is also exactly the phrasing that
+    // contains a hazard name and would otherwise fall through to opening a
+    // report form for the hazard they just said was gone.
+    'is fixed',
+    'are fixed',
+    'has been fixed',
+    'been repaired',
+    'is repaired',
+    'it is clear now',
+    'the path is clear',
+    'not there any more',
+    'not there anymore',
+    'no longer there',
+  ];
+  static const _resolvedBn = [
+    'ঠিক হয়ে গেছে',
+    'সারানো হয়েছে',
+    'আর নেই',
+    'পথ পরিষ্কার',
+  ];
+
+  static LocalIntent? _matchResolveHazard(String lower, String text) {
+    if (_resolvedEn.any(lower.contains) || _resolvedBn.any(text.contains)) {
+      return const LocalIntent('resolve_hazard', {});
     }
     return null;
   }
@@ -127,111 +303,246 @@ class LocalIntentMatcher {
   /// tuples — every boolean setting shares the same "turn on X" / "turn off
   /// X" shape, so one table drives all of them instead of near-duplicate
   /// per-setting matchers.
-  static final _booleanSettings = <({
-    String setting,
-    List<String> onEn,
-    List<String> onBn,
-    List<String> offEn,
-    List<String> offBn,
-  })>[
+  /// Settings that are simply on or off. Split into *what* is being
+  /// toggled and *which way*, instead of enumerating every
+  /// "turn on X"/"disable X" sentence: the two are independent, so one
+  /// subject list crossed with one polarity list covers far more phrasings
+  /// than any hand-written sentence list ever did. "disable the wake word"
+  /// used to miss purely because of the word "the".
+  static const _toggleSettings = <({String setting, VoicePhrase subject})>[
     (
       setting: 'wake_word_enabled',
-      onEn: ['turn on hey ant', 'enable wake word', 'activate hey ant', 'enable hey ant', 'turn on the wake word'],
-      onBn: ['হে অ্যান্ট চালু করো', 'ওয়েক ওয়ার্ড চালু করো', 'হে অ্যান্ট চালু কর'],
-      offEn: ['turn off hey ant', 'disable wake word', 'deactivate hey ant', 'disable hey ant', 'turn off the wake word'],
-      offBn: ['হে অ্যান্ট বন্ধ করো', 'ওয়েক ওয়ার্ড বন্ধ করো', 'হে অ্যান্ট বন্ধ কর'],
+      subject: VoicePhrase(anchors: [
+        'hey ant', 'wake word', 'wakeword', 'wake-word',
+        'হে অ্যান্ট', 'ওয়েক ওয়ার্ড',
+      ]),
     ),
     (
       setting: 'voice_auto_listen',
-      onEn: ['turn on auto listen', 'enable auto listen', 'listen automatically', 'auto listen on'],
-      onBn: ['অটো লিসেন চালু করো', 'নিজে থেকে শোনা চালু করো'],
-      offEn: ['turn off auto listen', 'disable auto listen', 'stop listening automatically', 'auto listen off'],
-      offBn: ['অটো লিসেন বন্ধ করো', 'নিজে থেকে শোনা বন্ধ করো'],
-    ),
-    (
-      setting: 'crowded_places_anxious',
-      onEn: ['crowded places make me anxious', 'i get anxious in crowds', 'i am anxious in crowded places'],
-      onBn: ['ভিড়ে আমার অস্বস্তি লাগে', 'ভিড়ে অস্বস্তি হয়'],
-      offEn: ["crowded places don't bother me", 'i am fine in crowds', "crowds don't make me anxious"],
-      offBn: ['ভিড়ে অস্বস্তি লাগে না', 'ভিড়ে সমস্যা নেই'],
-    ),
-    (
-      setting: 'complex_instructions_hard',
-      onEn: ['complex instructions are hard', 'simple instructions please', 'keep instructions simple'],
-      onBn: ['জটিল নির্দেশ বুঝতে কষ্ট হয়', 'সহজ করে বলো'],
-      offEn: ['complex instructions are fine', 'i can follow complex instructions'],
-      offBn: ['জটিল নির্দেশ বুঝতে পারি', 'কোনো সমস্যা নেই নির্দেশে'],
-    ),
-    (
-      setting: 'deaf_hearing_mode',
-      onEn: ["i can't hear well", 'i am hard of hearing', 'i am deaf', 'switch to text mode'],
-      onBn: ['কানে শুনি না', 'কম শুনি', 'লেখা মোডে দাও'],
-      offEn: ['i can hear fine', 'my hearing is fine', 'i hear normally'],
-      offBn: ['শুনতে পাই', 'শোনায় সমস্যা নেই'],
+      subject: VoicePhrase(anchors: [
+        'auto listen', 'autolisten', 'automatic listening', 'listen automatically',
+        'অটো লিসেন', 'নিজে থেকে শোনা',
+      ]),
     ),
   ];
 
-  static LocalIntent? _matchBooleanSetting(String lower, String text) {
-    for (final s in _booleanSettings) {
-      if (s.onEn.any(lower.contains) || s.onBn.any(text.contains)) {
-        return LocalIntent('update_setting', {'setting': s.setting, 'value': 'true'});
-      }
-      if (s.offEn.any(lower.contains) || s.offBn.any(text.contains)) {
-        return LocalIntent('update_setting', {'setting': s.setting, 'value': 'false'});
-      }
+  static const _onWords = ['on', 'enable', 'enabled', 'activate', 'start', 'switch on', 'চালু'];
+  static const _offWords = [
+    'off', 'disable', 'disabled', 'deactivate', 'stop', 'switch off', 'turn off', 'বন্ধ',
+  ];
+
+  static LocalIntent? _matchToggle(List<String> words) {
+    for (final entry in _toggleSettings) {
+      if (!entry.subject.matches(words)) continue;
+      // Both or neither polarity present is not something to guess at —
+      // "should I turn the wake word on or off?" is a question.
+      final value = exclusive(
+        words,
+        const VoicePhrase(anchors: _onWords),
+        'true',
+        const VoicePhrase(anchors: _offWords),
+        'false',
+      );
+      if (value == null) return null;
+      return LocalIntent('update_setting', {'setting': entry.setting, 'value': value});
     }
     return null;
+  }
+
+  /// Settings the user states as a fact about themselves rather than
+  /// toggling.
+  ///
+  /// Each side is a *list* of phrasings, because a trait can be stated in
+  /// genuinely different shapes — "I am deaf" names the trait directly,
+  /// while "I can't hear well" states its opposite and negates it. Both
+  /// mean the same thing and neither can be expressed as the other.
+  ///
+  /// Each side carries the other's negations as blockers, which is what
+  /// keeps Bangla's post-verbal negation from inverting the answer: "শুনতে
+  /// পাই" ("I can hear") is a literal prefix of "শুনতে পাই না" ("I cannot
+  /// hear"), and matching the affirmative list on the negative sentence set
+  /// a Deaf user's accommodation to exactly the wrong value.
+  static const _traitSettings = <({String setting, List<VoicePhrase> present, List<VoicePhrase> absent})>[
+    (
+      setting: 'deaf_hearing_mode',
+      present: [
+        VoicePhrase(anchors: ['deaf', 'text mode', 'বধির', 'লেখা মোড']),
+        VoicePhrase(
+          anchors: ['hear', 'hearing', 'শুনি', 'শুনতে'],
+          context: [
+            ...kAllNegations,
+            'hard', 'trouble', 'difficulty', 'difficult', 'problem', 'issue', 'poor', 'badly',
+            'কষ্ট', 'সমস্যা', 'কম',
+          ],
+          requireContext: true,
+        ),
+      ],
+      absent: [
+        VoicePhrase(
+          anchors: ['hear', 'hearing', 'শুনি', 'শুনতে'],
+          context: ['fine', 'well', 'good', 'normal', 'normally', 'okay', 'ok', 'ঠিক', 'ভালো', 'স্বাভাবিক', 'পাই'],
+          requireContext: true,
+          blockers: kAllNegations,
+        ),
+      ],
+    ),
+    (
+      setting: 'crowded_places_anxious',
+      present: [
+        VoicePhrase(
+          anchors: ['anxious', 'anxiety', 'panic', 'nervous', 'uncomfortable', 'অস্বস্তি', 'ভয়'],
+          context: ['crowd', 'crowds', 'crowded', 'busy', 'ভিড়', 'জনসমাগম'],
+          requireContext: true,
+          blockers: kAllNegations,
+        ),
+      ],
+      absent: [
+        VoicePhrase(
+          anchors: ['fine', 'okay', 'ok', 'comfortable', 'ঠিক', 'সমস্যা নেই'],
+          context: ['crowd', 'crowds', 'crowded', 'busy', 'ভিড়'],
+          requireContext: true,
+        ),
+        VoicePhrase(
+          anchors: ['anxious', 'anxiety', 'nervous', 'bother', 'অস্বস্তি'],
+          context: ['crowd', 'crowds', 'crowded', 'ভিড়'],
+          requireContext: true,
+          // Only reached when the statement IS negated — "crowds don't
+          // bother me".
+          blockers: [],
+        ),
+      ],
+    ),
+    (
+      setting: 'complex_instructions_hard',
+      present: [
+        VoicePhrase(
+          anchors: ['simple', 'simpler', 'hard', 'difficult', 'confusing', 'সহজ', 'কষ্ট', 'কঠিন'],
+          context: ['instruction', 'instructions', 'steps', 'directions', 'explain', 'নির্দেশ', 'ধাপ'],
+          requireContext: true,
+          blockers: kAllNegations,
+        ),
+      ],
+      absent: [
+        VoicePhrase(
+          anchors: ['follow', 'understand', 'fine', 'বুঝতে পারি', 'সমস্যা নেই'],
+          context: ['instruction', 'instructions', 'steps', 'complex', 'নির্দেশ'],
+          requireContext: true,
+          blockers: kAllNegations,
+        ),
+      ],
+    ),
+  ];
+
+  static LocalIntent? _matchTraitSetting(List<String> words) {
+    for (final entry in _traitSettings) {
+      final present = entry.present.any((p) => p.matches(words));
+      final absent = entry.absent.any((p) => p.matches(words));
+      // Both or neither is not something to guess at — a trait stated two
+      // ways in one sentence needs a reader, not a pattern.
+      if (present == absent) continue;
+      return LocalIntent(
+        'update_setting',
+        {'setting': entry.setting, 'value': present ? 'true' : 'false'},
+      );
+    }
+    return null;
+  }
+
+  static LocalIntent? _matchBooleanSetting(String lower, String text) {
+    final words = voiceWords(text);
+    // A question about a setting is not a request to change it.
+    if (containsAny(words, kQuestionBlockers)) return null;
+    return _matchToggle(words) ?? _matchTraitSetting(words);
   }
 
   // ---- theme -------------------------------------------------------------
 
-  static const _darkEn = ['dark mode', 'dark theme', 'switch to dark', 'turn on dark', 'make it dark', 'go dark', 'enable dark mode'];
-  static const _darkBn = ['ডার্ক মোড', 'গাঢ় থিম', 'গাঢ় করে দাও', 'গাঢ় করো', 'কালো থিম', 'অন্ধকার মোড'];
-  static const _lightEn = ['light mode', 'light theme', 'switch to light', 'turn on light', 'make it light', 'enable light mode'];
-  static const _lightBn = ['লাইট মোড', 'হালকা থিম', 'হালকা করে দাও', 'হালকা করো'];
+  /// Words that mean "this is about the app's appearance", used to keep an
+  /// everyday word like "dark" or "light" from firing on an ordinary
+  /// sentence. See `VoicePhrase.requireContext`.
+  static const _appearanceContext = [
+    'mode', 'theme', 'screen', 'display', 'background', 'colour', 'color', 'app',
+    'make', 'turn', 'switch', 'set', 'change', 'put', 'want', 'like', 'prefer',
+    'মোড', 'থিম', 'স্ক্রিন', 'পর্দা', 'রং', 'করো', 'কর', 'দাও', 'চাই',
+  ];
+
+  static const _darkPhrase = VoicePhrase(
+    anchors: ['dark', 'darker', 'darken', 'black', 'night mode', 'ডার্ক', 'গাঢ়', 'কালো', 'অন্ধকার'],
+    context: _appearanceContext,
+    requireContext: true,
+    // "It's getting dark outside" must never flip the theme.
+    blockers: ['outside', 'sky', 'evening', 'বাইরে', 'আকাশ', ...kQuestionBlockers],
+  );
+
+  static const _lightPhrase = VoicePhrase(
+    anchors: ['light', 'lighter', 'brighter', 'brighten', 'white', 'day mode', 'লাইট', 'হালকা', 'উজ্জ্বল', 'সাদা'],
+    context: _appearanceContext,
+    requireContext: true,
+    // "The street light is broken" is a hazard report, not a theme change.
+    blockers: [
+      'street', 'streetlight', 'lamp', 'bulb', 'torch', 'flashlight', 'রাস্তার', 'বাতি', 'ল্যাম্প',
+      ...kQuestionBlockers,
+    ],
+  );
 
   static LocalIntent? _matchTheme(String lower, String text) {
-    if (_darkEn.any(lower.contains) || _darkBn.any(text.contains)) {
-      return const LocalIntent('update_setting', {'setting': 'theme', 'value': 'dark'});
-    }
-    if (_lightEn.any(lower.contains) || _lightBn.any(text.contains)) {
-      return const LocalIntent('update_setting', {'setting': 'theme', 'value': 'light'});
-    }
-    return null;
+    final value = exclusive(voiceWords(text), _darkPhrase, 'dark', _lightPhrase, 'light');
+    return value == null ? null : LocalIntent('update_setting', {'setting': 'theme', 'value': value});
   }
 
   // ---- language ------------------------------------------------------
 
-  static const _toBanglaEn = ['switch to bangla', 'speak bangla', 'change language to bangla', 'speak in bangla', 'reply in bangla'];
-  static const _toBanglaBn = ['বাংলায় বলো', 'বাংলা ভাষা করো', 'ভাষা বাংলা করো', 'বাংলায় কথা বলো'];
-  static const _toEnglishEn = ['switch to english', 'speak english', 'change language to english', 'speak in english', 'reply in english'];
-  static const _toEnglishBn = ['ইংরেজি বলো', 'ইংরেজিতে বলো', 'ভাষা ইংরেজি করো', 'ইংরেজিতে কথা বলো'];
+  static const _languageContext = [
+    'speak', 'speaking', 'talk', 'talking', 'say', 'reply', 'replies', 'answer',
+    'language', 'switch', 'change', 'use', 'in',
+    'ভাষা', 'বলো', 'বল', 'কথা', 'বলুন', 'করো',
+  ];
+
+  static const _banglaPhrase = VoicePhrase(
+    anchors: ['bangla', 'bengali', 'বাংলা', 'বাংলায়'],
+    context: _languageContext,
+    requireContext: true,
+    blockers: kQuestionBlockers,
+  );
+  static const _englishPhrase = VoicePhrase(
+    anchors: ['english', 'ইংরেজি', 'ইংলিশ', 'ইংরেজিতে'],
+    context: _languageContext,
+    requireContext: true,
+    blockers: kQuestionBlockers,
+  );
 
   static LocalIntent? _matchLanguage(String lower, String text) {
-    if (_toBanglaEn.any(lower.contains) || _toBanglaBn.any(text.contains)) {
-      return const LocalIntent('update_setting', {'setting': 'language', 'value': 'bangla'});
-    }
-    if (_toEnglishEn.any(lower.contains) || _toEnglishBn.any(text.contains)) {
-      return const LocalIntent('update_setting', {'setting': 'language', 'value': 'english'});
-    }
-    return null;
+    final value = exclusive(voiceWords(text), _banglaPhrase, 'bangla', _englishPhrase, 'english');
+    return value == null ? null : LocalIntent('update_setting', {'setting': 'language', 'value': value});
   }
 
   // ---- verbosity -------------------------------------------------------
 
-  static const _minimalistEn = ['keep it short', 'be brief', 'short answers', 'less talking', 'be more minimal', 'shorter replies'];
-  static const _minimalistBn = ['সংক্ষেপে বলো', 'কম কথা বলো', 'ছোট করে বলো', 'সংক্ষিপ্ত করো'];
-  static const _descriptiveEn = ['more detail', 'explain more', 'be more descriptive', 'give me detail', 'talk more', 'longer replies'];
-  static const _descriptiveBn = ['বিস্তারিত বলো', 'বেশি করে বলো', 'খুলে বলো', 'বিস্তারিত করো'];
+  static const _speechContext = [
+    'talk', 'talking', 'talks', 'say', 'saying', 'speak', 'tell', 'reply', 'replies',
+    'answer', 'answers', 'words', 'explanation', 'instructions', 'keep', 'be', 'you',
+    'কথা', 'বলো', 'বল', 'উত্তর', 'নির্দেশ',
+  ];
+
+  static const _minimalPhrase = VoicePhrase(
+    anchors: ['brief', 'briefer', 'concise', 'minimal', 'minimalist', 'shorter', 'short', 'less',
+      'সংক্ষেপে', 'সংক্ষিপ্ত', 'ছোট', 'কম'],
+    context: _speechContext,
+    requireContext: true,
+    blockers: kQuestionBlockers,
+  );
+  static const _descriptivePhrase = VoicePhrase(
+    anchors: ['detail', 'details', 'detailed', 'descriptive', 'explain', 'longer', 'more',
+      'বিস্তারিত', 'বেশি', 'খুলে'],
+    context: _speechContext,
+    requireContext: true,
+    blockers: kQuestionBlockers,
+  );
 
   static LocalIntent? _matchVerbosity(String lower, String text) {
-    if (_minimalistEn.any(lower.contains) || _minimalistBn.any(text.contains)) {
-      return const LocalIntent('update_setting', {'setting': 'verbosity', 'value': 'minimalist'});
-    }
-    if (_descriptiveEn.any(lower.contains) || _descriptiveBn.any(text.contains)) {
-      return const LocalIntent('update_setting', {'setting': 'verbosity', 'value': 'descriptive'});
-    }
-    return null;
+    final value = exclusive(
+        voiceWords(text), _minimalPhrase, 'minimalist', _descriptivePhrase, 'descriptive');
+    return value == null ? null : LocalIntent('update_setting', {'setting': 'verbosity', 'value': value});
   }
 
   // ---- text size (relative bump, not an absolute value — this matcher
@@ -239,27 +550,78 @@ class LocalIntentMatcher {
   // `ChatController` resolves the actual new number from the live profile
   // before calling the executor) ------------------------------------------
 
-  static const _biggerEn = ['bigger text', 'increase text size', 'make text bigger', 'larger text', 'text size up', 'make the text bigger'];
-  static const _biggerBn = ['লেখা বড় করো', 'লেখার আকার বাড়াও', 'লেখা বড় কর'];
-  static const _smallerEn = ['smaller text', 'decrease text size', 'make text smaller', 'text size down', 'make the text smaller'];
-  static const _smallerBn = ['লেখা ছোট করো', 'লেখার আকার কমাও', 'লেখা ছোট কর'];
+  static const _textContext = [
+    'text', 'texts', 'font', 'fonts', 'letters', 'letter', 'size', 'words', 'writing',
+    'print', 'type', 'লেখা', 'ফন্ট', 'আকার', 'হরফ',
+  ];
+
+  static const _biggerPhrase = VoicePhrase(
+    anchors: ['bigger', 'larger', 'increase', 'enlarge', 'big', 'large', 'zoom in',
+      'বড়', 'বাড়াও', 'বাড়ান'],
+    context: _textContext,
+    requireContext: true,
+    blockers: kQuestionBlockers,
+  );
+  static const _smallerPhrase = VoicePhrase(
+    anchors: ['smaller', 'decrease', 'reduce', 'shrink', 'small', 'zoom out',
+      'ছোট', 'কমাও', 'কমান'],
+    context: _textContext,
+    requireContext: true,
+    blockers: kQuestionBlockers,
+  );
 
   static LocalIntent? _matchTextSize(String lower, String text) {
-    if (_biggerEn.any(lower.contains) || _biggerBn.any(text.contains)) {
-      return const LocalIntent('update_setting', {'setting': 'text_size', 'value': '_bigger'});
-    }
-    if (_smallerEn.any(lower.contains) || _smallerBn.any(text.contains)) {
-      return const LocalIntent('update_setting', {'setting': 'text_size', 'value': '_smaller'});
-    }
-    return null;
+    final value =
+        exclusive(voiceWords(text), _biggerPhrase, '_bigger', _smallerPhrase, '_smaller');
+    return value == null ? null : LocalIntent('update_setting', {'setting': 'text_size', 'value': value});
   }
 
   // ---- request_route -----------------------------------------------------
 
+  /// Ways of asking to be taken somewhere, in one alternation.
+  ///
+  /// Deliberately long. This is the single most important command in the
+  /// app, and the previous list recognized nine phrasings — so "I wanna go
+  /// to Gulshan", "let's head to New Market", "how do I get to the
+  /// hospital" and "bring me to work" all missed and cost a full language
+  /// model round trip to understand something entirely unambiguous. Every
+  /// alternative here is a way real people ask, including the contracted
+  /// and dropped-word forms speech recognizers actually produce.
+  ///
+  /// The trailing `(.+)` is greedy on purpose: destinations are
+  /// multi-word ("Gulshan 2 circle", "the eye hospital in Mirpur") and
+  /// truncating at the first space would break more than it fixed.
   static final _routeEnPattern = RegExp(
-    r'\b(?:take me to|route me to|route to|navigate to|directions? to|walk me to|guide me to|i want to go to|i need to go to)\s+(.+)',
+    r'\b(?:'
+    r'take me to|take me|bring me to|walk me to|guide me to|lead me to|'
+    r'route me to|route to|navigate to|navigate me to|'
+    r'directions? to|the way to|'
+    r'how (?:do|can) i get to|how to get to|'
+    r"i (?:wanna|want to|wanna go|need to|have to|gotta|would like to|'d like to) go to|"
+    r'i (?:wanna|want to|need to) visit|'
+    r"let'?s go to|let'?s head to|head to|"
+    // "i'm going to X", never a bare "going to" — "is it going to rain
+    // before I get there" is a weather question, and starting to walk a
+    // blind user somewhere because of it is a real failure.
+    r"i am going to|i'?m going to|"
+    r'go to'
+    r')\s+(.+)',
     caseSensitive: false,
   );
+
+  /// "Take me home" / "go to work" — a destination with no `to <place>`
+  /// tail because the place *is* the last word. Handled separately since
+  /// the pattern above requires something after the preposition.
+  static final _routeBarePattern = RegExp(
+    r'\b(?:take me|bring me|walk me|guide me|lead me|go|head)\s+(?:back\s+)?(home|to work|to school|to the office)\b',
+    caseSensitive: false,
+  );
+
+  /// Words that make a routing request an enquiry instead. "Should I go to
+  /// Gulshan?" and "how far is it to go to Uttara" are questions about a
+  /// journey, not a request to start one — and starting to walk someone
+  /// somewhere they were only wondering about is a real failure.
+  static const _routeBlockers = ['should i', 'how far', 'how long', 'is it safe', 'কতদূর', 'কেমন লাগবে'];
 
   /// Bangla place names commonly carry the destination postposition
   /// attached (গুলশানে, ধানমন্ডিতে) right before a "go" verb — captured
@@ -272,21 +634,92 @@ class LocalIntentMatcher {
   static final _routeBnPattern = RegExp(r'(.+?)\s*(?:যেতে চাই|যাব|যাবো)');
 
   /// "আমি অফিসে যাব না" (I will *not* go to the office) must not trigger a
-  /// route request — a bare "না" (not/no) anywhere close to the go-verb is
-  /// treated as negation and the whole message is skipped rather than
-  /// risking routing somewhere the user just said they're *not* going.
-  static bool _isNegatedBn(String text) => text.contains('না');
+  /// route request. Checked as a whole *word* — see [_bnNegationParticles]
+  /// and [_words] for why a substring check was wrong here, and which real
+  /// destinations it was silently refusing to route to.
+  static bool _isNegatedBn(String text) => _words(text).any(_bnNegationParticles.contains);
+
+  /// Words that lead a spoken destination clause without being part of the
+  /// place name.
+  ///
+  /// Bangla puts the subject first and the verb last — "আমি গুলশান যেতে চাই"
+  /// is *I Gulshan go want* — so a pattern anchored on the trailing verb
+  /// captures the pronoun along with the place. Confirmed from a real
+  /// device log: the destination reaching Nominatim was **"আমি গুলশান"**,
+  /// which returns zero results, while "গুলশান" resolves immediately. The
+  /// user heard "I don't know where that is" about a place the geocoder
+  /// knows perfectly well.
+  static const _leadingFillerBn = [
+    'আমি', 'আমরা', 'আমাকে', 'আমার', 'তুমি', 'আপনি', 'এখন', 'একটু', 'দয়া', 'করে', 'প্লিজ', 'চলো', 'নিয়ে',
+  ];
+  static const _leadingFillerEn = [
+    'please', 'now', 'ok', 'okay', 'so', 'um', 'uh', 'hey', 'well', 'just', 'can', 'you', 'i',
+  ];
+
+  /// Trims the politeness and filler speech recognizers faithfully
+  /// transcribe around a destination — "take me to Gulshan please" must
+  /// geocode "Gulshan", and so must "আমি গুলশান".
+  static String _tidyDestination(String raw) {
+    var out = raw.trim();
+
+    // Leading filler first. Stops at the first word that looks like a real
+    // place name, so a destination that legitimately starts with one of
+    // these words is not eaten.
+    var lead = true;
+    while (lead) {
+      lead = false;
+      for (final filler in [..._leadingFillerBn, ..._leadingFillerEn]) {
+        // Whitespace-or-end rather than `\b`: Dart's word boundary is
+        // defined by ASCII `\w`, so it never matches after a Bangla
+        // character and this stripped nothing at all in the language that
+        // needed it most.
+        final pattern = RegExp('^${RegExp.escape(filler)}(?:[\\s,]+|\$)', caseSensitive: false);
+        final trimmed = out.replaceFirst(pattern, '');
+        if (trimmed != out && trimmed.trim().isNotEmpty) {
+          out = trimmed.trim();
+          lead = true;
+        }
+      }
+    }
+
+    const trailing = ['please', 'thanks', 'thank you', 'now', 'right now', 'ok', 'okay', 'দয়া করে', 'প্লিজ', 'এখন'];
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final filler in trailing) {
+        final pattern = RegExp('[ ,]+${RegExp.escape(filler)}[.!?]*\$', caseSensitive: false);
+        final trimmed = out.replaceFirst(pattern, '');
+        if (trimmed != out) {
+          out = trimmed;
+          changed = true;
+        }
+      }
+    }
+    return out.replaceAll(RegExp(r'[.!?]+$'), '').trim();
+  }
 
   static LocalIntent? _matchRoute(String lower, String text, bool bn) {
+    final words = voiceWords(text);
+    if (containsAny(words, _routeBlockers)) return null;
+
+    final bareMatch = _routeBarePattern.firstMatch(text);
+    if (bareMatch != null) {
+      // Normalized to the bare place word — "take me back home" and "go to
+      // work" become "home"/"work", which is what `SavedPlaceMatcher`
+      // resolves against.
+      final raw = bareMatch.group(1)!.toLowerCase().replaceAll(RegExp(r'^to (the )?'), '');
+      return LocalIntent('request_route', {'destination': raw});
+    }
+
     final enMatch = _routeEnPattern.firstMatch(text);
     if (enMatch != null) {
-      final destination = enMatch.group(1)!.trim();
+      final destination = _tidyDestination(enMatch.group(1)!);
       if (destination.isNotEmpty) return LocalIntent('request_route', {'destination': destination});
     }
     if (bn && !_isNegatedBn(text)) {
       final bnMatch = _routeBnPattern.firstMatch(text);
       if (bnMatch != null) {
-        final destination = bnMatch.group(1)!.trim();
+        final destination = _tidyDestination(bnMatch.group(1)!);
         if (destination.isNotEmpty && destination.length <= 40) {
           return LocalIntent('request_route', {'destination': destination});
         }

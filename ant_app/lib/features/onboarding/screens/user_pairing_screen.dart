@@ -13,6 +13,7 @@ import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
 import '../widgets/onboarding_voice.dart';
 import '../widgets/spoken_digits.dart';
+import '../widgets/voice_confirm.dart';
 
 class UserPairingScreen extends ConsumerStatefulWidget {
   const UserPairingScreen({super.key});
@@ -84,7 +85,14 @@ class _UserPairingScreenState extends ConsumerState<UserPairingScreen> {
     if (_disposed || !ref.read(ttsEnabledProvider)) return;
     final state = ref.read(onboardingControllerProvider);
     final s = Onboarding.of(state.language);
-    await _tts.speak('${s.userPairingTitle}. ${s.userPairingSubtitle}', language: state.language);
+    // Full narration before the mic opens — title, subtitle, and the
+    // spoken hint about the skip button. `_voiceLoop` then states the two
+    // valid spoken answers (`userPairingVoicePromptSpoken`) before each
+    // listen.
+    await _tts.speak(
+      [s.userPairingTitle, s.userPairingSubtitle, s.userPairingSpokenHint].join('. '),
+      language: state.language,
+    );
     if (_disposed || !ref.read(ttsEnabledProvider) || _voiceStarted) return;
     _voiceStarted = true;
     await _voiceLoop(s, state.language);
@@ -139,6 +147,31 @@ class _UserPairingScreenState extends ConsumerState<UserPairingScreen> {
           _controller.selection = TextSelection.collapsed(offset: code.length);
         });
         if (code.length == 6) {
+          // Read the code back digit by digit before redeeming it. A
+          // pairing code is single-use and expires: submitting a misheard
+          // one burns it and leaves the user waiting for a caretaker
+          // response that will never come, with nothing on screen they can
+          // read to work out why.
+          final confirmed = await VoiceConfirm.readBackAndConfirm(
+            tts: tts,
+            stt: stt,
+            language: language,
+            fieldLabel: s.userPairingCodeFieldLabel,
+            value: code,
+            isDigits: true,
+            isCancelled: cancelled,
+          );
+          if (cancelled() || confirmed == null) return;
+          if (!confirmed) {
+            // Clear and start the whole code again — isolating which digit
+            // was wrong by voice is far more work for the user than saying
+            // six digits over.
+            setState(() {
+              _controller.text = '';
+              _controller.selection = const TextSelection.collapsed(offset: 0);
+            });
+            continue;
+          }
           controller.submitPairingCode(code);
           return;
         }
@@ -165,6 +198,13 @@ class _UserPairingScreenState extends ConsumerState<UserPairingScreen> {
       onPrimaryAction: () => controller.submitPairingCode(_controller.text),
       spokenOptions: [s.userPairingSpokenHint],
       autoSpeak: false,
+      // Re-arms this screen's own voice loop when a step fails and we stay
+      // put — `_stopCurrentScreenVoice` cancels it up front on every
+      // navigating action. See `OnboardingState.voiceRearmToken`.
+      onVoiceRestart: () {
+        _voiceStarted = false;
+        _introAndListen();
+      },
       child: Column(
         children: [
           Row(

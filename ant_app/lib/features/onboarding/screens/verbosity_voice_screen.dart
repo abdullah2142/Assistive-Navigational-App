@@ -127,6 +127,13 @@ class _VerbosityVoiceScreenState extends ConsumerState<VerbosityVoiceScreen> {
           : null,
       spokenOptions: [s.verbositySpokenHint, s.verbositySpokenVoiceHint],
       autoSpeak: false,
+      // Re-arms this screen's own voice loop when a step fails and we stay
+      // put — `_stopCurrentScreenVoice` cancels it up front on every
+      // navigating action. See `OnboardingState.voiceRearmToken`.
+      onVoiceRestart: () {
+        _voiceStarted = false;
+        _introAndListen();
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -12,7 +12,31 @@
 /// convert digit words to numerals themselves) are honored too, each one
 /// still subject to whatever "double"/"triple" multiplier preceded it —
 /// this only ever adds a capability, never requires the words to spell
-/// everything out.
+/// everything out. That includes **Bengali numerals** (০-৯), which is what
+/// Cloud STT actually returns under a `bn-BD` language code when a Bangla
+/// speaker reads a number aloud — see [_asAsciiDigit].
+/// First Bengali numeral, ০ (U+09E6); the block runs ০-৯ contiguously.
+const int _bengaliZeroCodeUnit = 0x09E6;
+
+/// Normalizes a single character to an ASCII digit, or returns null if it
+/// isn't a digit at all.
+///
+/// Dart's `\d` is ASCII-only, so a transcript of Bengali numerals used to
+/// match nothing: the characters survived token cleanup (they're inside the
+/// Bangla Unicode block the cleanup regex deliberately keeps), found no
+/// entry in the digit-*word* map either, and were dropped on the floor by
+/// the "unrecognized word" fallthrough. A Bangla-speaking user dictating
+/// their phone number got a silently empty field — the worst possible
+/// failure mode for a user who can't see that nothing was entered.
+String? _asAsciiDigit(String ch) {
+  final code = ch.codeUnitAt(0);
+  if (code >= 0x30 && code <= 0x39) return ch;
+  if (code >= _bengaliZeroCodeUnit && code <= _bengaliZeroCodeUnit + 9) {
+    return String.fromCharCode(0x30 + code - _bengaliZeroCodeUnit);
+  }
+  return null;
+}
+
 String spokenTextToDigits(String text) {
   const digitWords = {
     'zero': '0', 'oh': '0', 'o': '0', 'nil': '0',
@@ -40,7 +64,7 @@ String spokenTextToDigits(String text) {
       repeat = 3;
       continue;
     }
-    final digitsInToken = token.split('').where((c) => RegExp(r'\d').hasMatch(c)).join();
+    final digitsInToken = token.split('').map(_asAsciiDigit).whereType<String>().join();
     if (digitsInToken.isNotEmpty) {
       // A preceding "double"/"triple" multiplies only the single digit
       // right after it, not every digit that happens to follow — confirmed

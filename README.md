@@ -226,6 +226,25 @@ firebase deploy --only functions,firestore:rules
 > report the **pipe's** status, so a partial failure — some functions
 > updated, some not — exits 0 and looks like success.
 
+### Is the data actually there?
+
+Every part of the crime pipeline is deployed and tested, but "the code is
+correct" and "the collection has rows in it" are different claims, and only
+the second decides what a blind user is told about a street tonight. A
+collector that silently stopped firing looks identical to one that correctly
+found nothing — both leave an empty collection, and nothing in the app
+complains.
+
+```bash
+gcloud auth application-default login
+cd functions && node scripts/check_data_health.js
+```
+
+It prints row counts and how old the newest row is, and says which
+collections being empty is expected and which is a problem. Read-only.
+`crimeZones` empty is the serious one — route safety would be scoring
+against nothing at all.
+
 ### Cloudflare Worker
 
 Collectors that pull current crime signals and file them through the

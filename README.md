@@ -110,8 +110,9 @@ tested.
 
 - **Flutter 3.47+** on the stable channel (`flutter --version`)
 - **Android SDK** with `platform-tools` (this gives you `adb`)
-- **Node 20** for `functions/`, **Node 22** if you also want to work on the
-  Cloudflare Worker with wrangler v4
+- **Node 22** for `functions/` and the Cloudflare Worker. Not optional for
+  the functions: `firebase-admin` v14 declares `node >= 22`, and Cloud
+  Functions deploys the runtime named in `functions/package.json` `engines`
 - An Android phone on **Android 8.0 or newer**
 
 Check the toolchain before anything else:

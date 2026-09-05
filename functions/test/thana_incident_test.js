@@ -165,3 +165,27 @@ test("malformed rows are skipped rather than crashing the sweep", () => {
   assert.deepEqual(evidenceMonthsFromIncidents(junk, NOW), []);
   assert.deepEqual(evidenceMonthsFromIncidents(null, NOW), []);
 });
+
+test("a malformed slug is refused with a sentence, not a 500", () => {
+  // The slug becomes a Firestore document id. Firestore reserves the
+  // `__x__` shape and rejects `.`/`..`, so without this check the caller
+  // gets a bare INTERNAL — which is exactly what the deployed function
+  // returned when probed with `__nope__`.
+  for (const bad of ["__nope__", ".", "..", "a/b", "Mohammadpur", "moha mmadpur", "-lead", "trail-"]) {
+    assert.throws(() => validateIncident(ok({ thanaSlug: bad }), NOW), /Malformed thanaSlug/, bad);
+  }
+});
+
+test("every real thana slug is accepted", () => {
+  // Slugs are derived from the seed's thana names the same way
+  // `seedCrimeZones` derives the document ids, so this asserts the pattern
+  // against the actual id space rather than against a guess at its shape.
+  const { THANA_CRIME_SEED } = require("../data/dhaka_thana_crime_seed");
+  const slugs = THANA_CRIME_SEED.map((t) =>
+    t.thanaName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+  );
+  assert.ok(slugs.length > 30, `expected the full thana list, got ${slugs.length}`);
+  for (const slug of slugs) {
+    assert.doesNotThrow(() => validateIncident(ok({ thanaSlug: slug }), NOW), slug);
+  }
+});

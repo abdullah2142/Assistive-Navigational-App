@@ -73,11 +73,22 @@ const COLLECTIONS = [
     maxAgeHours: null, // static seed; it does not refresh and should not
   },
   {
+    name: 'thanaIncidents',
+    what: 'individual crime stories matched to a thana; three in a month make it count',
+    emptyMeans:
+      'The news collector has filed no incidents. This is the collection that should be '
+      + 'growing steadily — roughly one per run. Empty for more than a few days means the '
+      + 'matcher or the feeds have stopped, not that Dhaka got safer. Run '
+      + 'cloudflare-worker/scripts/probe_feeds.mjs to see which.',
+    maxAgeHours: 24 * 7,
+  },
+  {
     name: 'thanaAdvisories',
     what: 'current per-thana risk from news reporting',
     emptyMeans:
-      'The news collector has never filed anything. Expected occasionally — it is deliberately '
-      + 'conservative — but not after weeks of hourly runs. Check the Cloudflare cron logs.',
+      'No advisory has ever been raised. This is EXPECTED and not a fault: an advisory needs a '
+      + 'model to judge that an article describes an ongoing pattern, and almost all reporting is '
+      + 'of isolated incidents. thanaIncidents above is the collection that should have rows.',
     maxAgeHours: 24 * 21, // advisories expire; nothing newer than 3 weeks means the feed stopped
   },
   {

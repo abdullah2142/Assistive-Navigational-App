@@ -67,6 +67,9 @@ const INCIDENTS_PER_EVIDENCE_MONTH = 3;
  */
 const INCIDENT_RETENTION_MS = 25 * 31 * 24 * 60 * 60 * 1000;
 
+/** The shape every generated thana slug takes. */
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 /** `YYYY-MM` in Dhaka's fixed UTC+6 offset — the same clock the baseline uses. */
 function periodOf(ms) {
   return new Date(ms + 6 * 60 * 60 * 1000).toISOString().slice(0, 7);
@@ -107,6 +110,15 @@ function incidentId(sourceUrl) {
 function validateIncident(input, nowMs) {
   const thanaSlug = String(input?.thanaSlug || '').trim();
   if (!thanaSlug) throw new Error('thanaSlug is required');
+  // The slug is used directly as a Firestore document id, and Firestore
+  // rejects some shapes outright — anything matching `__.*__` is reserved,
+  // `.`/`..` are illegal, and `/` would silently address a subcollection.
+  // Without this check those come back to the caller as a bare INTERNAL,
+  // which is what a malformed slug actually produced when probed against
+  // the deployed function. Every real slug is lowercase-alphanumeric with
+  // hyphens (`biman-bandar`, `tejgaon-industrial-area`), so the tight
+  // pattern costs nothing and turns a 500 into a sentence.
+  if (!SLUG_PATTERN.test(thanaSlug)) throw new Error(`Malformed thanaSlug: ${thanaSlug}`);
 
   const sourceUrl = String(input?.sourceUrl || '').trim();
   if (!/^https?:\/\//i.test(sourceUrl)) throw new Error('a citable sourceUrl is required');

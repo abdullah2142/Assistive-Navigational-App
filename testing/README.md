@@ -5,15 +5,37 @@ many interacting parts for everyone to poke at everything, and four shallow
 passes over the whole app find less than four deep passes over a quarter of
 it.
 
-| Pack | Area | Modules | Owner |
-| --- | --- | --- | --- |
-| [A](pack_a_onboarding.md) | Setup, entirely by voice | 1 — onboarding, pairing | |
-| [B](pack_b_voice_commands.md) | Saying things the app didn't expect | 3 — commands, assistant | |
-| [C](pack_c_navigation.md) | Actually walking somewhere | 4, 7 — routing, map, safety, haptics | |
-| [D](pack_d_reporting.md) | Asking for help, flagging trouble | 2, 5 — reporting, passer-by, caretaker | |
+| Pack | Area | Modules | Budget | Owner |
+| --- | --- | --- | --- | --- |
+| [A](pack_a_onboarding.md) | Setup, entirely by voice | 1 — onboarding, pairing, command tour | ~3 h | |
+| [B](pack_b_voice_commands.md) | Saying things the app didn't expect | 3 — commands, assistant, wake word | ~4 h | |
+| [C](pack_c_navigation.md) | Actually walking somewhere | 4, 7 — routing, map, safety, haptics | ~4 h, outdoors | |
+| [D](pack_d_reporting.md) | Asking for help, flagging trouble | 2, 5 — reporting, passer-by, caretaker | ~3.5 h | |
 
 Fill in the owner column before the round starts. Each pack file is
 self-contained — send a person their file and nothing else.
+
+Budgets are a guide, not a target. Finishing early almost always means the
+"say it your own way" parts were skipped, and those are where the findings
+are.
+
+## Things that need two people
+
+Agree these times at the start of the round, or they quietly never happen.
+
+| What | Who |
+| --- | --- |
+| Caretaker pairing | A + one of C or D |
+| Three-reporter hazard escalation | D, with A and C filing |
+| Hazard warning received while walking | D files, C walks |
+| Remote setting change from caretaker | D + A |
+
+## Recording coverage
+
+Every pack ends with a coverage checklist. **Tick what you actually did and
+send it back even if nothing broke.** "Nobody tested that" and "someone
+tested it and it was fine" look identical in a bug list, and only one of
+them is safe to ship on.
 
 ## Getting the app
 

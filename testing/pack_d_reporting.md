@@ -1,6 +1,7 @@
 # Pack D — Asking for help, and flagging trouble
 
 **Modules 2 and 5 · hazard reporting, passer-by helper, caretaker side**
+**Budget: about 3.5 hours, plus one session with a second phone**
 
 ## What you own
 
@@ -13,48 +14,154 @@ wrong hazard report closes a road for every other user; a garbled passer-by
 message is held up to someone in the street by the one person present who
 cannot see what it says.
 
-## Runs
+You will need a second phone for Parts 4 and 5. Coordinate with Pack A, who
+also needs one.
+
+---
+
+## Part 1 — Filing reports
 
 1. File a hazard by voice, start to finish, **without touching the screen**.
-   Say `send` to submit it.
-2. File one where you **name the hazard up front** — `there's an open
+   Say `send` to submit.
+2. The same in **Bangla**, saying `পাঠাও`.
+3. File one where you **name the hazard up front** — `there's an open
    manhole` — and check it skips straight past the menus.
-3. When the read-back plays, say `cancel`. Nothing should be filed.
-4. Do it again and say `change it`. You should get another go at describing
-   it, with the old text cleared.
-5. Now say **nothing at all** during the read-back. It should send on its
-   own after a few seconds.
-6. Describe a hazard using the word "send" **in the middle of a sentence**
-   and confirm it does not submit early.
-7. Open the passer-by helper and **actually show it to someone who doesn't
-   know the app**. Watch whether they understand what to do — **their
-   reaction is the result**, not your opinion of the screen.
-8. On a paired caretaker phone, change a setting remotely and confirm it
-   lands on the other device.
-9. Report the same hazard from two different phones and see whether it
-   escalates.
+4. Do that for **all fifteen named shortcuts** in the phrasebook. Note which
+   ones don't jump straight to the form.
+5. Navigate the menus **by voice only**, saying the category then the
+   sub-category name, for all three categories.
+6. Use **Something else** and describe a hazard in your own words.
+7. File a report while **walking**, outdoors, with traffic noise.
+8. File one with the screen **off**, using the wake word to start.
+
+## Part 2 — Describing, and the words that end it
+
+9. Describe a hazard across **three separate utterances with pauses** — stop,
+   think, continue. All of it should be kept.
+10. Try every submit word: `send`, `send it`, `submit`, `submit report`,
+    `done`, `finish` — and `পাঠাও`, `সাবমিট`, `সেন্ড`, `শেষ`, `হয়ে গেছে`.
+11. Use the word **"send" in the middle of a sentence** — "someone tried to
+    send me down the alley" — and confirm it does not submit early. This
+    misfiring is a **BLOCKS**.
+12. Do the same with `শেষ` mid-sentence in Bangla.
+13. Say a submit word **before describing anything** on a category that
+    needs a description. It should not file an empty report.
+
+## Part 3 — The cancel window
+
+After you submit, it reads the report back and waits five seconds.
+
+14. Say `cancel`. Nothing should be filed. Verify it wasn't.
+15. Say `stop`, `wait`, `don't send` — each should also cancel.
+16. Say `বাতিল`, `থামো`, `দাঁড়াও`.
+17. Say `change it`. You should get another go, **with the old text
+    cleared**.
+18. Say `that's wrong`, `edit`, `say again`, `বদলাও`, `ভুল`.
+19. Say **nothing at all**. It should send on its own.
+20. Say **"no"** and confirm it does **not** cancel — this is deliberate, and
+    we want to know if it feels wrong to you as a user.
+21. Say something unrelated during the window — "okay", "thanks", "hmm" —
+    and confirm it still sends.
+22. **Leave the screen** during the window. Nothing should be filed.
+23. Check whether the buzz at the start of the window feels different from
+    the "your turn to speak" buzz. If you can't tell them apart, say so.
+
+## Part 4 — Confirmation and escalation
+
+24. File **the same hazard from three different phones** at the same spot,
+    within a day. It should escalate to a confirmed hazard. Coordinate with
+    Packs A and C.
+25. Have **Pack C walk a route through it** and confirm they are warned.
+26. Say a hazard is resolved: `it's fixed`, `the broken ramp is fixed`,
+    `it's been repaired`, `the path is clear`, `আর নেই`, `ঠিক হয়ে গেছে`.
+27. Confirm a report you filed is **visible somewhere afterwards**. If you
+    cannot find it at all, that is a finding.
+
+## Part 5 — The passer-by helper
+
+28. Open it by voice and pick a **prepared message**.
+29. **Dictate a new message** and show that.
+30. **Actually show it to someone who doesn't know the app.** Watch whether
+    they understand what to do — **their reaction is the result**, not your
+    opinion of the screen. Do this with at least **three different people**,
+    ideally one who reads Bangla only.
+31. Note what each person did: did they read it? hesitate? hand it back? ask
+    you something? Write down their first reaction verbatim.
+32. Check it is **readable at arm's length** in daylight, and at night.
+33. Dictate a message and use the cancel window on it too.
+
+## Part 6 — The caretaker side
+
+34. Pair with a disabled-user phone (Pack A can do the other half).
+35. **Change a setting remotely** and confirm it lands on the other device,
+    and that the other device says so out loud.
+36. Try to change the setting **from both phones at once**.
+37. Set the disabled user's profile to **Bangla** and check the caretaker
+    screens — are they in Bangla, or still English? Every screen.
+38. Check the alert list and the location view. Note anything that is empty,
+    stale, or clearly not implemented yet.
+39. Unpair, or try to, and note what happens.
+
+---
 
 ## Hunt for
 
 - A command word ending up **inside the description text** instead of acting
   on it.
 - Anything filed that you did not confirm, or a `cancel` that did not
-  cancel. Either is serious.
+  cancel. Either is a **BLOCKS**.
+- The five-second window feeling **too short to react to** — say so if it
+  does, with what you were trying to say.
 - The stranger hesitating, looking confused, or handing the phone straight
-  back. Note exactly what they did and where their eyes went.
-- Caretaker screens still in English when the profile is set to Bangla.
+  back.
+- Caretaker screens still in English when the profile is Bangla.
 - A report you filed that you cannot find anywhere afterwards.
+- Anything in the caretaker half that looks finished but does nothing.
 
 ## Passes if
 
-You filed and cancelled reports entirely by voice, and a stranger with no
-explanation understood what the passer-by screen was asking of them.
+You filed, cancelled, edited and resolved reports **entirely by voice** in
+both languages, three separate people understood the passer-by screen with
+no explanation, and a remote setting change from a caretaker phone reached
+the other device.
+
+## Coverage — tick what you actually did
+
+- [ ] Report by voice, English, no touching
+- [ ] Report by voice, Bangla
+- [ ] All fifteen named shortcuts
+- [ ] Menus navigated by voice, all three categories
+- [ ] "Something else" free description
+- [ ] Report while walking outdoors
+- [ ] Report with screen off, started by wake word
+- [ ] Description across three pauses
+- [ ] All submit words, both languages
+- [ ] "send" mid-sentence does not submit
+- [ ] Cancel window: cancel / stop / wait / don't send
+- [ ] Cancel window: Bangla cancel words
+- [ ] Cancel window: change it / that's wrong / edit
+- [ ] Cancel window: silence sends
+- [ ] Cancel window: "no" does not cancel
+- [ ] Cancel window: leaving the screen
+- [ ] Three-reporter escalation (with Packs A and C)
+- [ ] Pack C warned on route
+- [ ] Hazard resolved by voice
+- [ ] Passer-by: prepared message
+- [ ] Passer-by: dictated message
+- [ ] Passer-by shown to 3 real strangers — reactions written down
+- [ ] Caretaker: remote setting change
+- [ ] Caretaker: simultaneous change from both phones
+- [ ] Caretaker: every screen checked in Bangla
+- [ ] Caretaker: alerts and location view
 
 ## Before you start
 
 Get the app through **Firebase App Distribution** — you need an Android
 phone, the email you were invited on, and a network connection. No computer,
 no cable, no developer mode. Details in the [root README](../README.md).
+
+Keep the [voice phrasebook](../README.md) open while you work; it lists every
+phrase the app accepts on purpose.
 
 Ground rules for every run:
 
@@ -69,6 +176,9 @@ Ground rules for every run:
   stopping mid-sentence. Perfect diction finds nothing.
 - **Stay in your pack.** Anything you notice outside it: one line, then move
   on. Don't chase it.
+- **Record what passed, not only what failed.** Tick the coverage list at the
+  end of your pack. "Nobody tested that" and "someone tested it and it was
+  fine" look identical in a bug list, and only one of them is safe.
 
 ## How to report what you find
 
@@ -94,3 +204,19 @@ NOTES:     Worked when I said just "মোহাম্মদপুর"
 existed on one GPU family only and would have been dismissed as "works on
 mine" without the model written down. A bug that happens once and a bug that
 happens every time are different bugs.
+
+### Severity
+
+Mark each finding with one of these. It decides what gets fixed first.
+
+- **BLOCKS** — a blind user cannot complete the task at all, or the app does
+  something harmful (sends what you cancelled, routes you the wrong way,
+  saves a wrong phone number silently).
+- **HURTS** — the task is completable but painful: several retries, a
+  phrasing that should work and doesn't, something you only got past because
+  you can see the screen.
+- **NOTE** — cosmetic, or a suggestion.
+
+The middle one is the category people under-report. If you found yourself
+looking at the screen to get past something, that is a **HURTS**, even if it
+worked.

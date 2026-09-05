@@ -24,6 +24,27 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- Module 9, the Magic Button.
+
+         SEND_SMS is here because the alternative does not work for the
+         people this exists for. An `sms:` intent opens the messaging app
+         pre-filled and waits for someone to find and press send — which a
+         blind user in a panic cannot do, and which defeats the entire point
+         of a trigger you can hit without looking. Cellular SMS also keeps
+         working when data does not, which is the other half of why this
+         module uses it at all.
+
+         Note for whoever submits this to Google Play: SEND_SMS is a
+         restricted permission and a navigation app will very likely be
+         refused it. The fallback at that point is a server-side SMS
+         gateway, which costs the offline guarantee. Sideloaded and App
+         Distribution builds are unaffected.
+
+         CALL_PHONE places the follow-up call directly rather than dropping
+         the user into a dialler they would then have to operate. -->
+    <uses-permission android:name="android.permission.SEND_SMS"/>
+    <uses-permission android:name="android.permission.CALL_PHONE"/>
     <application
         android:label="ant_app"
         android:name="${applicationName}"

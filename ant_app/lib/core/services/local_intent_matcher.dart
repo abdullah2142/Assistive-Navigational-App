@@ -88,7 +88,11 @@ class LocalIntentMatcher {
     final followUp = _matchFollowUp(text, recentSetting);
     if (followUp != null) return followUp;
 
-    return _matchPairing(text) ??
+    // Checked before everything else. An emergency phrase must not be able
+    // to lose a race to some other matcher that happens to share a word,
+    // and it is the one intent where a slower answer is a worse answer.
+    return _matchEmergency(lower, text) ??
+        _matchPairing(text) ??
         _matchResolveHazard(lower, text) ??
         _matchOverlay(lower, text, bn) ??
         _matchBooleanSetting(lower, text) ??
@@ -100,6 +104,120 @@ class LocalIntentMatcher {
   }
 
   // ---- pair_with_caretaker --------------------------------------------
+
+  // ---- emergency (Module 9) -------------------------------------------
+
+  /// Spoken triggers for the Magic Button.
+  ///
+  /// Both languages together in one list rather than split by the profile's
+  /// language, because someone frightened does not reliably reach for the
+  /// language their app is set to. Dhaka speech code-switches constantly
+  /// and "help" is among the most-borrowed English words there is.
+  static const _emergencyPhrasesEn = [
+    'help me', 'emergency', 'sos', 'save me', 'i need help', 'call for help',
+    'i am in danger', "i'm in danger", 'help help',
+  ];
+  static const _emergencyPhrasesBn = [
+    'বাঁচাও', 'সাহায্য করো', 'সাহায্য করুন', 'বিপদে পড়েছি', 'জরুরি অবস্থা', 'বাঁচান',
+  ];
+
+  /// Words that turn "help me" into an ordinary request.
+  ///
+  /// "Help me get to Gulshan" is routing, not an emergency, and sending an
+  /// SMS to someone's mother because they asked for directions politely
+  /// would be a serious failure — the kind that teaches a user never to say
+  /// the word again, which is exactly the word they need on the day it
+  /// matters.
+  ///
+  /// Deliberately narrow: only things that name a *destination or task*.
+  /// Anything vaguer risks suppressing a real call for help, and the
+  /// five-second cancel window already catches the false positives this
+  /// does not.
+  static const _emergencyBlockers = [
+    'get to', 'go to', 'take me', 'route', 'find', 'directions', 'navigate',
+    'read', 'spell', 'understand', 'settings', 'text bigger',
+    // No bare `পড়ে` here, however tempting: it means "read", and it is
+    // also a substring of `পড়েছি` in `বিপদে পড়েছি` — "I have fallen into
+    // danger". Blocking it suppressed one of the clearest calls for help in
+    // the whole vocabulary.
+    'যেতে', 'যাব', 'যাবো', 'খুঁজে', 'পড়ে দাও', 'পড়ে শোনাও',
+  ];
+
+  /// Ways of asking *about* the emergency feature rather than using it.
+  ///
+  /// Separate from [kQuestionBlockers], which is tuned for settings
+  /// commands and does not cover the shapes people use here — a user being
+  /// shown the app for the first time says "what happens if I say
+  /// emergency", and that must not send anything.
+  /// Words that mean the user is *configuring* the emergency feature, or
+  /// composing text that happens to contain a cry for help.
+  ///
+  /// Both of these were real false positives caught by the existing
+  /// coverage tests, and both would have messaged and rung the user's
+  /// family: "add my sister Ruma on 01712345678 as an emergency contact",
+  /// and "add a message saying I need help crossing the road" — which is
+  /// someone writing the passer-by card they will one day hold up to a
+  /// stranger.
+  /// Matched as whole words.
+  ///
+  /// Note what is *not* here: a bare "save". "Save me" is one of the
+  /// plainest cries for help in the language, and blocking the word to
+  /// catch "save this place" would suppress it. The phrase list below
+  /// handles that instead.
+  static const _emergencyAdminWords = [
+    'add', 'remove', 'delete', 'edit', 'setup',
+    'contact', 'contacts', 'message', 'saying', 'card',
+    'যোগ', 'মুছে', 'বার্তা', 'লিখে',
+  ];
+
+  /// Matched as substrings, for administrative phrasings whose individual
+  /// words are innocent.
+  static const _emergencyAdminPhrases = [
+    'save my', 'save this', 'save as', 'set up', 'change my',
+  ];
+
+  /// A cry for help is short.
+  ///
+  /// Nobody in danger produces a ten-word sentence, and almost every
+  /// sentence that merely *contains* "help" or "emergency" is longer than
+  /// this — a request, a description, an instruction. Eight leaves room for
+  /// "please help me someone is following me" while excluding both of the
+  /// false positives above.
+  ///
+  /// This is a second line of defence, not the first: the blockers above
+  /// catch short administrative phrases like "add emergency contact" that
+  /// a word count never would.
+  static const int _maxEmergencyWords = 8;
+
+  static const _emergencyQuestionBlockers = [
+    'what happens', 'what if', 'if i say', 'when i say', 'is this', 'is that',
+    'how do i', 'how does', 'what does', 'supposed to', 'for testing',
+    'কী হবে', 'কি হবে', 'বললে কী', 'বললে কি',
+  ];
+
+  /// True when [text] is a call for help rather than a mention of one.
+  static LocalIntent? _matchEmergency(String lower, String text) {
+    final said = _emergencyPhrasesEn.any(lower.contains) || _emergencyPhrasesBn.any(text.contains);
+    if (!said) return null;
+
+    final spoken = voiceWords(text);
+    if (spoken.length > _maxEmergencyWords) return null;
+    if (_emergencyAdminWords.any(spoken.contains)) return null;
+    if (_emergencyAdminPhrases.any(lower.contains)) return null;
+
+    // A question about the feature is not a use of it — "what happens if I
+    // say emergency?" must not send anything.
+    if (kQuestionBlockers.any(lower.contains)) return null;
+    if (_emergencyQuestionBlockers.any(lower.contains) ||
+        _emergencyQuestionBlockers.any(text.contains)) {
+      return null;
+    }
+    if (_emergencyBlockers.any(lower.contains) || _emergencyBlockers.any(text.contains)) return null;
+    // "I do not need help."
+    if (_isNegatedBn(text) || kEnglishNegations.any(lower.contains)) return null;
+
+    return const LocalIntent('trigger_emergency', {});
+  }
 
   static final _sixDigits = RegExp(r'(?<!\d)(\d{6})(?!\d)');
   // Deliberately specific, multi-word or otherwise-unambiguous phrases —

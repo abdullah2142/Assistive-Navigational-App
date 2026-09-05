@@ -37,6 +37,28 @@ send it back even if nothing broke.** "Nobody tested that" and "someone
 tested it and it was fine" look identical in a bug list, and only one of
 them is safe to ship on.
 
+## The voice phrasebook
+
+Every phrase the app accepts on purpose, in Bangla and English — all 22 ways
+of asking for a route, every saved-place synonym, all 27 reportable hazards,
+the submit and cancel vocabularies, and every phrasing of the nine settings.
+It also lists the input that deliberately does nothing, which is as much a
+part of the spec as the rest.
+
+**Read it here:**
+<https://claude.ai/code/artifact/9b6dbca5-3282-4e74-be27-d32aea57dc5e>
+
+The source is [voice_phrasebook.html](voice_phrasebook.html). GitHub shows
+that as code rather than rendering it, so use the link when you are actually
+testing. It is kept here so it is versioned with the app and can be
+republished without being rebuilt from scratch.
+
+It is generated from the app's intent matcher, so it describes what the
+build genuinely accepts rather than what we intended. **If you find a listed
+phrase that does not work, that is a bug in the app or in this document, and
+either way we want to know** — the same file is what the onboarding command
+tour teaches from.
+
 ## Getting the app
 
 Through Firebase App Distribution, not by building it. You need an Android

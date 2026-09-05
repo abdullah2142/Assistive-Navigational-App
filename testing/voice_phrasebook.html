@@ -1,0 +1,1489 @@
+<!--
+  The ANT voice phrasebook — every function and setting reachable by speech,
+  in Bangla and English.
+
+  This is the source of the published artifact, kept verbatim so it can be
+  republished from this file without editing:
+
+      https://claude.ai/code/artifact/9b6dbca5-3282-4e74-be27-d32aea57dc5e
+
+  It deliberately has no <!doctype>/<html>/<head>/<body> — the artifact host
+  supplies those at publish time. Browsers are lenient enough that opening
+  this file locally still renders it correctly. GitHub will show it as
+  source rather than rendering it, so testers should use the link above.
+
+  The contents are derived from the app's on-device intent matcher —
+  local_intent_matcher.dart, saved_place_matcher.dart, destination_
+  clarifier.dart, voice_cancel_window.dart, and the reporting hub's submit
+  vocabulary. When those change, this has to change with them: a phrasebook
+  that promises phrases the build rejects is worse than no phrasebook,
+  because a blind user has no way to tell which half is wrong.
+-->
+<title>ANT Voice Phrasebook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+Bengali:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --paper:       #F5F4F9;
+    --surface:     #FFFFFF;
+    --surface-alt: #FAF9FD;
+    --ink:         #191627;
+    --muted:       #615C79;
+    --faint:       #8C87A3;
+    --rule:        #DEDBE9;
+    --accent:      #5B3FBF;
+    --accent-soft: #ECE7FB;
+    --stop:        #A63D33;
+    --stop-soft:   #F9EAE8;
+    --go:          #1C6E5A;
+    --go-soft:     #E3F2ED;
+
+    --display: "Bricolage Grotesque", "Trebuchet MS", sans-serif;
+    --prose:   "Source Serif 4", Georgia, "Times New Roman", serif;
+    --ui:      "IBM Plex Sans", "Noto Sans Bengali", system-ui, sans-serif;
+    --bn:      "Noto Sans Bengali", "IBM Plex Sans", system-ui, sans-serif;
+
+    --measure: 66ch;
+    --wide: 1120px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:       #121020;
+      --surface:     #1A1730;
+      --surface-alt: #201C39;
+      --ink:         #EDEBF6;
+      --muted:       #A39DBE;
+      --faint:       #837DA0;
+      --rule:        #2F2A4A;
+      --accent:      #A98CFF;
+      --accent-soft: #261F42;
+      --stop:        #E98A80;
+      --stop-soft:   #3B2320;
+      --go:          #6FCCB0;
+      --go-soft:     #17332C;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:       #121020;
+    --surface:     #1A1730;
+    --surface-alt: #201C39;
+    --ink:         #EDEBF6;
+    --muted:       #A39DBE;
+    --faint:       #837DA0;
+    --rule:        #2F2A4A;
+    --accent:      #A98CFF;
+    --accent-soft: #261F42;
+    --stop:        #E98A80;
+    --stop-soft:   #3B2320;
+    --go:          #6FCCB0;
+    --go-soft:     #17332C;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--prose);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: clamp(28px, 5vw, 72px) clamp(18px, 4vw, 40px) 96px;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(40px, 6vw, 72px);
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { display: flex; flex-direction: column; gap: 18px; }
+
+  .eyebrow {
+    font-family: var(--ui);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(2.4rem, 6.5vw, 4rem);
+    line-height: 1.02;
+    letter-spacing: -.02em;
+    text-wrap: balance;
+    max-width: 16ch;
+  }
+
+  .standfirst {
+    max-width: var(--measure);
+    font-size: 1.12rem;
+    color: var(--muted);
+  }
+
+  .standfirst strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- primer ---------- */
+
+  /* Explicit tracks, not auto-fit. The 1px gap over a ruled background is
+     what draws the dividers, so an auto-fit row that ends up part-empty
+     paints its unused tracks as grey blocks. Four cells, so 2x2 then 4x1
+     always fills exactly. */
+  .primer {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  @media (min-width: 900px) {
+    .primer { grid-template-columns: repeat(4, 1fr); }
+  }
+
+  .primer > div {
+    background: var(--surface);
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .primer dt {
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .primer dd { font-size: .95rem; line-height: 1.55; color: var(--muted); }
+  .primer dd b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- sections ---------- */
+
+  section { display: flex; flex-direction: column; gap: 22px; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  h2 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(1.35rem, 3vw, 1.75rem);
+    letter-spacing: -.015em;
+  }
+
+  .section-head p {
+    font-family: var(--ui);
+    font-size: .82rem;
+    color: var(--muted);
+    margin-left: auto;
+    text-align: right;
+    max-width: 42ch;
+  }
+
+  /* On a phone the heading and its description fight for one line, and the
+     heading loses — it wraps to three words a line while the description
+     sits beside it. Stack them instead. */
+  @media (max-width: 640px) {
+    .section-head { flex-wrap: wrap; gap: 6px; }
+    .section-head p { margin-left: 0; text-align: left; max-width: none; }
+  }
+
+  .cards { display: flex; flex-direction: column; gap: 14px; }
+
+  /* ---------- one command ---------- */
+
+  .cmd {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    display: grid;
+    grid-template-columns: minmax(200px, 0.85fr) minmax(0, 1.1fr) minmax(0, 1.1fr);
+  }
+
+  @media (max-width: 800px) {
+    .cmd { grid-template-columns: 1fr; }
+  }
+
+  .cmd > * { padding: 16px 20px; }
+
+  .what {
+    background: var(--surface-alt);
+    border-right: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  @media (max-width: 800px) {
+    .what { border-right: none; border-bottom: 1px solid var(--rule); }
+    .lang.en { border-right: none !important; border-bottom: 1px solid var(--rule); }
+  }
+
+  .what h3 {
+    font-family: var(--ui);
+    font-size: .98rem;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  .what p { font-size: .86rem; line-height: 1.5; color: var(--muted); }
+
+  .lang { display: flex; flex-direction: column; gap: 9px; }
+  .lang.en { border-right: 1px solid var(--rule); }
+
+  .lang-tag {
+    font-family: var(--ui);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  ul.says { display: flex; flex-direction: column; gap: 5px; list-style: none; }
+
+  ul.says li {
+    font-family: var(--ui);
+    font-size: .92rem;
+    line-height: 1.45;
+    color: var(--ink);
+    padding-left: 15px;
+    position: relative;
+  }
+
+  ul.says li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: .62em;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: .5;
+  }
+
+  ul.says.bn li { font-family: var(--bn); font-size: .96rem; line-height: 1.75; }
+
+  .slot { color: var(--accent); font-style: italic; font-weight: 500; }
+
+  .note {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--rule);
+    background: var(--surface-alt);
+    font-size: .85rem;
+    line-height: 1.55;
+    color: var(--muted);
+    padding: 12px 20px;
+  }
+
+  .note b { color: var(--ink); font-weight: 600; }
+  .note .bnq { font-family: var(--bn); }
+
+  /* ---------- won't trigger ---------- */
+
+  .guard {
+    background: var(--stop-soft);
+    border: 1px solid var(--stop);
+    border-radius: 4px;
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .guard h3 {
+    font-family: var(--ui);
+    font-size: .95rem;
+    font-weight: 600;
+    color: var(--stop);
+  }
+
+  .guard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 10px 26px;
+  }
+
+  .guard-grid div {
+    font-family: var(--ui);
+    font-size: .9rem;
+    line-height: 1.5;
+  }
+
+  .guard-grid q {
+    quotes: "\201C" "\201D";
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .guard-grid q.bnq { font-family: var(--bn); }
+  .guard-grid span { color: var(--muted); display: block; font-size: .84rem; }
+
+  /* ---------- prose block ---------- */
+
+  .prose { max-width: var(--measure); display: flex; flex-direction: column; gap: 14px; }
+  .prose p { color: var(--muted); }
+  .prose p strong { color: var(--ink); font-weight: 600; }
+  .prose .bnq { font-family: var(--bn); color: var(--ink); }
+
+  code.k {
+    font-family: var(--ui);
+    font-weight: 600;
+    font-size: .88em;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 20px;
+    font-family: var(--ui);
+    font-size: .82rem;
+    color: var(--faint);
+    max-width: var(--measure);
+    line-height: 1.6;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .cmd { transition: border-color .18s ease; }
+    .cmd:hover { border-color: var(--accent); }
+  }
+
+  /* ---------- contents ---------- */
+
+  nav.toc {
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--surface);
+    padding: 18px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  nav.toc h2 {
+    font-family: var(--ui);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  nav.toc ol {
+    list-style: none;
+    counter-reset: toc;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 6px 22px;
+  }
+
+  nav.toc li { counter-increment: toc; font-family: var(--ui); font-size: .93rem; }
+
+  nav.toc li::before {
+    content: counter(toc) ". ";
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  nav.toc a { text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+
+  /* ---------- taxonomy ---------- */
+
+  .taxonomy {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+  }
+
+  .tax-group {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .tax-group h3 {
+    font-family: var(--ui);
+    font-size: .92rem;
+    font-weight: 600;
+  }
+
+  .tax-group h3 span { font-family: var(--bn); font-weight: 400; color: var(--muted); }
+
+  .tax-group ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+
+  .tax-group li {
+    font-family: var(--ui);
+    font-size: .88rem;
+    line-height: 1.45;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+  }
+
+  .tax-group li em {
+    font-family: var(--bn);
+    font-style: normal;
+    color: var(--muted);
+  }
+
+  a { color: var(--accent); }
+  a:focus-visible, .cmd:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">ANT · Spoken control reference</div>
+    <h1>ANT Voice Phrasebook</h1>
+    <p class="standfirst">
+      Every function and every setting you can reach by speaking, in Bangla and English.
+      These are matched <strong>on the phone itself</strong> — no model call, no network wait,
+      so they work instantly and offline. Anything not on this list still works; it just goes
+      to the assistant and takes a moment longer. Nothing here is a password: the app matches
+      the words that carry the meaning and ignores the rest, so say it however comes naturally.
+    </p>
+  </header>
+
+  <dl class="primer">
+    <div>
+      <dt>Start talking</dt>
+      <dd>Say <b>“Hey Jarvis”</b>, or tap the mic. Both open the same listener.</dd>
+    </div>
+    <div>
+      <dt>Two buzzes means go</dt>
+      <dd>The phone buzzes <b>twice</b>, then waits a beat, then listens. Speak after the second buzz.</dd>
+    </div>
+    <div>
+      <dt>You'll hear it back</dt>
+      <dd>Names, numbers and addresses are <b>read back</b> before anything is saved.</dd>
+    </div>
+    <div>
+      <dt>Say it your way</dt>
+      <dd>These are examples, not a script. Word order, politeness and filler are all handled.</dd>
+    </div>
+  </dl>
+
+  <nav class="toc">
+    <h2>What's here</h2>
+    <ol>
+      <li><a href="#going">Going somewhere</a></li>
+      <li><a href="#unknown">When it doesn't know the place</a></li>
+      <li><a href="#walking">While you're walking</a></li>
+      <li><a href="#reporting">Reporting a hazard</a></li>
+      <li><a href="#taxonomy">Every hazard you can report</a></li>
+      <li><a href="#help">Getting help from a stranger</a></li>
+      <li><a href="#settings">Changing settings</a></li>
+      <li><a href="#guards">What deliberately does nothing</a></li>
+      <li><a href="#flex">Saying it your own way</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============ GOING PLACES ============ -->
+  <section id="going">
+    <div class="section-head">
+      <h2>Going somewhere</h2>
+      <p>The route starts immediately and every turn is spoken from your GPS position.</p>
+    </div>
+
+    <div class="cards">
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Route me to a place</h3>
+          <p>Any Dhaka place name, landmark or address.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Take me to <span class="slot">Gulshan</span></li>
+            <li>Bring me to <span class="slot">New Market</span></li>
+            <li>Walk me to <span class="slot">the pharmacy</span></li>
+            <li>Guide me to <span class="slot">Farmgate</span></li>
+            <li>Lead me to <span class="slot">the bus stand</span></li>
+            <li>Navigate to <span class="slot">Dhanmondi 27</span></li>
+            <li>Route me to <span class="slot">Banani</span></li>
+            <li>Directions to <span class="slot">Mirpur 10</span></li>
+            <li>The way to <span class="slot">Kawran Bazar</span></li>
+            <li>How do I get to <span class="slot">the eye hospital</span></li>
+            <li>How to get to <span class="slot">Uttara</span></li>
+            <li>I wanna go to <span class="slot">Gulshan 2</span></li>
+            <li>I want to go to <span class="slot">Motijheel</span></li>
+            <li>I need to go to <span class="slot">the bank</span></li>
+            <li>I have to go to <span class="slot">Shahbagh</span></li>
+            <li>I'd like to go to <span class="slot">Bashundhara</span></li>
+            <li>I wanna visit <span class="slot">my aunt</span></li>
+            <li>Let's go to <span class="slot">Mohakhali</span></li>
+            <li>Let's head to <span class="slot">the station</span></li>
+            <li>Head to <span class="slot">Rampura</span></li>
+            <li>I'm going to <span class="slot">Badda</span></li>
+            <li>Go to <span class="slot">Tejgaon</span></li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li><span class="slot">গুলশান</span> যেতে চাই</li>
+            <li>আমি <span class="slot">ধানমন্ডি</span> যাব</li>
+            <li><span class="slot">নিউমার্কেটে</span> যাবো</li>
+            <li>আমি <span class="slot">মিরপুর ১০</span> যেতে চাই</li>
+            <li><span class="slot">শাহবাগে</span> যাব</li>
+            <li>এখন <span class="slot">উত্তরা</span> যেতে চাই</li>
+          </ul>
+          <div class="lang-tag" style="margin-top:6px">Note</div>
+          <p style="font-size:.86rem;line-height:1.5;color:var(--muted)">
+            Bangla puts the verb last, so the place name comes before
+            <span class="bnq">যেতে চাই</span> / <span class="bnq">যাব</span> /
+            <span class="bnq">যাবো</span>. Leading pronouns are stripped for you.
+          </p>
+        </div>
+        <div class="note">
+          <b>Politeness and filler are removed before the lookup.</b> "Please take me to Gulshan
+          now, thanks" searches for Gulshan. So do um, uh, okay, so, well, just, hey — and in
+          Bangla <span class="bnq">আমি</span>, <span class="bnq">আমরা</span>,
+          <span class="bnq">আমাকে</span>, <span class="bnq">দয়া করে</span>,
+          <span class="bnq">প্লিজ</span>, <span class="bnq">চলো</span>.
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Go to a saved place</h3>
+          <p>Set during setup, or any time after by voice.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Take me home</li>
+            <li>Take me back home</li>
+            <li>Go to work</li>
+            <li>Go to school</li>
+            <li>Take me to the office</li>
+            <li>Head home</li>
+            <li>Walk me to my sister's place</li>
+            <li>Take me to the clinic</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>বাসায় যাব</li>
+            <li>বাড়ি যেতে চাই</li>
+            <li>অফিসে যাব</li>
+            <li>স্কুলে যেতে চাই</li>
+            <li>আত্মীয়ের বাসায় যাব</li>
+            <li>হাসপাতালে যাব</li>
+          </ul>
+        </div>
+        <div class="note">
+          <b>Every word that finds a saved place.</b> Home — home, house, my place,
+          <span class="bnq">বাসা</span>, <span class="bnq">বাড়ি</span>,
+          <span class="bnq">ঘর</span>. Work — work, office, workplace, job,
+          <span class="bnq">অফিস</span>, <span class="bnq">কাজ</span>,
+          <span class="bnq">কর্মস্থল</span>. School — school, college, university, campus,
+          class, <span class="bnq">স্কুল</span>, <span class="bnq">কলেজ</span>,
+          <span class="bnq">ইউনিভার্সিটি</span>, <span class="bnq">বিশ্ববিদ্যালয়</span>,
+          <span class="bnq">ক্লাস</span>. Family — family, relative, mother, father, sister,
+          brother, aunt, uncle, <span class="bnq">আত্মীয়</span>, <span class="bnq">মা</span>,
+          <span class="bnq">বাবা</span>, <span class="bnq">বোন</span>,
+          <span class="bnq">ভাই</span>, <span class="bnq">খালা</span>,
+          <span class="bnq">চাচা</span>. Medical — doctor, clinic, hospital, therapy,
+          <span class="bnq">ডাক্তার</span>, <span class="bnq">ক্লিনিক</span>,
+          <span class="bnq">হাসপাতাল</span>. Worship — mosque, masjid, temple, church,
+          <span class="bnq">মসজিদ</span>, <span class="bnq">মন্দির</span>,
+          <span class="bnq">গির্জা</span>.
+        </div>
+        <div class="note">
+          Bangla case endings are handled, so <span class="bnq">অফিস</span>,
+          <span class="bnq">অফিসে</span> and <span class="bnq">অফিসের</span> all find the same
+          place. If two saved places match what you said, it asks rather than picking.
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ CLARIFICATION ============ -->
+  <section id="unknown">
+    <div class="section-head">
+      <h2>When it doesn't know the place</h2>
+      <p>Up to three narrowing questions, then a short list to choose from.</p>
+    </div>
+
+    <div class="cards">
+      <article class="cmd">
+        <div class="what">
+          <h3>Answering its questions</h3>
+          <p>It asks for the area first, then a nearby landmark.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>It's in <span class="slot">Mirpur</span></li>
+            <li>Near <span class="slot">the metro station</span></li>
+            <li>Behind <span class="slot">Rifles Square</span></li>
+            <li>Somewhere in <span class="slot">Old Dhaka</span></li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li><span class="slot">মিরপুরে</span></li>
+            <li><span class="slot">মেট্রো স্টেশনের</span> কাছে</li>
+            <li><span class="slot">পুরান ঢাকায়</span></li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Picking from the list</h3>
+          <p>Never more than three, so it can be held in your head.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>The first one</li>
+            <li>Number two</li>
+            <li>Third</li>
+            <li>Two</li>
+            <li>Two please</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>প্রথম</li>
+            <li>নম্বর দুই</li>
+            <li>তৃতীয়</li>
+            <li>দুই</li>
+          </ul>
+        </div>
+        <div class="note">
+          You can also just <b>say a distinctive word from the option you want</b>. A bare number
+          only counts when it is essentially your whole answer — so "two" picks the second, but
+          "it's the one near gate two" does not.
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Giving up on it</h3>
+          <p>Ends the questions without starting a route.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Cancel</li>
+            <li>Never mind</li>
+            <li>Forget it</li>
+            <li>Leave it</li>
+            <li>No thanks</li>
+            <li>Skip</li>
+            <li>Drop it</li>
+            <li>Stop</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>বাদ</li>
+            <li>বাদ দাও</li>
+            <li>থাক</li>
+            <li>দরকার নেই</li>
+            <li>লাগবে না</li>
+            <li>বন্ধ</li>
+          </ul>
+        </div>
+        <div class="note">
+          After three tries it stops asking on its own rather than looping. If it finds the place,
+          it offers to save it so you never have to describe it again.
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ WALKING ============ -->
+  <section id="walking">
+    <div class="section-head">
+      <h2>While you're walking</h2>
+      <p>You don't have to hold the phone or keep the screen on.</p>
+    </div>
+
+    <div class="cards">
+      <article class="cmd">
+        <div class="what">
+          <h3>What it tells you</h3>
+          <p>Spoken, and backed by vibration you can feel through a pocket.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">You'll hear</div>
+          <ul class="says">
+            <li>The turn 200 metres ahead</li>
+            <li>Again at 50 metres</li>
+            <li>Again at 25 metres</li>
+            <li>"Now, turn left"</li>
+            <li>A warning before a reported hazard on your path</li>
+            <li>"You've gone off the route" if you leave it</li>
+            <li>"You've arrived"</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">You'll feel</div>
+          <ul class="says">
+            <li>One pattern for a turn coming up</li>
+            <li>A stronger one for turn now</li>
+            <li>A distinct one for a hazard warning</li>
+            <li>Two firm buzzes when it wants you to speak</li>
+            <li>Three light taps when a message is about to send</li>
+          </ul>
+        </div>
+        <div class="note">
+          <b>If you drift off the route it re-plans from where you actually are</b> — you don't
+          need to walk back. Routes avoid areas scored as higher risk for the time of day, so a
+          night route may differ from the same trip in daylight.
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ REPORTING ============ -->
+  <section id="reporting">
+    <div class="section-head">
+      <h2>Reporting a hazard</h2>
+      <p>Reports need a reporting word — naming a hazard alone never files one.</p>
+    </div>
+
+    <div class="cards">
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Open the reporting hub</h3>
+          <p>Starts at the top of the menu when you haven't named the hazard.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Report a hazard</li>
+            <li>Report hazard</li>
+            <li>Report danger</li>
+            <li>Report a problem</li>
+            <li>Report an unsafe spot</li>
+            <li>Report this hazard</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>বিপদ জানাও</li>
+            <li>বিপদ রিপোর্ট করো</li>
+            <li>বিপদের কথা জানাও</li>
+            <li>সমস্যা জানাও</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Name it and skip the menus</h3>
+          <p>Thirteen hazards have a spoken shortcut straight to the form.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Report a mugging / robbery</li>
+            <li>Report harassment</li>
+            <li>Someone is following me</li>
+            <li>Report no street light</li>
+            <li>There's an open manhole</li>
+            <li>There's a pothole</li>
+            <li>There's a broken road</li>
+            <li>I see flooding</li>
+            <li>Report waterlogging</li>
+            <li>Report construction</li>
+            <li>There's a fallen tree</li>
+            <li>Report stairs only / no ramp</li>
+            <li>There's a broken ramp</li>
+            <li>Report no curb cut</li>
+            <li>Report hawkers blocking</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>ছিনতাই রিপোর্ট</li>
+            <li>উত্যক্ত করছে জানাও</li>
+            <li>পিছু নিচ্ছে জানাও</li>
+            <li>রাস্তায় আলো নেই জানাও</li>
+            <li>ম্যানহোল আছে</li>
+            <li>গর্ত আছে</li>
+            <li>রাস্তা ভাঙা আছে</li>
+            <li>পানি জমে আছে</li>
+            <li>নির্মাণকাজ আছে</li>
+            <li>গাছ পড়ে আছে</li>
+            <li>শুধু সিঁড়ি আছে</li>
+            <li>ঢালু পথ ভাঙা আছে</li>
+            <li>ঢালু পথ নেই</li>
+            <li>হকার আছে</li>
+          </ul>
+        </div>
+        <div class="note">
+          <b>A reporting word is required.</b> In English: report, flag, there is a, there's a,
+          I see a. In Bangla: <span class="bnq">জানাও</span>,
+          <span class="bnq">রিপোর্ট</span>, <span class="bnq">আছে</span>. Without one,
+          "is there a manhole near me?" would file a report about a manhole you were only
+          asking about.
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Finishing the report</h3>
+          <p>Describe it in your own words, then say one of these.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Send</li>
+            <li>Send it</li>
+            <li>Send this</li>
+            <li>Submit</li>
+            <li>Submit this</li>
+            <li>Submit report</li>
+            <li>Done</li>
+            <li>Finish</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>পাঠাও</li>
+            <li>পাঠান</li>
+            <li>পাঠিয়ে দাও</li>
+            <li>সাবমিট</li>
+            <li>সেন্ড</li>
+            <li>সেন্ড করো</li>
+            <li>শেষ</li>
+            <li>হয়ে গেছে</li>
+          </ul>
+        </div>
+        <div class="note">
+          <b>You can pause and keep going.</b> Everything you say across several utterances is
+          kept, so stumbling, thinking, and continuing all count — it only submits when you say
+          one of the words above.
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Stopping it before it sends</h3>
+          <p>It reads the report back, then waits five seconds.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">To stop it</div>
+          <ul class="says">
+            <li>Cancel</li>
+            <li>Stop</li>
+            <li>Wait</li>
+            <li>Don't send</li>
+          </ul>
+          <div class="lang-tag" style="margin-top:6px">To try again</div>
+          <ul class="says">
+            <li>Change it</li>
+            <li>That's wrong</li>
+            <li>Edit</li>
+            <li>Say again</li>
+            <li>Redo</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">থামাতে</div>
+          <ul class="says bn">
+            <li>বাতিল</li>
+            <li>থামো</li>
+            <li>দাঁড়াও</li>
+            <li>পাঠিও না</li>
+          </ul>
+          <div class="lang-tag" style="margin-top:6px">আবার বলতে</div>
+          <ul class="says bn">
+            <li>বদলাও</li>
+            <li>ভুল</li>
+            <li>ঠিক নয়</li>
+            <li>আবার</li>
+          </ul>
+        </div>
+        <div class="note">
+          <b>Silence sends it.</b> Say nothing and it goes — so a correct report costs you no
+          extra words at all. A bare "no" is deliberately <em>not</em> a cancel word: it is the
+          easiest word to mishear in street noise, and a normal way to start a sentence.
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Say a hazard is gone</h3>
+          <p>Clears something other people are still being routed around.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>It's fixed</li>
+            <li>It is fixed</li>
+            <li>The broken ramp is fixed</li>
+            <li>It has been fixed</li>
+            <li>It's repaired</li>
+            <li>It's been repaired</li>
+            <li>It's clear now</li>
+            <li>The path is clear</li>
+            <li>It's not there any more</li>
+            <li>No longer there</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>ঠিক হয়ে গেছে</li>
+            <li>সারানো হয়েছে</li>
+            <li>আর নেই</li>
+            <li>পথ পরিষ্কার</li>
+          </ul>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ TAXONOMY ============ -->
+  <section id="taxonomy">
+    <div class="section-head">
+      <h2>Every hazard you can report</h2>
+      <p>Inside the hub, say the name of the one you want. These are all of them.</p>
+    </div>
+
+    <div class="taxonomy">
+      <div class="tax-group">
+        <h3>Crime <span>অপরাধ</span></h3>
+        <ul>
+          <li>Mugging <em>ছিনতাই</em></li>
+          <li>Harassment <em>উত্যক্ত করা</em></li>
+          <li>Suspicious Crowd <em>সন্দেহজনক লোকজন</em></li>
+          <li>Theft / Pickpocketing <em>চুরি / পকেট মারা</em></li>
+          <li>Stalking <em>পিছু নেওয়া</em></li>
+          <li>Verbal Abuse <em>গালিগালাজ</em></li>
+          <li>Physical Assault <em>মারধর</em></li>
+          <li>Poor / No Street Lighting <em>রাস্তায় আলো নেই</em></li>
+          <li>Something else <em>অন্য কিছু</em></li>
+        </ul>
+      </div>
+
+      <div class="tax-group">
+        <h3>Road Hazard <span>রাস্তার সমস্যা</span></h3>
+        <ul>
+          <li>Pothole <em>গর্ত</em></li>
+          <li>Flooding <em>পানি জমে আছে</em></li>
+          <li>Construction <em>নির্মাণকাজ চলছে</em></li>
+          <li>No Sidewalk <em>ফুটপাত নেই</em></li>
+          <li>Open Manhole <em>ম্যানহোল খোলা</em></li>
+          <li>Broken Streetlight <em>রাস্তার বাতি নষ্ট</em></li>
+          <li>Reckless Traffic <em>গাড়ি বেপরোয়াভাবে চলে</em></li>
+          <li>Illegal Parking <em>গাড়ি রাস্তা আটকে রেখেছে</em></li>
+          <li>Debris / Fallen Tree <em>গাছ পড়ে আছে</em></li>
+          <li>Something else <em>অন্য কিছু</em></li>
+        </ul>
+      </div>
+
+      <div class="tax-group">
+        <h3>Accessibility Block <span>চলাচলে বাধা</span></h3>
+        <ul>
+          <li>Broken Ramp <em>ঢালু পথ ভাঙা</em></li>
+          <li>Blocked Path <em>পথ আটকানো</em></li>
+          <li>No Curb Cut <em>ঢালু পথ নেই</em></li>
+          <li>Stairs Only <em>শুধু সিঁড়ি</em></li>
+          <li>Narrow Passage <em>পথ খুব সরু</em></li>
+          <li>No Tactile Paving <em>অন্ধদের বিশেষ পথ নেই</em></li>
+          <li>Elevator Out of Service <em>লিফট নষ্ট</em></li>
+          <li>Blocked by Vendors <em>হকাররা রাস্তা আটকে রেখেছে</em></li>
+          <li>Something else <em>অন্য কিছু</em></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        Picking <strong>Something else</strong> asks you to describe it in your own words. Reports
+        of the same thing in the same place from <strong>three different people</strong> within a
+        day become a confirmed hazard that routing actively avoids — one person alone flags it
+        without closing a road for everybody.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ PASSERBY ============ -->
+  <section id="help">
+    <div class="section-head">
+      <h2>Getting help from a stranger</h2>
+      <p>Puts a written message on screen for someone nearby to read.</p>
+    </div>
+
+    <div class="cards">
+      <article class="cmd">
+        <div class="what">
+          <h3>Show your screen</h3>
+          <p>Pick a prepared message, or dictate a new one.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Show my screen</li>
+            <li>Show screen</li>
+            <li>Show them my screen</li>
+            <li>Display my screen</li>
+            <li>Show this to someone</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>স্ক্রিন দেখাও</li>
+            <li>স্ক্রীন দেখাও</li>
+            <li>আমার স্ক্রিন দেখাও</li>
+            <li>স্ক্রিন দেখান</li>
+          </ul>
+        </div>
+        <div class="note">
+          Dictating your own message uses the same submit words as a hazard report — say
+          <b>send</b> or <span class="bnq">পাঠাও</span> when you're done — and the same five-second
+          window to say <b>cancel</b> or <b>change it</b> after it reads back.
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="settings">
+    <div class="section-head">
+      <h2>Changing settings</h2>
+      <p>All of these are also in My Settings. None of them need the screen.</p>
+    </div>
+
+    <div class="cards">
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Text size</h3>
+          <p>One step at a time, up or down.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Make the text bigger</li>
+            <li>Make the font larger</li>
+            <li>Increase the text size</li>
+            <li>Enlarge the letters</li>
+            <li>Zoom in the text</li>
+            <li>Make the writing smaller</li>
+            <li>Reduce the font size</li>
+            <li>Decrease the text</li>
+            <li>Shrink the letters</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>লেখা বড় করো</li>
+            <li>ফন্ট বাড়াও</li>
+            <li>হরফ বড় করুন</li>
+            <li>লেখা ছোট করো</li>
+            <li>ফন্ট কমাও</li>
+            <li>আকার কমান</li>
+          </ul>
+        </div>
+        <div class="note">
+          <b>Then just say "even bigger".</b> Straight after changing a setting, a bare comparative
+          keeps adjusting that same one: bigger, even bigger, larger, more, a bit more, again,
+          increase — or smaller, even smaller, less, a bit less, decrease. In Bangla
+          <span class="bnq">আরও বড়</span>, <span class="bnq">আরেকটু</span>,
+          <span class="bnq">আরও</span>, <span class="bnq">আরও ছোট</span>,
+          <span class="bnq">কম</span>.
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>How much the assistant says</h3>
+          <p>Short confirmations, or full descriptions of your surroundings.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Keep your answers short</li>
+            <li>Be brief when you talk</li>
+            <li>Be more concise</li>
+            <li>Say less</li>
+            <li>Give me more detail</li>
+            <li>Be more descriptive</li>
+            <li>Explain things properly</li>
+            <li>Talk more</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>সংক্ষেপে বলো</li>
+            <li>কম কথা বলো</li>
+            <li>সংক্ষিপ্ত উত্তর দাও</li>
+            <li>বিস্তারিত বলো</li>
+            <li>খুলে বলো</li>
+            <li>বেশি করে বলো</li>
+          </ul>
+        </div>
+        <div class="note">
+          Follow up with <b>even shorter</b>, <b>briefer</b>, <b>longer</b>, <b>more detail</b> —
+          or <span class="bnq">আরও ছোট</span>, <span class="bnq">বিস্তারিত</span>.
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Theme</h3>
+          <p>Dark or light. Battery matters on an OLED screen.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Switch to dark mode</li>
+            <li>Make the screen darker</li>
+            <li>Turn on night mode</li>
+            <li>Set the theme to black</li>
+            <li>Change to light mode</li>
+            <li>Make the screen brighter</li>
+            <li>I want day mode</li>
+            <li>Set the background to white</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>ডার্ক মোড করো</li>
+            <li>স্ক্রিন গাঢ় করো</li>
+            <li>থিম কালো করো</li>
+            <li>লাইট মোড করো</li>
+            <li>পর্দা উজ্জ্বল করো</li>
+            <li>থিম হালকা করো</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Language</h3>
+          <p>Switches everything, spoken and written, both ways.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Speak to me in Bangla</li>
+            <li>Switch the language to Bangla</li>
+            <li>Use Bengali</li>
+            <li>Reply in Bangla</li>
+            <li>Talk to me in English</li>
+            <li>Change the language to English</li>
+            <li>Answer in English</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>বাংলায় বলো</li>
+            <li>ভাষা বাংলা করো</li>
+            <li>বাংলায় কথা বলুন</li>
+            <li>ইংরেজিতে বলো</li>
+            <li>ভাষা ইংলিশ করো</li>
+            <li>ইংরেজিতে উত্তর দাও</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>"Hey Jarvis" wake word</h3>
+          <p>Hands-free waking, on or off.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Turn the wake word on</li>
+            <li>Enable Hey Jarvis</li>
+            <li>Activate the wake word</li>
+            <li>Start the wake word</li>
+            <li>Turn off the wake word</li>
+            <li>Disable Hey Jarvis</li>
+            <li>Switch off the wake word</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>ওয়েক ওয়ার্ড চালু করো</li>
+            <li>ওয়েক ওয়ার্ড বন্ধ করো</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Automatic listening</h3>
+          <p>Whether the mic reopens on its own after a reply.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Turn on auto listen</li>
+            <li>Enable automatic listening</li>
+            <li>Listen automatically</li>
+            <li>Turn off auto listen</li>
+            <li>Disable automatic listening</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>অটো লিসেন চালু করো</li>
+            <li>নিজে থেকে শোনা চালু করো</li>
+            <li>অটো লিসেন বন্ধ করো</li>
+            <li>নিজে থেকে শোনা বন্ধ করো</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Hearing</h3>
+          <p>Switches between spoken replies and text-first replies.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>I'm deaf</li>
+            <li>Use text mode</li>
+            <li>I have trouble hearing</li>
+            <li>I find it hard to hear</li>
+            <li>My hearing is poor</li>
+            <li>I hear fine</li>
+            <li>My hearing is normal</li>
+            <li>I can hear well</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>আমি বধির</li>
+            <li>লেখা মোড করো</li>
+            <li>শুনতে কষ্ট হয়</li>
+            <li>কম শুনি</li>
+            <li>আমি ঠিক শুনি</li>
+            <li>ভালো শুনতে পাই</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Crowds</h3>
+          <p>Routes around busy stretches when crowds are difficult.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Crowds make me anxious</li>
+            <li>I panic in crowded places</li>
+            <li>Busy places make me nervous</li>
+            <li>I feel uncomfortable in crowds</li>
+            <li>Crowds don't bother me</li>
+            <li>I'm fine with crowded places</li>
+            <li>Busy streets are okay</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>ভিড়ে অস্বস্তি হয়</li>
+            <li>ভিড়ে ভয় লাগে</li>
+            <li>জনসমাগমে অস্বস্তি</li>
+            <li>ভিড়ে সমস্যা নেই</li>
+            <li>ভিড় ঠিক আছে</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>How instructions are given</h3>
+          <p>Simplifies directions into one step at a time.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Complex instructions are hard for me</li>
+            <li>Keep the directions simple</li>
+            <li>I find the steps confusing</li>
+            <li>Simpler instructions please</li>
+            <li>I can follow instructions fine</li>
+            <li>I understand the steps</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>নির্দেশ সহজ করো</li>
+            <li>ধাপগুলো কঠিন লাগে</li>
+            <li>নির্দেশ বুঝতে কষ্ট হয়</li>
+            <li>নির্দেশ বুঝতে পারি</li>
+            <li>ধাপে সমস্যা নেই</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Pair with a caretaker</h3>
+          <p>Six digits, read back before anything is linked.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>Pairing code <span class="slot">4 8 2 9 1 6</span></li>
+            <li>Pair with caretaker <span class="slot">4 8 2 9 1 6</span></li>
+            <li>Link up with <span class="slot">4 8 2 9 1 6</span></li>
+            <li>Link with <span class="slot">4 8 2 9 1 6</span></li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>পেয়ারিং কোড <span class="slot">৪ ৮ ২ ৯ ১ ৬</span></li>
+            <li>দেখাশোনাকারীর সাথে যুক্ত করো</li>
+          </ul>
+        </div>
+        <div class="note">
+          <b>Bengali numerals and English digits both work</b> —
+          <span class="bnq">০ ১ ২ ৩ ৪ ৫ ৬ ৭ ৮ ৯</span> — and so do phone numbers. Digits are
+          read back to you in groups, not as one long number, so you can actually check them.
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ GUARDS ============ -->
+  <section id="guards">
+    <div class="section-head">
+      <h2>What deliberately does nothing</h2>
+      <p>Questions are recognised as questions. Negatives are recognised as negatives.</p>
+    </div>
+
+    <div class="guard">
+      <h3>These are understood, and deliberately not acted on</h3>
+      <div class="guard-grid">
+        <div><q>Should I go to Gulshan?</q><span>A question about a trip, not a request to start one.</span></div>
+        <div><q>How far is it to Uttara?</q><span>Answered, but no route starts.</span></div>
+        <div><q>How long will it take?</q><span>Same — it's an enquiry.</span></div>
+        <div><q>Is it safe around here?</q><span>Answered as a question.</span></div>
+        <div><q class="bnq">গুলশান কতদূর?</q><span>Distance question, not a routing request.</span></div>
+        <div><q>It's getting dark outside</q><span>Won't switch the theme.</span></div>
+        <div><q>The street light is broken</q><span>A hazard, not a brightness setting.</span></div>
+        <div><q>Is the text bigger now?</q><span>A question about a setting, not a command.</span></div>
+        <div><q>Is there a manhole near me?</q><span>Won't file a report about it.</span></div>
+        <div><q class="bnq">আমি অফিসে যাব না</q><span>The negative is read; no route starts.</span></div>
+        <div><q>I'm not going to work today</q><span>Same in English.</span></div>
+        <div><q>Bigger crowds make me anxious</q><span>Too long to be a "bigger" follow-up.</span></div>
+        <div><q>Is it going to rain before I get there?</q><span>A weather question, not "going to" a place.</span></div>
+        <div><q>No</q><span>During a send window, this is not a cancel.</span></div>
+      </div>
+    </div>
+
+    <div class="prose">
+      <p>
+        These guards exist because a wrong action costs far more than a missed one. Starting to
+        walk someone across Dhaka because they wondered aloud about a place, or filing a hazard
+        that closes a road for every other user because someone asked a question, are both
+        failures a person who can't see the screen has no easy way to notice or undo.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ FLEXIBILITY ============ -->
+  <section id="flex">
+    <div class="section-head">
+      <h2>Saying it your own way</h2>
+      <p>Matching is on meaning-carrying words, not on whole phrases.</p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Every phrase in this document is an example of a <strong>shape</strong>, not a password.
+        The app looks for the words that carry the meaning and ignores the rest, so
+        <q>please take me to Gulshan now, thanks</q> and <q>Gulshan, take me</q> both work.
+        Politeness, filler and hesitation words — <em>um</em>, <em>okay</em>, <em>just</em>,
+        <em>please</em>, <em>hey</em>, <em>so</em>, <em>well</em> — are stripped before the
+        destination is looked up.
+      </p>
+      <p>
+        Bangla is handled on its own terms rather than as English with different words. It puts
+        the subject first and the verb last, so <span class="bnq">আমি গুলশান যেতে চাই</span> is
+        literally <em>I Gulshan go want</em>; the pronoun is removed so the place name reaches the
+        map alone. Case endings attached to the noun — <span class="bnq">গুলশানে</span>,
+        <span class="bnq">ধানমন্ডিতে</span>, <span class="bnq">অফিসের</span> — are matched
+        without being stripped, since the map handles them and cutting them wrongly would mangle
+        real place names. Negation comes <em>after</em> the verb
+        (<span class="bnq">যাব না</span>), which is why it is checked as a whole word rather
+        than searched for anywhere in the sentence.
+      </p>
+      <p>
+        <strong>English words inside a Bangla sentence are expected.</strong> Dhaka speech mixes
+        constantly, and a Bangla recogniser writes English words in Bangla script — "send" comes
+        back as <span class="bnq">সেন্ড</span>. Those transliterations are matched too, not just
+        the translations.
+      </p>
+      <p>
+        <strong>If something isn't recognised twice, the assistant gives you a keyword.</strong>
+        Rather than leaving you guessing at phrasings, it names one short phrase that always
+        works — <code class="k">report hazard</code>, <code class="k">take me home</code>,
+        <code class="k">send</code> — and you can fall back to that.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    Generated from the app's on-device intent matcher, so this list matches what the build
+    actually accepts. Commands not listed here are still understood — they're passed to the
+    assistant, which handles them with reasoning instead of pattern matching, at the cost of a
+    short network round trip.
+  </footer>
+
+</div>

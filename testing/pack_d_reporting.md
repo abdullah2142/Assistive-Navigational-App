@@ -160,8 +160,11 @@ Get the app through **Firebase App Distribution** — you need an Android
 phone, the email you were invited on, and a network connection. No computer,
 no cable, no developer mode. Details in the [root README](../README.md).
 
-Keep the [voice phrasebook](../README.md) open while you work; it lists every
-phrase the app accepts on purpose.
+Keep the **voice phrasebook** open while you work — it lists every phrase the
+app accepts on purpose, in both languages. Read it at
+<https://claude.ai/code/artifact/9b6dbca5-3282-4e74-be27-d32aea57dc5e>; the
+source lives here as [voice_phrasebook.html](voice_phrasebook.html), which
+GitHub shows as code rather than rendering.
 
 Ground rules for every run:
 

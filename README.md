@@ -24,7 +24,7 @@ more expensive than a missed one.
 | `firestore.rules` | Security rules — read these before changing any data model |
 | `0N_module_plan_*.md` | Per-module specifications |
 | `project_master_plan.md` | Overall architecture and intent |
-| `testing/` | Test packs — one scoped assignment per tester |
+| `testing/` | Test packs — one scoped assignment per tester — and the voice phrasebook |
 | `task.md` | Live bug and task list |
 
 ### Module status

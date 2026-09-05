@@ -8,7 +8,7 @@
 Every spoken command on the dashboard, the wake word, and the boundary
 between what the phone handles instantly and what gets sent to the AI.
 
-Work from the [voice phrasebook](../README.md), but understand what your job
+Work from the [voice phrasebook](voice_phrasebook.html), but understand what your job
 actually is: the phrasings that are **not** in it. The listed phrases are
 examples of a shape, not passwords, and the app is supposed to cope with
 however you naturally say it. Finding where it doesn't is the whole pack.
@@ -169,8 +169,11 @@ Get the app through **Firebase App Distribution** — you need an Android
 phone, the email you were invited on, and a network connection. No computer,
 no cable, no developer mode. Details in the [root README](../README.md).
 
-Keep the [voice phrasebook](../README.md) open while you work; it lists every
-phrase the app accepts on purpose.
+Keep the **voice phrasebook** open while you work — it lists every phrase the
+app accepts on purpose, in both languages. Read it at
+<https://claude.ai/code/artifact/9b6dbca5-3282-4e74-be27-d32aea57dc5e>; the
+source lives here as [voice_phrasebook.html](voice_phrasebook.html), which
+GitHub shows as code rather than rendering.
 
 Ground rules for every run:
 

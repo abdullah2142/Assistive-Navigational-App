@@ -12,7 +12,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseFeed } from '../src/lib/feed.js';
+import { parseFeed, fetchFeed } from '../src/lib/feed.js';
 import { matchThana, mentionsCrime, isCandidate, containsPhrase, words } from '../src/lib/thana_match.js';
 import { THANAS } from '../src/lib/thana_index.js';
 
@@ -143,4 +143,75 @@ test('every cron in wrangler.toml has a handler, and vice versa', async () => {
 
   assert.ok(declared.length >= 3, `expected the three schedules, found ${declared.length}`);
   assert.deepEqual(handled, declared, 'wrangler.toml and CRON_JOBS have drifted');
+});
+
+// --- feed retry (added after r/bangladesh returned 429 on one probe and
+// 200 seconds later; without a retry that feed silently contributes
+// nothing on roughly half of all runs) ---
+
+test("fetchFeed retries a rate-limited feed instead of returning nothing", async () => {
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    calls.push(url);
+    if (calls.length === 1) {
+      return { ok: false, status: 429, headers: { get: () => null } };
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        '<rss><channel><item><title>A mugging in Mohammadpur</title>'
+        + '<link>https://example.com/a</link><pubDate>Wed, 03 Sep 2026 10:00:00 GMT</pubDate>'
+        + '</item></channel></rss>',
+    };
+  };
+  try {
+    const items = await fetchFeed('https://example.com/feed', {
+      userAgent: 'test',
+      sleep: async () => {},
+    });
+    assert.equal(calls.length, 2, 'should have retried once');
+    assert.equal(items.length, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchFeed honours Retry-After rather than guessing shorter", async () => {
+  // Guessing shorter than the server asked for is how a rate limit becomes
+  // a ban.
+  const waits = [];
+  const realFetch = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = async () => {
+    n += 1;
+    if (n === 1) return { ok: false, status: 429, headers: { get: (h) => (h === 'retry-after' ? '3' : null) } };
+    return { ok: true, status: 200, text: async () => '<rss><channel></channel></rss>' };
+  };
+  try {
+    await fetchFeed('https://example.com/feed', {
+      userAgent: 'test',
+      sleep: async (ms) => waits.push(ms),
+    });
+    assert.deepEqual(waits, [3000]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("fetchFeed gives up on a 404 rather than retrying a dead feed", async () => {
+  const realFetch = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = async () => {
+    n += 1;
+    return { ok: false, status: 404, headers: { get: () => null } };
+  };
+  try {
+    const items = await fetchFeed('https://example.com/gone', { userAgent: 'test', sleep: async () => {} });
+    assert.equal(n, 1, 'a 404 means gone, not later');
+    assert.deepEqual(items, []);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

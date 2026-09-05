@@ -28,7 +28,14 @@ const {
   deriveAdvisory,
   CORROBORATION_WINDOW_MS,
 } = require("./lib/social_signal");
-const { learnedAdjustment, recordEvidenceMonth } = require("./lib/learned_baseline");
+const { learnedAdjustment, recordEvidenceMonth, isWithinWindow } = require("./lib/learned_baseline");
+const {
+  incidentId,
+  validateIncident,
+  isStale: isIncidentStale,
+  evidenceMonthsFromIncidents,
+  mergeEvidenceMonths,
+} = require("./lib/thana_incident");
 const {
   buildZones,
   belongsToZone,
@@ -476,6 +483,53 @@ exports.recordThanaAdvisory = onCall(async (request) => {
  * reach the sites in question, so collection runs on the Cloudflare Worker
  * and posts its findings in through this contract.
  */
+/**
+ * Records one confirmed crime incident attributed to a Dhaka thana.
+ *
+ * Deliberately cheap and deliberately unopinionated. The Worker's matcher
+ * has already established the only two facts this stores — the story is
+ * about crime, and it names exactly one Dhaka thana with no competing
+ * location — and neither required a model call. Judging whether a
+ * neighbourhood has *deteriorated* stays where it was, in
+ * `recordThanaAdvisory`.
+ *
+ * Nothing here can move a score on its own. Incidents become evidence only
+ * in bulk, via `thana_incident.js`'s monthly threshold, and evidence
+ * reaches the score only through the learned baseline's slow, capped,
+ * self-decaying adjustment.
+ *
+ * Idempotent by source URL, because every run re-reads the last three weeks
+ * of articles and the same story appears in several feeds. Without that,
+ * re-reading one mugging would manufacture an evidence month by itself.
+ */
+exports.recordThanaIncident = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Sign-in required.");
+  }
+  const nowMs = Date.now();
+  let incident;
+  try {
+    incident = validateIncident(request.data || {}, nowMs);
+  } catch (err) {
+    throw new HttpsError("invalid-argument", err.message);
+  }
+
+  const db = getFirestore();
+  const zone = await db.collection("crimeZones").doc(incident.thanaSlug).get();
+  if (!zone.exists) {
+    throw new HttpsError("invalid-argument", `Unknown thana: ${incident.thanaSlug}`);
+  }
+
+  const id = incidentId(incident.sourceUrl);
+  const ref = db.collection("thanaIncidents").doc(id);
+  const existing = await ref.get();
+  if (existing.exists) {
+    return { recorded: false, reason: "already recorded", id };
+  }
+  await ref.set(incident);
+  return { recorded: true, id, period: incident.period };
+});
+
 exports.recordSocialSignal = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Sign-in required.");
@@ -765,6 +819,17 @@ exports.decayHazardZones = onSchedule(
       await signalBatch.commit();
     }
 
+    // Incidents outlive advisories by design — they are the long memory —
+    // but not forever; anything past the baseline's own window can never be
+    // counted again and is only taking up space.
+    const incidentsSnap = await db.collection("thanaIncidents").get();
+    const staleIncidents = incidentsSnap.docs.filter((doc) => isIncidentStale(doc.data(), nowMs));
+    if (staleIncidents.length > 0) {
+      const incidentBatch = db.batch();
+      staleIncidents.forEach((doc) => incidentBatch.delete(doc.ref));
+      await incidentBatch.commit();
+    }
+
     const evidenceUpdates = await recordEvidenceMonths(db, rebuilt, nowMs);
 
     cachedHazardZones = null;
@@ -772,7 +837,8 @@ exports.decayHazardZones = onSchedule(
     console.log(
       `decayHazardZones: ${live.length} live reports -> ${rebuilt.length} zones; ` +
         `deleted ${expiredRefs.length} expired reports, ${staleAdvisories.length} expired advisories, ` +
-        `${staleSignals.length} stale social signals; ${evidenceUpdates} thanas gained an evidence month.`,
+        `${staleSignals.length} stale social signals, ${staleIncidents.length} aged-out incidents; ` +
+        `${evidenceUpdates} thanas gained an evidence month.`,
     );
   },
 );
@@ -791,10 +857,22 @@ exports.decayHazardZones = onSchedule(
  * neighbourhood's standing score.
  */
 async function recordEvidenceMonths(db, hazardZones, nowMs) {
-  const [zonesSnap, advisoriesSnap] = await Promise.all([
+  const [zonesSnap, advisoriesSnap, incidentsSnap] = await Promise.all([
     db.collection("crimeZones").get(),
     db.collection("thanaAdvisories").get(),
+    db.collection("thanaIncidents").get(),
   ]);
+
+  // Incidents grouped by thana, so a month that crossed the threshold can
+  // be counted from when those articles were *published* rather than from
+  // the day the third one happened to arrive.
+  const incidentsByThana = new Map();
+  for (const doc of incidentsSnap.docs) {
+    const incident = doc.data();
+    if (isIncidentStale(incident, nowMs)) continue;
+    if (!incidentsByThana.has(incident.thanaSlug)) incidentsByThana.set(incident.thanaSlug, []);
+    incidentsByThana.get(incident.thanaSlug).push(incident);
+  }
 
   const newsAdvisoryThanas = new Set(
     advisoriesSnap.docs
@@ -817,16 +895,29 @@ async function recordEvidenceMonths(db, hazardZones, nowMs) {
   const batch = db.batch();
   let updates = 0;
   for (const doc of zonesSnap.docs) {
-    const updated = recordEvidenceMonth(
-      doc.data().evidenceMonths,
+    const stored = doc.data().evidenceMonths;
+
+    // The original path: an advisory or a confirmed crowdsourced crime
+    // hazard marks *this* month, the month we observed it.
+    const fromToday = recordEvidenceMonth(
+      stored,
       {
         hasNewsAdvisory: newsAdvisoryThanas.has(doc.id),
         hasConfirmedCrimeReports: crimeThanas.has(doc.id),
       },
       nowMs,
     );
-    if (!updated) continue;
-    batch.update(doc.ref, { evidenceMonths: updated });
+
+    // The ledger path: months in which enough separate incidents were
+    // reported. This is the half that actually has data — advisories
+    // require a model to see a pattern in one article, which measured at
+    // zero over the entire life of the collector.
+    const fromIncidents = evidenceMonthsFromIncidents(incidentsByThana.get(doc.id), nowMs);
+
+    const merged = mergeEvidenceMonths(fromToday || stored, fromIncidents, isWithinWindow, nowMs);
+    const next = merged || fromToday;
+    if (!next) continue;
+    batch.update(doc.ref, { evidenceMonths: next });
     updates += 1;
   }
   if (updates > 0) await batch.commit();

@@ -117,7 +117,13 @@ async function probe(label, feeds, maxAgeMs) {
     console.log(
       '  No candidates this run. That is a normal outcome — most reporting is not'
       + '\n  about a named Dhaka thana — but a long unbroken run of zeroes means the'
-      + '\n  advisory path is starved rather than working.',
+      + '\n  pipeline is starved rather than working.',
+    );
+  } else {
+    console.log(
+      `  Each candidate is filed as an incident (no model call). ${funnel.candidates} incident(s)`
+      + '\n  this run; three distinct ones in a calendar month make that month count'
+      + '\n  toward the learned baseline.',
     );
   }
   return funnel;

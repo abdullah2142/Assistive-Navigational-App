@@ -77,18 +77,57 @@ export function parseFeed(xml, { limit = 40 } = {}) {
 }
 
 /** Fetches and parses a feed, returning [] rather than throwing. */
-export async function fetchFeed(url, { userAgent }) {
-  try {
-    const res = await fetch(url, { headers: { 'user-agent': userAgent, accept: 'application/rss+xml, application/xml, text/xml, */*' } });
-    if (!res.ok) {
+/**
+ * Statuses worth trying again, and how long to wait.
+ *
+ * Reddit rate-limits this User-Agent intermittently: probing the two
+ * subreddit feeds back to back, `r/bangladesh` returned 429 on one run and
+ * 200 on the next, seconds apart. Without a retry that is simply a feed
+ * that silently contributes nothing on roughly half of all runs, and
+ * because "found nothing" is the normal outcome here, nobody would ever
+ * notice the difference.
+ *
+ * Short, few, and only for statuses that actually mean "later": a Worker
+ * has a wall-clock budget and there is no value in fighting a 404.
+ */
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+const RETRY_DELAYS_MS = [1200, 4000];
+
+export async function fetchFeed(url, { userAgent, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'user-agent': userAgent,
+          accept: 'application/rss+xml, application/xml, text/xml, */*',
+        },
+      });
+      if (res.ok) return parseFeed(await res.text());
+
+      if (RETRY_STATUSES.has(res.status) && attempt < RETRY_DELAYS_MS.length) {
+        // Honour Retry-After when the server sets it — guessing shorter
+        // than it asked for is how a rate limit turns into a ban.
+        const header = Number(res.headers.get('retry-after'));
+        const wait = Number.isFinite(header) && header > 0
+          ? Math.min(header * 1000, 10000)
+          : RETRY_DELAYS_MS[attempt];
+        console.warn(`feed ${url} returned HTTP ${res.status}; retrying in ${wait}ms`);
+        await sleep(wait);
+        continue;
+      }
+
       console.warn(`feed ${url} returned HTTP ${res.status}`);
       return [];
+    } catch (err) {
+      if (attempt < RETRY_DELAYS_MS.length) {
+        console.warn(`feed ${url} failed (${String(err)}); retrying`);
+        await sleep(RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+      // One unreachable outlet must not take the whole run down — the other
+      // sources are still worth collecting.
+      console.warn(`feed ${url} failed:`, String(err));
+      return [];
     }
-    return parseFeed(await res.text());
-  } catch (err) {
-    // One unreachable outlet must not take the whole run down — the other
-    // sources are still worth collecting.
-    console.warn(`feed ${url} failed:`, String(err));
-    return [];
   }
 }

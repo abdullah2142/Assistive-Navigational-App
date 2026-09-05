@@ -148,6 +148,22 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // thanaIncidents/{id} — the ledger of individual crime stories matched
+    // to a thana, which the hourly sweep turns into the learned baseline's
+    // evidence months.
+    //
+    // Same rule and the same reason as advisories, with one more: incidents
+    // are the *long* memory. An advisory expires within weeks; a fabricated
+    // incident would sit in the ledger for two years, quietly counting
+    // toward a permanent-feeling label on a real neighbourhood where real
+    // people live. Written only by `recordThanaIncident` via the Admin SDK,
+    // which requires a citable URL and a real publication date, and is
+    // idempotent per source so the same story cannot be counted twice.
+    match /thanaIncidents/{incidentId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
     // cityTrend/{period} + meta/cityTrendMultiplier — Module 4's citywide
     // crime-trend history and the multiplier derived from it (see
     // `scrapeDmpCrimeReports`/`updateCityTrendMultiplier` in

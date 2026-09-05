@@ -34,7 +34,7 @@ more expensive than a missed one.
 | 1 | Onboarding — accessibility interview, voice-driven | Built |
 | 2 | Core UI — dual-role dashboards, localization | Built |
 | 3 | AI Assistant — Gemini function calling, local intent matching | Built |
-| 4 | Crime & route safety — thana scoring, temporal weighting, advisories | Built + deployed |
+| 4 | Crime & route safety — thana scoring, temporal weighting, advisories, incident ledger | Built; incident ledger needs deploy |
 | 5 | Crowdsourcing — hazard reports, clustering, Red Flag anti-spam | Built + deployed |
 | 6 | Snapshot Vision | Not started |
 | 7 | Haptics | Partial — navigation cues built |
@@ -225,6 +225,20 @@ firebase deploy --only functions,firestore:rules
 > `firebase deploy` through anything (`| tail`, `| grep`) makes the shell
 > report the **pipe's** status, so a partial failure — some functions
 > updated, some not — exits 0 and looks like success.
+
+### Are the collectors actually finding anything?
+
+```bash
+cd cloudflare-worker && node scripts/probe_feeds.mjs --misses
+```
+
+Runs the collectors' real filters over the real feeds with no Gemini or
+Firebase calls, and prints where every item is lost: fetched → dated →
+fresh → mentions crime → names exactly one Dhaka thana. Free, and safe to
+run as often as you like.
+
+Expect roughly one candidate per news run and frequently zero from social.
+That is normal. A long unbroken run of zeroes across *both* is not.
 
 ### Is the data actually there?
 

@@ -123,8 +123,51 @@ export async function collectNews(geminiApiKey, { now = Date.now() } = {}) {
   const considered = candidates.slice(0, MAX_CLASSIFICATIONS);
   const recorded = [];
   const skipped = [];
+  const incidents = { filed: 0, duplicate: 0, rejected: 0 };
 
   await withAuth(async (idToken) => {
+    // Every candidate is filed as an incident first, whatever the model
+    // later says about it.
+    //
+    // These two questions are not the same question. "Is this a crime story
+    // about exactly one Dhaka thana?" is a fact the matcher has already
+    // established for free. "Has this neighbourhood deteriorated?" is a
+    // judgement, and the classifier is told — correctly — to answer `none`
+    // to it almost always.
+    //
+    // Conflating them is why this pipeline produced nothing: measured
+    // against the live feeds it finds about one confirmed Dhaka-thana crime
+    // story per run, every one an isolated incident, every one classified
+    // `none`, so `thanaAdvisories` had never been written to at all and the
+    // learned baseline had never had anything to remember. Counting is
+    // cheap and honest; judging stays expensive and rare.
+    //
+    // Not capped at MAX_CLASSIFICATIONS: that cap exists to bound Gemini
+    // spend, and this costs no model call.
+    for (const candidate of candidates) {
+      try {
+        const result = await callFunction(
+          'recordThanaIncident',
+          {
+            thanaSlug: candidate.thana.slug,
+            sourceUrl: candidate.link,
+            headline: candidate.title,
+            outlet: candidate.outlet,
+            publishedAt: candidate.publishedAt,
+          },
+          idToken,
+        );
+        if (result?.recorded) incidents.filed += 1;
+        else incidents.duplicate += 1;
+      } catch (err) {
+        // Expected and harmless for an unknown thana slug or a malformed
+        // date — the backend's validation doing its job. Never fatal to the
+        // run; the advisory pass below is the more important half.
+        incidents.rejected += 1;
+        console.warn(`recordThanaIncident rejected ${candidate.link}:`, String(err));
+      }
+    }
+
     for (const candidate of considered) {
       let verdict;
       try {
@@ -166,6 +209,10 @@ export async function collectNews(geminiApiKey, { now = Date.now() } = {}) {
     itemsSeen: seen.size,
     candidates: candidates.length,
     classified: considered.length,
+    // The count that should be non-zero on a normal run. `recorded` being
+    // empty is expected; `incidents.filed` staying at zero for weeks means
+    // the matcher or the feeds have stopped, not that Dhaka got safer.
+    incidents,
     recorded,
     skipped,
     truncated: candidates.length > MAX_CLASSIFICATIONS,

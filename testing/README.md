@@ -66,6 +66,23 @@ phone, the email address you were invited on, and a network connection —
 no computer, no cable, no developer mode. See the "Installing as a tester"
 section of the [root README](../README.md).
 
+## Skipping onboarding
+
+Only Pack A tests onboarding. Everyone else should use the **⏩ button in
+the top-right of the first onboarding screen**, which fills in a dummy
+profile and goes straight to the dashboard.
+
+It leaves the **wake word** and **automatic listening** switched off on
+purpose. Turn them on by voice if your pack needs them:
+
+```
+turn on hey jarvis
+turn on auto listen
+```
+
+The wake phrase is **"Hey Jarvis"** — a placeholder model, not renamed to
+match the app yet.
+
 ## Ground rules
 
 These apply to every pack.

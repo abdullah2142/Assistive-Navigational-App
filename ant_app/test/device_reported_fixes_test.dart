@@ -94,4 +94,34 @@ void main() {
       expect(Onboarding.of(AppLanguage.bangla).voiceIntroSpoken, matches(RegExp(r'[ঀ-৿]')));
     });
   });
+
+  group('the wake word is called what the model actually listens for', () {
+    // The bundled classifier is hey_jarvis_v0.1.tflite, so "Hey Jarvis" is
+    // the only name a user has ever heard. The setting vocabulary accepted
+    // only "hey ant" — a name for it that exists nowhere in the product —
+    // so the phrasebook documented a command the build rejected.
+    for (final phrase in [
+      'turn off hey jarvis',
+      'enable hey jarvis',
+      'disable jarvis',
+      'turn on hey jarvis',
+    ]) {
+      test('"$phrase" reaches the wake word setting', () {
+        final intent = en(phrase);
+        expect(intent?.name, 'update_setting', reason: phrase);
+        expect(intent?.args['setting'], 'wake_word_enabled', reason: phrase);
+      });
+    }
+
+    test('Bangla names for it work too', () {
+      final intent = bn('জার্ভিস বন্ধ করো');
+      expect(intent?.args['setting'], 'wake_word_enabled');
+      expect(intent?.args['value'], 'false');
+    });
+
+    test('the older wording still works, so nothing regresses', () {
+      expect(en('turn off the wake word')?.args['setting'], 'wake_word_enabled');
+      expect(en('disable hey ant')?.args['setting'], 'wake_word_enabled');
+    });
+  });
 }

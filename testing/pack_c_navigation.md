@@ -18,6 +18,28 @@ Take a power bank. You are also measuring battery.
 
 ---
 
+## Skipping onboarding
+
+You are not testing onboarding — Pack A is. Sitting through the full
+accessibility interview every time you reinstall is a waste of your round.
+
+On the **first onboarding screen** there is a **⏩ button in the top-right
+corner**. Tap it. It fills in a complete dummy profile and drops you
+straight on the dashboard.
+
+Two things it leaves **switched off**, because they would otherwise fire
+constantly on a test device:
+
+- **"Hey Jarvis"** — the wake word. Turn it on by saying
+  `turn on hey jarvis` if you need it.
+- **Automatic listening** — the mic reopening after each reply. Turn it on
+  by saying `turn on auto listen`.
+
+The wake phrase is **"Hey Jarvis"**, not "Hey ANT". That is a placeholder
+model we have not replaced yet, so it really is Jarvis.
+
+---
+
 ## Part 1 — Real walks
 
 1. Route somewhere **ten minutes away on foot** and walk the whole thing,

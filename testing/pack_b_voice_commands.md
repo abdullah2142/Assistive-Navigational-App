@@ -13,7 +13,23 @@ actually is: the phrasings that are **not** in it. The listed phrases are
 examples of a shape, not passwords, and the app is supposed to cope with
 however you naturally say it. Finding where it doesn't is the whole pack.
 
-Use the ⏩ button on the first onboarding screen to skip setup.
+Use the **⏩ button in the top-right of the first onboarding screen** to
+skip setup — you are not testing onboarding, Pack A is.
+
+**Before Part 5, turn two things back on.** The skip button deliberately
+leaves them off, because on a test device they fire constantly:
+
+```
+turn on hey jarvis
+turn on auto listen
+```
+
+Doing that is itself a test — tell us if either command does not work.
+Without it the wake word will appear completely dead and you will spend
+Part 5 reporting a bug that is really just a switch.
+
+The wake phrase is **"Hey Jarvis"**, not "Hey ANT". It is a placeholder
+model we have not replaced, so it really is Jarvis.
 
 ---
 

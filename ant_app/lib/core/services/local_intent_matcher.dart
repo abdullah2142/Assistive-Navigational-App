@@ -430,7 +430,14 @@ class LocalIntentMatcher {
   static const _toggleSettings = <({String setting, VoicePhrase subject})>[
     (
       setting: 'wake_word_enabled',
+      // "Hey Jarvis" first, because that is what the bundled model actually
+      // listens for (`assets/wakeword/hey_jarvis_v0.1.tflite`) and therefore
+      // what a user has been told to say. "Hey ANT" was here on the
+      // assumption the wake phrase would be renamed to match the app; it has
+      // not been, so a user who says "turn off Hey Jarvis" — the only name
+      // they have ever heard — was matching nothing at all.
       subject: VoicePhrase(anchors: [
+        'hey jarvis', 'jarvis', 'হেই জার্ভিস', 'জার্ভিস',
         'hey ant', 'wake word', 'wakeword', 'wake-word',
         'হে অ্যান্ট', 'ওয়েক ওয়ার্ড',
       ]),

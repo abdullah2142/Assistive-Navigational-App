@@ -86,6 +86,38 @@ class Dashboard {
         'আপনার কোনো জরুরি যোগাযোগ সংরক্ষিত নেই। বলুন: জরুরি যোগাযোগ যোগ করো।',
       );
 
+  /// Eight-point compass names, indexed by `SafeHavenFinder.compassIndex`.
+  ///
+  /// Used only in the offline fallback, where there is no route to follow
+  /// and a direction plus a distance is the most that can honestly be
+  /// offered. Left/right would be meaningless without knowing which way the
+  /// user is facing; a compass bearing does not depend on that.
+  List<String> get compassPoints => _t(
+        'north, north-east, east, south-east, south, south-west, west, north-west',
+        'উত্তর, উত্তর-পূর্ব, পূর্ব, দক্ষিণ-পূর্ব, দক্ষিণ, দক্ষিণ-পশ্চিম, পশ্চিম, উত্তর-পশ্চিম',
+      ).split(', ');
+
+  String havenRouting(String label) => _t(
+        'I am taking you to $label. Follow my directions.',
+        'আমি আপনাকে $label-এ নিয়ে যাচ্ছি। আমার নির্দেশ অনুসরণ করুন।',
+      );
+
+  /// The offline answer: no route, but a direction and a distance.
+  String havenDirection({required String label, required String compass, required int metres}) => _t(
+        '$label is about $metres metres to the $compass.',
+        '$label প্রায় $metres মিটার $compass দিকে।',
+      );
+
+  /// Said when there is genuinely nowhere to send them.
+  ///
+  /// Staying put is a real instruction, not a failure message — the
+  /// contacts have already been told where they are, and moving makes them
+  /// harder to find.
+  String get havenStayPut => _t(
+        'Stay where you are. I have told your contacts where to find you.',
+        'আপনি যেখানে আছেন সেখানেই থাকুন। আপনার পরিচিতদের জানিয়ে দিয়েছি আপনি কোথায় আছেন।',
+      );
+
   /// Spoken instead of dispatching, in a build where live dispatch is off.
   ///
   /// Says plainly that nothing was sent. A rehearsal that sounded identical

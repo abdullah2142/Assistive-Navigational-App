@@ -1,4 +1,6 @@
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'dart:math' as math;
 
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -242,6 +244,76 @@ class RoutingService {
           ),
         ),
     ];
+  }
+
+  /// Hospitals, clinics and police stations within [radiusMeters].
+  ///
+  /// Overpass rather than Nominatim: Nominatim answers "where is this
+  /// name", and the question here is "what of this kind is near this
+  /// point", which it has no way to express. Overpass is the OSM service
+  /// for exactly that.
+  ///
+  /// Returns an empty list on any failure rather than throwing. This runs
+  /// during an emergency, after the SMS has already gone out, and an
+  /// exception here would lose the steps after it in order to report the
+  /// absence of something that was never guaranteed. "No hospital nearby"
+  /// and "Overpass is down" are the same thing to the caller: no discovered
+  /// haven, fall back to somewhere the user already knows.
+  ///
+  /// The timeout is deliberately short. Someone is standing still waiting
+  /// for an answer, and the honest fallback — "stay where you are, I have
+  /// messaged your contacts" — is available instantly, so a slow reply is
+  /// worse than no reply.
+  Future<List<({String name, LatLng location, String kind})>> nearbyRefuges({
+    required LatLng origin,
+    double radiusMeters = 1000,
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    final r = radiusMeters.round();
+    final lat = origin.latitude;
+    final lng = origin.longitude;
+    final query = '[out:json][timeout:5];('
+        'node["amenity"="hospital"](around:$r,$lat,$lng);'
+        'node["amenity"="clinic"](around:$r,$lat,$lng);'
+        'node["amenity"="police"](around:$r,$lat,$lng);'
+        ');out body 20;';
+    try {
+      final response = await _client
+          .post(
+            Uri.https('overpass-api.de', '/api/interpreter'),
+            headers: {'User-Agent': _osmUserAgent, 'Content-Type': 'text/plain; charset=utf-8'},
+            body: query,
+          )
+          .timeout(timeout);
+      if (response.statusCode != 200) {
+        debugPrint('[Routing] overpass returned HTTP ${response.statusCode}');
+        return const [];
+      }
+      final decoded = jsonDecode(response.body);
+      final elements = decoded is Map<String, dynamic> ? decoded['elements'] : null;
+      if (elements is! List) return const [];
+      final out = <({String name, LatLng location, String kind})>[];
+      for (final element in elements) {
+        if (element is! Map) continue;
+        final elementLat = element['lat'];
+        final elementLng = element['lon'];
+        if (elementLat is! num || elementLng is! num) continue;
+        final tags = element['tags'];
+        final kind = tags is Map && tags['amenity'] is String ? tags['amenity'] as String : 'place';
+        // An unnamed node is still a real place, and being told "a hospital"
+        // is usable when the alternative is being told nothing.
+        final name = tags is Map && tags['name'] is String ? tags['name'] as String : kind;
+        out.add((
+          name: name,
+          location: LatLng(elementLat.toDouble(), elementLng.toDouble()),
+          kind: kind,
+        ));
+      }
+      return out;
+    } catch (e) {
+      debugPrint('[Routing] nearbyRefuges failed: $e');
+      return const [];
+    }
   }
 
   Future<List<GeocodeCandidate>> _geocodeCandidatesOsm(String address, int limit) async {

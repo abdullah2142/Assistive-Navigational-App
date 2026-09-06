@@ -39,7 +39,7 @@ more expensive than a missed one.
 | 6 | Snapshot Vision | Not started |
 | 7 | Haptics | Partial — navigation cues built |
 | 8 | Virtual Guardian | Read side built; alert + location writes now exist (Module 9 uses them) |
-| 9 | Magic Button | Built — triggers, SMS, auto-dial, caretaker alert. Safe-haven routing not started |
+| 9 | Magic Button | Built — triggers, SMS, auto-dial, caretaker alert, safe-haven routing. Ships in practice mode until fired on hardware |
 
 ---
 

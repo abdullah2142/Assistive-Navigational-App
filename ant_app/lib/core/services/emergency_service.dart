@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 
 import '../config/emergency_config.dart';
 import '../localization/app_language.dart';
@@ -13,6 +14,9 @@ import '../../features/onboarding/models/user_profile.dart';
 import 'emergency_channel.dart';
 import 'emergency_payload.dart';
 import 'emergency_plan.dart';
+import 'route_planning_service.dart';
+import 'routing_service.dart';
+import 'safe_haven_finder.dart';
 import 'stt_service.dart';
 import 'tts_service.dart';
 import 'voice_cancel_window.dart';
@@ -27,6 +31,7 @@ class EmergencyOutcome {
     this.called,
     this.alerted = false,
     this.reason,
+    this.haven,
   });
 
   final bool cancelled;
@@ -34,6 +39,9 @@ class EmergencyOutcome {
   final Map<String, String> failed;
   final String? called;
   final bool alerted;
+
+  /// Where they were sent, when anywhere.
+  final String? haven;
 
   /// Why nothing was sent, when nothing was.
   final String? reason;
@@ -73,15 +81,30 @@ class EmergencyService {
     required SttService stt,
     required AlertService alerts,
     EmergencyChannel? channel,
+    RoutingService? routing,
+    RoutePlanningService? planner,
+    void Function(RouteChoice route, AppLanguage language)? onRoute,
   })  : _tts = tts,
         _stt = stt,
         _alerts = alerts,
-        _channel = channel ?? EmergencyChannel();
+        _channel = channel ?? EmergencyChannel(),
+        _routing = routing ?? RoutingService(),
+        _planner = planner ?? RoutePlanningService(),
+        _onRoute = onRoute;
 
   final TtsService _tts;
   final SttService _stt;
   final AlertService _alerts;
   final EmergencyChannel _channel;
+  final RoutingService _routing;
+  final RoutePlanningService _planner;
+
+  /// Hands a planned escape route back to whatever is driving navigation.
+  ///
+  /// A callback rather than a Riverpod read, so this service stays
+  /// constructible and testable without a container — it is the one thing
+  /// in the app that most needs to be exercisable in isolation.
+  final void Function(RouteChoice route, AppLanguage language)? _onRoute;
 
   /// Guards against a second trigger while one is already running.
   ///
@@ -220,13 +243,114 @@ class EmergencyService {
       }
     }
 
+    // Last of all, and never allowed to fail the run: getting them moving
+    // matters less than having been heard, and everything above has already
+    // happened by now.
+    SafeHaven? haven;
+    try {
+      haven = await _routeToSafety(profile, position, d);
+    } catch (e) {
+      debugPrint('[Emergency] safe haven routing failed: $e');
+    }
+
     return EmergencyOutcome(
       cancelled: false,
       messaged: sms.delivered,
       failed: sms.failed,
       called: called,
       alerted: alerted,
+      haven: haven?.label,
     );
+  }
+
+  /// Step 3 of the module plan: get them somewhere safer.
+  ///
+  /// Runs after the messages and the call, never before. Being *found*
+  /// matters more than moving, and the contacts already have the position
+  /// this started from — so if this step fails, nothing that mattered has
+  /// been lost.
+  ///
+  /// Three outcomes, in descending order of usefulness, and the third is a
+  /// real answer rather than a failure:
+  ///
+  /// 1. A route to a haven, with turn-by-turn as normal.
+  /// 2. No route (no data, no route found) but a known haven — a compass
+  ///    direction and a distance, which a person can still act on.
+  /// 3. Nowhere to go — say so, and say to stay put, because moving makes
+  ///    someone harder to find and their contacts were told where they were.
+  Future<SafeHaven?> _routeToSafety(
+    UserProfile profile,
+    Position? position,
+    Dashboard d,
+  ) async {
+    if (position == null) return null;
+    final origin = LatLng(position.latitude, position.longitude);
+
+    // Discovery is best-effort and time-boxed inside `nearbyRefuges`. A
+    // saved place outranks anything it finds anyway (see `SafeHavenFinder`),
+    // so this is skipped entirely when the user already has one — no reason
+    // to make someone wait on a network call whose answer cannot win.
+    var discovered = const <SafeHaven>[];
+    final hasOwnPlace = profile.savedPlaces.any((p) => p.isRoutable) ||
+        (profile.safePlaceAddress?.trim().isNotEmpty ?? false);
+    if (!hasOwnPlace) {
+      final nearby = await _routing.nearbyRefuges(origin: origin);
+      discovered = [
+        for (final n in nearby)
+          SafeHaven(label: n.name, source: HavenSource.discovered, location: n.location),
+      ];
+    }
+
+    final haven = SafeHavenFinder.best(
+      origin: origin,
+      savedPlaces: profile.savedPlaces,
+      statedSafePlace: profile.safePlaceAddress,
+      discovered: discovered,
+    );
+    if (haven == null) {
+      await _speak(d.havenStayPut, profile.language);
+      return null;
+    }
+
+    // A stated safe place is only a string; everything else already has
+    // coordinates and needs no network to be useful.
+    var location = haven.location;
+    if (location == null && haven.address != null) {
+      location = await _routing.geocode(haven.address!);
+    }
+    if (location == null) {
+      await _speak(d.havenStayPut, profile.language);
+      return null;
+    }
+
+    final plan = await _planner.plan(
+      destinationQuery: haven.address ?? haven.label,
+      origin: origin,
+      knownDestination: location,
+      destinationLabel: haven.label,
+    );
+
+    if (plan is RoutePlanned) {
+      await _speak(d.havenRouting(haven.label), profile.language);
+      _onRoute?.call(plan.choice, profile.language);
+      return haven;
+    }
+
+    // No route — but we know where it is, so say which way and how far.
+    // Deliberately a compass bearing rather than left/right, which would
+    // require knowing which way the user is facing.
+    final metres = SafeHavenFinder.metresBetween(origin, location);
+    final bearing = SafeHavenFinder.bearingDegrees(origin, location);
+    final compass = d.compassPoints[SafeHavenFinder.compassIndex(bearing)];
+    await _speak(
+      d.havenDirection(
+        label: haven.label,
+        compass: compass,
+        metres: (metres / 10).round() * 10,
+      ),
+      profile.language,
+    );
+    return haven;
   }
 
   /// A long, unmistakable burst — distinct from every other pattern in the

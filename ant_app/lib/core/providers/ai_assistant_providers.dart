@@ -53,6 +53,13 @@ final emergencyServiceProvider = Provider<EmergencyService>(
     tts: ref.watch(ttsServiceProvider),
     stt: ref.watch(sttServiceProvider),
     alerts: ref.watch(alertServiceProvider),
+    planner: ref.watch(routePlanningServiceProvider),
+    // An escape route is handed to the same navigation controller that
+    // drives every other route, so turn-by-turn, haptics and off-route
+    // recovery all behave identically. Nothing about walking somewhere
+    // should change because of why you are walking there.
+    onRoute: (route, language) =>
+        ref.read(navigationControllerProvider).start(route, language: language),
   ),
 );
 

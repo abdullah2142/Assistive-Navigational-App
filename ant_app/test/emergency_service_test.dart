@@ -38,7 +38,8 @@ void main() {
     test('a missing platform implementation is not a crash', () async {
       mock((call) async => throw MissingPluginException());
       final c = EmergencyChannel(channel: channel);
-      expect(await c.hasPermissions(), isFalse);
+      expect(await c.hasPermission(EmergencyPermission.sms), isFalse);
+      expect(await c.hasPermission(EmergencyPermission.call), isFalse);
       expect(await c.batteryPercent(), isNull);
       expect(await c.placeCall('01711111111'), isFalse);
     });

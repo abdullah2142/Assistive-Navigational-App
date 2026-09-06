@@ -47,6 +47,14 @@ class EmergencyBridge(private val activity: Activity) {
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "hasPermission" -> {
+                // Per-capability, never all-or-nothing: refusing to let the
+                // app place calls must not also stop it texting.
+                val which = call.argument<String>("which")
+                val permission = if (which == "call") Manifest.permission.CALL_PHONE
+                else Manifest.permission.SEND_SMS
+                result.success(granted(permission))
+            }
             "hasPermissions" -> result.success(hasPermissions())
             "requestPermissions" -> {
                 // Fire-and-forget: the Dart side re-checks `hasPermissions`
@@ -63,9 +71,10 @@ class EmergencyBridge(private val activity: Activity) {
         }
     }
 
-    private fun hasPermissions(): Boolean = REQUIRED.all {
-        ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED
-    }
+    private fun granted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(activity, permission) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasPermissions(): Boolean = REQUIRED.all { granted(it) }
 
     /** Battery percentage, or null when the platform will not say. */
     private fun batteryPercent(): Int? {
@@ -91,7 +100,9 @@ class EmergencyBridge(private val activity: Activity) {
      * something true out loud.
      */
     private fun sendSms(call: MethodCall, result: MethodChannel.Result) {
-        if (!hasPermissions()) {
+        // Only SEND_SMS. Requiring CALL_PHONE here meant a user who refused
+        // calling got no message either.
+        if (!granted(Manifest.permission.SEND_SMS)) {
             result.error("permission_denied", "SEND_SMS has not been granted", null)
             return
         }
@@ -109,7 +120,24 @@ class EmergencyBridge(private val activity: Activity) {
             SmsManager.getDefault()
         }
 
-        val delivered = mutableListOf<String>()
+        // NOTE ON WHAT "delivered" MEANS HERE.
+        //
+        // sendTextMessage is asynchronous and reports real failures only
+        // through a sentIntent PendingIntent, which is null below — so this
+        // catch can only see malformed arguments, never "no SIM", "no
+        // service" or "rejected by the network". A number lands in this list
+        // when the radio *accepted* the request, not when anyone received
+        // anything, and the app says "3 people have been messaged" on that
+        // basis.
+        //
+        // That overstatement is deliberate for now and should not stay.
+        // Wiring a sentIntent plus a BroadcastReceiver is the correct fix
+        // and is roughly eighty lines of Kotlin that has never run on a
+        // handset; adding it untested to the one path that matters most
+        // would trade a known overstatement for an unknown failure mode.
+        // Do it with a device in hand, and tighten the spoken wording at
+        // the same time.
+        val accepted = mutableListOf<String>()
         val failed = mutableMapOf<String, String>()
         for (number in recipients) {
             try {
@@ -126,12 +154,12 @@ class EmergencyBridge(private val activity: Activity) {
                         manager.sendMultipartTextMessage(number, null, parts, null, null)
                     }
                 }
-                delivered.add(number)
+                accepted.add(number)
             } catch (e: Exception) {
                 failed[number] = e.message ?: e.javaClass.simpleName
             }
         }
-        result.success(mapOf("delivered" to delivered, "failed" to failed))
+        result.success(mapOf("delivered" to accepted, "failed" to failed))
     }
 
     /**

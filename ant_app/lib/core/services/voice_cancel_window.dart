@@ -87,6 +87,43 @@ class VoiceCancelWindow {
     'বদলাও', 'ঠিক নয়', 'ভুল', 'আবার বলব', 'আবার',
   ];
 
+  /// The far narrower vocabulary used when the pending action is an SOS.
+  ///
+  /// The dictation vocabulary above is wrong for an emergency in two ways,
+  /// and both were found by review rather than by use:
+  ///
+  /// - **"stop" and "wait" are what people shout at an attacker.** "Stop!
+  ///   Get away from me!" cancelled the emergency. So did "he is pushing me
+  ///   against the wall", because `against` prefix-matches `again`.
+  /// - **There is nothing to edit.** An SOS is not a dictated message, so
+  ///   the `edit` outcome has no meaning here, and folding it into
+  ///   cancellation meant ordinary panic speech aborted the dispatch.
+  ///
+  /// What is left is one deliberate word per language. Cancelling an
+  /// emergency should require saying the thing you would never say by
+  /// accident, and the cost of the two errors is not remotely symmetric:
+  /// a false cancel is silence when someone needed help.
+  static const emergencyCancelWords = [
+    'cancel', 'cancel it', 'ক্যান্সেল', 'বাতিল',
+  ];
+
+  /// Whether [heard] cancels a pending emergency.
+  @visibleForTesting
+  static bool cancelsEmergency(String heard) {
+    final words = voiceWords(heard);
+    if (words.isEmpty) return false;
+    return emergencyCancelWords.any((phrase) {
+      final parts = voiceWords(phrase);
+      if (parts.isEmpty) return false;
+      for (var i = 0; i + parts.length <= words.length; i++) {
+        if (List.generate(parts.length, (j) => words[i + j] == parts[j]).every((m) => m)) {
+          return true;
+        }
+      }
+      return false;
+    });
+  }
+
   /// Which outcome a heard utterance means, or null when it means nothing.
   ///
   /// Pure, so the vocabulary above is testable without a microphone.
@@ -141,14 +178,24 @@ class VoiceCancelWindow {
     required String readBack,
     required bool Function() isCancelled,
     Duration? windowOverride,
+    /// Use the narrow SOS vocabulary instead of the dictation one, and say
+    /// so in the prompt. See [emergencyCancelWords].
+    bool emergency = false,
   }) async {
     final d = Dashboard.of(language);
     final limit = windowOverride ?? window;
 
-    await tts.speak(
-      '$readBack ${d.cancelWindowPrompt(limit.inSeconds)}',
-      language: language,
-    );
+    try {
+      await tts.speak(
+        '$readBack ${emergency ? d.cancelWindowPromptEmergency(limit.inSeconds) : d.cancelWindowPrompt(limit.inSeconds)}',
+        language: language,
+      );
+    } catch (e) {
+      // A dead TTS engine must not take the pending action with it. This
+      // is called from the emergency path, where an exception escaping here
+      // aborted the entire escalation before a single message was sent.
+      debugPrint('[CancelWindow] read-back failed: $e');
+    }
     if (isCancelled()) return CancelWindowOutcome.cancelled;
 
     // No microphone means no way to hear a cancellation. Proceeding is
@@ -179,6 +226,10 @@ class VoiceCancelWindow {
       // "cancel" would abort a send the user never asked to abort.
       onResult: (text, isFinal) {
         if (!isFinal) return;
+        if (emergency) {
+          if (cancelsEmergency(text)) settle(CancelWindowOutcome.cancelled);
+          return;
+        }
         final outcome = classify(text);
         if (outcome != null) settle(outcome);
       },

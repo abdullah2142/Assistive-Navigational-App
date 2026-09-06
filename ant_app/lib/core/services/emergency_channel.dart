@@ -17,6 +17,13 @@ class SmsDispatchResult {
   static const none = SmsDispatchResult(delivered: [], failed: {});
 }
 
+/// The two capabilities this feature needs, checked separately.
+///
+/// Separately because they fail separately and cost separately: a user who
+/// refuses CALL_PHONE — the scarier-sounding of the two — should still have
+/// their family texted.
+enum EmergencyPermission { sms, call }
+
 /// Thin wrapper over the native emergency bridge.
 ///
 /// Every method degrades instead of throwing. This is the one code path in
@@ -38,13 +45,11 @@ class EmergencyChannel {
     });
   }
 
-  Future<bool> hasPermissions() async {
+  Future<bool> hasPermission(EmergencyPermission which) async {
     try {
-      return await _channel.invokeMethod<bool>('hasPermissions') ?? false;
-    } on PlatformException catch (e) {
-      debugPrint('[Emergency] hasPermissions failed: $e');
-      return false;
-    } on MissingPluginException {
+      return await _channel.invokeMethod<bool>('hasPermission', {'which': which.name}) ?? false;
+    } catch (e) {
+      debugPrint('[Emergency] hasPermission(${which.name}) failed: $e');
       return false;
     }
   }

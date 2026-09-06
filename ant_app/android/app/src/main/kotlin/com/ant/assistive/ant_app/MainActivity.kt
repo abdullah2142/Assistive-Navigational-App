@@ -106,8 +106,34 @@ class MainActivity : FlutterActivity() {
         return super.onKeyUp(keyCode, event)
     }
 
-    override fun onDestroy() {
+    /**
+     * Disarms the hold whenever this window stops being the one receiving
+     * keys.
+     *
+     * `onKeyUp` is the only other thing that clears it, and Android does not
+     * deliver a matching key-up to a window that lost focus mid-press. So a
+     * user ducking the volume who is interrupted by an incoming call
+     * releases the key against the call screen, this activity never hears
+     * it, and three seconds later an SOS fires from a press they abandoned.
+     */
+    private fun disarmHold() {
+        holdArmed = false
         holdHandler.removeCallbacksAndMessages(null)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) disarmHold()
+    }
+
+    override fun onPause() {
+        disarmHold()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        disarmHold()
+        emergencyChannel = null
         super.onDestroy()
     }
 

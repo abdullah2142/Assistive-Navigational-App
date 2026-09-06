@@ -85,14 +85,20 @@ class LocalIntentMatcher {
     final lower = text.toLowerCase();
     final bn = language == AppLanguage.bangla;
 
+    // Emergency genuinely first. This used to sit below `_matchFollowUp`,
+    // which contradicted its own comment and meant that after any text-size
+    // change "help me again" resized the font instead of sending an SOS —
+    // 'again' is in the follow-up vocabulary.
+    final sos = _matchEmergency(lower, text);
+    if (sos != null) return sos;
+
     final followUp = _matchFollowUp(text, recentSetting);
     if (followUp != null) return followUp;
 
     // Checked before everything else. An emergency phrase must not be able
     // to lose a race to some other matcher that happens to share a word,
     // and it is the one intent where a slower answer is a worse answer.
-    return _matchEmergency(lower, text) ??
-        _matchPairing(text) ??
+    return _matchPairing(text) ??
         _matchResolveHazard(lower, text) ??
         _matchOverlay(lower, text, bn) ??
         _matchBooleanSetting(lower, text) ??
@@ -107,116 +113,138 @@ class LocalIntentMatcher {
 
   // ---- emergency (Module 9) -------------------------------------------
 
-  /// Spoken triggers for the Magic Button.
+  /// Phrases that mean an emergency on their own, wherever they appear.
   ///
-  /// Both languages together in one list rather than split by the profile's
-  /// language, because someone frightened does not reliably reach for the
-  /// language their app is set to. Dhaka speech code-switches constantly
-  /// and "help" is among the most-borrowed English words there is.
-  static const _emergencyPhrasesEn = [
-    'help me', 'emergency', 'sos', 'save me', 'i need help', 'call for help',
-    'i am in danger', "i'm in danger", 'help help',
-  ];
-  static const _emergencyPhrasesBn = [
-    'বাঁচাও', 'সাহায্য করো', 'সাহায্য করুন', 'বিপদে পড়েছি', 'জরুরি অবস্থা', 'বাঁচান',
+  /// Both languages are always live, because someone frightened does not
+  /// reliably reach for the language their app is set to, and a `bn-BD`
+  /// recognizer transcribes a shouted English "help" in Bangla script —
+  /// hence `হেল্প` alongside `help`.
+  static const _emergencyStrong = [
+    'emergency', 'sos', 'save me', 'help help', 'i am in danger', "i'm in danger",
+    'বাঁচাও', 'বাঁচান', 'বিপদে পড়েছি', 'জরুরি অবস্থা', 'হেল্প হেল্প',
   ];
 
-  /// Words that turn "help me" into an ordinary request.
+  /// Phrases that mean an emergency *only* in the right company.
   ///
-  /// "Help me get to Gulshan" is routing, not an emergency, and sending an
-  /// SMS to someone's mother because they asked for directions politely
-  /// would be a serious failure — the kind that teaches a user never to say
-  /// the word again, which is exactly the word they need on the day it
-  /// matters.
-  ///
-  /// Deliberately narrow: only things that name a *destination or task*.
-  /// Anything vaguer risks suppressing a real call for help, and the
-  /// five-second cancel window already catches the false positives this
-  /// does not.
-  static const _emergencyBlockers = [
-    'get to', 'go to', 'take me', 'route', 'find', 'directions', 'navigate',
-    'read', 'spell', 'understand', 'settings', 'text bigger',
-    // No bare `পড়ে` here, however tempting: it means "read", and it is
-    // also a substring of `পড়েছি` in `বিপদে পড়েছি` — "I have fallen into
-    // danger". Blocking it suppressed one of the clearest calls for help in
-    // the whole vocabulary.
-    'যেতে', 'যাব', 'যাবো', 'খুঁজে', 'পড়ে দাও', 'পড়ে শোনাও',
+  /// "Help me" is the most common opening line to any voice assistant —
+  /// "can you help me", "help me put on my shoes", "help me with the
+  /// volume" — and firing an SOS on it would message and telephone the
+  /// user's family because they asked for something ordinary. It is also
+  /// exactly what someone shouts when they are in trouble. The word cannot
+  /// carry the decision alone.
+  static const _emergencyWeak = [
+    'help me', 'i need help', 'need help', 'call for help', 'help',
+    'সাহায্য করো', 'সাহায্য করুন', 'সাহায্য', 'হেল্প',
   ];
 
-  /// Ways of asking *about* the emergency feature rather than using it.
+  /// A weak phrase counts when the whole utterance is barely more than it.
   ///
-  /// Separate from [kQuestionBlockers], which is tuned for settings
-  /// commands and does not cover the shapes people use here — a user being
-  /// shown the app for the first time says "what happens if I say
-  /// emergency", and that must not send anything.
-  /// Words that mean the user is *configuring* the emergency feature, or
-  /// composing text that happens to contain a cry for help.
+  /// "Help me" and "help me please" are cries. "Can you help me" is four
+  /// words and a question. Three is the line between them.
+  static const int _maxBareCryWords = 3;
+
+  /// Or when something else in the sentence says this is not an errand.
   ///
-  /// Both of these were real false positives caught by the existing
-  /// coverage tests, and both would have messaged and rung the user's
-  /// family: "add my sister Ruma on 01712345678 as an emergency contact",
-  /// and "add a message saying I need help crossing the road" — which is
-  /// someone writing the passer-by card they will one day hold up to a
-  /// stranger.
-  /// Matched as whole words.
-  ///
-  /// Note what is *not* here: a bare "save". "Save me" is one of the
-  /// plainest cries for help in the language, and blocking the word to
-  /// catch "save this place" would suppress it. The phrase list below
-  /// handles that instead.
-  static const _emergencyAdminWords = [
-    'add', 'remove', 'delete', 'edit', 'setup',
-    'contact', 'contacts', 'message', 'saying', 'card',
-    'যোগ', 'মুছে', 'বার্তা', 'লিখে',
+  /// Overwhelmingly these are statements about what the speaker *cannot*
+  /// do — which is why negation cannot be used to veto an emergency, and
+  /// is closer to evidence for one.
+  static const _distressContext = [
+    "can't", 'cant', 'cannot', 'unable', 'stuck', 'trapped', 'lost',
+    'hurt', 'hurts', 'bleeding', 'blood', 'fell', 'fallen', 'broken',
+    'attacked', 'attacking', 'following', 'followed', 'chasing', 'grabbed',
+    'danger', 'dangerous', 'scared', 'afraid', 'someone', 'somebody',
+    'breathe', 'breathing', 'dizzy', 'faint', 'pain', 'police', 'ambulance',
+    // Being taken. Safe to treat as distress even though it shares words
+    // with routing, because 'take me to' is an errand phrase and is
+    // checked before this — so "take me to Gulshan" never reaches here,
+    // and "they are trying to take me" does.
+    'take me', 'taking me', 'trying to', 'pulling me', 'dragging',
+    // Lost and frightened. A blind user who does not know where they are is
+    // the specific case this app exists for, and it was silent.
+    'know where', 'where i am', 'where am i', 'no idea where',
+    'পারছি না', 'পাচ্ছি না', 'বিপদ', 'ভয়', 'পড়ে গেছি', 'আটকে', 'রক্ত',
+    'ব্যথা', 'পিছু', 'ধরেছে', 'মারছে', 'পুলিশ', 'অ্যাম্বুলেন্স', 'কেউ নেই',
+    'নিয়ে যাচ্ছে', 'টানছে', 'কোথায় আছি', 'হারিয়ে', 'জানি না কোথায়',
   ];
 
-  /// Matched as substrings, for administrative phrasings whose individual
-  /// words are innocent.
-  static const _emergencyAdminPhrases = [
-    'save my', 'save this', 'save as', 'set up', 'change my',
+  /// Explicit refusals of help — the only negation that vetoes.
+  ///
+  /// The previous veto was any negation anywhere in the sentence, which
+  /// silently killed the most common distress sentences in both languages:
+  /// "help me I can't breathe" and `বাঁচাও আমি নড়তে পারছি না` ("save me, I
+  /// can't move") both returned nothing at all. Bangla marks negation
+  /// post-verbally, so the particle this code was carefully taught to find
+  /// sits at the end of precisely the sentences that matter most.
+  ///
+  /// Refusing help is a narrow, specific thing to say, so it is matched
+  /// narrowly and specifically.
+  static const _emergencyRefusals = [
+    "don't need help", 'do not need help', 'dont need help', 'no help needed',
+    "don't need any help", 'not an emergency', 'no emergency', 'false alarm',
+    "i'm fine", 'im fine', 'i am fine', "i'm okay", 'i am okay', 'im ok',
+    'সাহায্য লাগবে না', 'সাহায্য দরকার নেই', 'দরকার নেই', 'বিপদ নেই', 'ঠিক আছি',
   ];
 
-  /// A cry for help is short.
-  ///
-  /// Nobody in danger produces a ten-word sentence, and almost every
-  /// sentence that merely *contains* "help" or "emergency" is longer than
-  /// this — a request, a description, an instruction. Eight leaves room for
-  /// "please help me someone is following me" while excluding both of the
-  /// false positives above.
-  ///
-  /// This is a second line of defence, not the first: the blockers above
-  /// catch short administrative phrases like "add emergency contact" that
-  /// a word count never would.
-  static const int _maxEmergencyWords = 8;
-
+  /// Ways of asking *about* the feature rather than using it.
   static const _emergencyQuestionBlockers = [
     'what happens', 'what if', 'if i say', 'when i say', 'is this', 'is that',
     'how do i', 'how does', 'what does', 'supposed to', 'for testing',
     'কী হবে', 'কি হবে', 'বললে কী', 'বললে কি',
   ];
 
+  /// Words that make the utterance an errand or a settings change.
+  ///
+  /// Note what is absent: 'take me', which was here to catch "take me to
+  /// Gulshan" and also suppressed "help me they are trying to take me".
+  /// The destination words below catch the routing case on their own, and
+  /// being taken somewhere against your will is the thing this feature is
+  /// for.
+  static const _emergencyErrandWords = [
+    'volume', 'shoes', 'settings', 'setting', 'font', 'text', 'theme',
+    'ordering', 'order', 'read', 'spell', 'remind', 'reminder',
+    'add', 'remove', 'delete', 'edit', 'setup', 'card',
+    'সেটিং', 'লেখা', 'ফন্ট', 'যোগ', 'মুছে',
+  ];
+
+  static const _emergencyErrandPhrases = [
+    'get to', 'go to', 'route to', 'directions', 'navigate', 'take me to',
+    'save my', 'save this', 'save as', 'set up', 'change my', 'turn off',
+    'turn on', 'switch off', 'switch on', 'message saying', 'emergency contact',
+    'যেতে চাই', 'যাব', 'যাবো',
+  ];
+
   /// True when [text] is a call for help rather than a mention of one.
   static LocalIntent? _matchEmergency(String lower, String text) {
-    final said = _emergencyPhrasesEn.any(lower.contains) || _emergencyPhrasesBn.any(text.contains);
-    if (!said) return null;
+    final strong = _emergencyStrong.any(lower.contains) || _emergencyStrong.any(text.contains);
+    final weak = _emergencyWeak.any(lower.contains) || _emergencyWeak.any(text.contains);
+    if (!strong && !weak) return null;
 
-    final spoken = voiceWords(text);
-    if (spoken.length > _maxEmergencyWords) return null;
-    if (_emergencyAdminWords.any(spoken.contains)) return null;
-    if (_emergencyAdminPhrases.any(lower.contains)) return null;
-
-    // A question about the feature is not a use of it — "what happens if I
-    // say emergency?" must not send anything.
+    if (_emergencyRefusals.any(lower.contains) || _emergencyRefusals.any(text.contains)) {
+      return null;
+    }
     if (kQuestionBlockers.any(lower.contains)) return null;
     if (_emergencyQuestionBlockers.any(lower.contains) ||
         _emergencyQuestionBlockers.any(text.contains)) {
       return null;
     }
-    if (_emergencyBlockers.any(lower.contains) || _emergencyBlockers.any(text.contains)) return null;
-    // "I do not need help."
-    if (_isNegatedBn(text) || kEnglishNegations.any(lower.contains)) return null;
+    if (_emergencyErrandPhrases.any(lower.contains) ||
+        _emergencyErrandPhrases.any(text.contains)) {
+      return null;
+    }
 
-    return const LocalIntent('trigger_emergency', {});
+    final spoken = voiceWords(text);
+    if (_emergencyErrandWords.any(spoken.contains)) return null;
+
+    // An unmistakable word carries a whole sentence. A merely-possible one
+    // needs either brevity or something else that says this is not an
+    // errand.
+    if (strong) return const LocalIntent('trigger_emergency', {});
+    final hasDistress =
+        _distressContext.any(lower.contains) || _distressContext.any(text.contains);
+    if (hasDistress || spoken.length <= _maxBareCryWords) {
+      return const LocalIntent('trigger_emergency', {});
+    }
+    return null;
   }
 
   static final _sixDigits = RegExp(r'(?<!\d)(\d{6})(?!\d)');

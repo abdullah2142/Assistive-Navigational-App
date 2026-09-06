@@ -136,6 +136,14 @@ class Dashboard {
         'বার্তা পাঠাতে ও ফোন করতে অনুমতি দরকার। সেটিংসে অনুমতি দিন।',
       );
 
+  /// The SOS variant. Names one word, and does not offer to "change it" —
+  /// the generic prompt advertised a re-dictation that does not exist in
+  /// this flow and that, if taken up, cancelled the emergency outright.
+  String cancelWindowPromptEmergency(int seconds) => _t(
+        'Sending in $seconds seconds. Say cancel, and only cancel, to stop it.',
+        '$seconds সেকেন্ডে পাঠানো হবে। থামাতে হলে শুধু বলুন বাতিল।',
+      );
+
   String get cancelWindowCancelled => _t('Cancelled. Nothing was sent.', 'বাতিল হয়েছে। কিছু পাঠানো হয়নি।');
   String cancelWindowReadBack(String value) =>
       _t('You said: $value.', 'আপনি বলেছেন: $value।');

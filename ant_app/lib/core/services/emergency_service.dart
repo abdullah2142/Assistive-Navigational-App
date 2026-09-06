@@ -158,6 +158,7 @@ class EmergencyService {
         language: profile.language,
         readBack: d.emergencyAbout(recipients.length, VoiceCancelWindow.window.inSeconds),
         isCancelled: () => false,
+        emergency: true,
       );
       if (outcome != CancelWindowOutcome.proceed) {
         await _speak(d.emergencyCancelled, profile.language);
@@ -189,12 +190,29 @@ class EmergencyService {
       );
     }
 
-    if (!await _channel.hasPermissions()) {
-      await _channel.requestPermissions();
-      if (!await _channel.hasPermissions()) {
-        await _speak(d.emergencyNoPermission, profile.language);
-        return const EmergencyOutcome(cancelled: false, reason: 'permissions denied');
-      }
+    // Permissions are checked per-capability, and never all-or-nothing.
+    //
+    // Two defects lived here. `hasPermissions()` required SEND_SMS *and*
+    // CALL_PHONE, so a user who allowed texting but refused calling — the
+    // scarier of the two, and the one most likely to be refused — got no
+    // message sent at all. And the recovery path asked for permission and
+    // re-read the answer in the same breath, while the system dialog was
+    // still animating in, so it always saw "no" and abandoned the whole
+    // escalation: the first genuine emergency after install could never
+    // send anything.
+    //
+    // Now each capability stands alone, and a missing one costs only the
+    // step it belongs to. The request is still fired — the answer arrives
+    // too late for this run, but it means the *next* one works — and this
+    // run proceeds with whatever it already has.
+    final canSms = await _channel.hasPermission(EmergencyPermission.sms);
+    final canCall = await _channel.hasPermission(EmergencyPermission.call);
+    if (!canSms || !canCall) {
+      unawaited(_channel.requestPermissions());
+    }
+    if (!canSms && !canCall) {
+      await _speak(d.emergencyNoPermission, profile.language);
+      return const EmergencyOutcome(cancelled: false, reason: 'permissions denied');
     }
 
     final messages = EmergencyPayload.messages(
@@ -205,14 +223,16 @@ class EmergencyService {
       batteryPercent: battery,
     );
 
-    final sms = await _channel.sendSms(recipients: recipients, messages: messages);
+    final sms = canSms
+        ? await _channel.sendSms(recipients: recipients, messages: messages)
+        : SmsDispatchResult.none;
     await _speak(
       sms.anyDelivered ? d.emergencySent(sms.delivered.length) : d.emergencyNotSent,
       profile.language,
     );
 
     String? called;
-    if (callTarget != null) {
+    if (callTarget != null && canCall) {
       final name = profile.magicButtonContacts
           .firstWhere(
             (c) => EmergencyPlan.normalise(c.phoneNumber) == callTarget,
@@ -291,8 +311,16 @@ class EmergencyService {
     // so this is skipped entirely when the user already has one — no reason
     // to make someone wait on a network call whose answer cannot win.
     var discovered = const <SafeHaven>[];
-    final hasOwnPlace = profile.savedPlaces.any((p) => p.isRoutable) ||
-        (profile.safePlaceAddress?.trim().isNotEmpty ?? false);
+    // Ask the ranker what it would actually accept, rather than guessing.
+    // Testing `isRoutable` across *all* saved places suppressed discovery
+    // for a user whose only saved places were work and school — which the
+    // ranker then discards as non-refuges, leaving them told to stay put
+    // next to a hospital.
+    final hasOwnPlace = SafeHavenFinder.rank(
+          origin: origin,
+          savedPlaces: profile.savedPlaces,
+          statedSafePlace: profile.safePlaceAddress,
+        ).isNotEmpty;
     if (!hasOwnPlace) {
       final nearby = await _routing.nearbyRefuges(origin: origin);
       discovered = [
@@ -362,12 +390,22 @@ class EmergencyService {
     }
   }
 
+  /// How long any single announcement may take before the run moves on.
+  ///
+  /// `TtsService` awaits speech completion, and that completion callback is
+  /// known not to fire when audio focus is lost mid-utterance — an incoming
+  /// call, a Bluetooth handoff. Without a bound, one such utterance leaves
+  /// `_running` true forever and every later trigger is silently refused:
+  /// the Magic Button would stop working for the rest of the session, with
+  /// no symptom until someone needed it.
+  static const Duration _speakBudget = Duration(seconds: 12);
+
   Future<void> _speak(String text, AppLanguage language) async {
     try {
-      await _tts.speak(text, language: language);
+      await _tts.speak(text, language: language).timeout(_speakBudget);
     } catch (e) {
       // Losing the voice must not stop the messages going out.
-      debugPrint('[Emergency] speak failed: $e');
+      debugPrint('[Emergency] speak failed or timed out: $e');
     }
   }
 

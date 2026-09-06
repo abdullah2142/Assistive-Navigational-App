@@ -81,14 +81,23 @@ New builds then arrive as a notification. Tap, download, done.
 ```bash
 cd ant_app && flutter build apk --debug
 firebase appdistribution:distribute build/app/outputs/flutter-apk/app-debug.apk \
-  --app YOUR_ANDROID_APP_ID \
-  --groups internal \
-  --release-notes "what changed, and what you want tested"
+  --app 1:514133180208:android:45009c17a5721198b2d2f5 \
+  --groups fydp \
+  --release-notes "$(sed -n '/^```$/,/^```$/p' ../testing/release_notes_round1.md | sed '1d;$d')"
 ```
 
-`YOUR_ANDROID_APP_ID` is the Android App ID from Firebase **Project settings**
-(shaped like `1:123456789:android:abc123`). Manage who gets builds under
-**Release & Monitor → App Distribution → Testers & Groups**.
+`--groups` takes the group's **alias**, not its display name — `fydp`, not
+`FYDP`. Getting it wrong fails *after* the upload has already succeeded,
+with a bare `HTTP Error: 404, Requested entity was not found` that names
+nothing and reads like a broken app id. Check what actually exists rather
+than assuming:
+
+```bash
+firebase appdistribution:group:list
+```
+
+`Release Count` in that table going up by one is the confirmation that a
+distribution landed; the upload succeeding on its own is not.
 
 Write real release notes. They are the only instruction most testers read,
 and they are where you say *what to test*, not just what changed.

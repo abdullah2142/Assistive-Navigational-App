@@ -3,6 +3,11 @@
 Paste the block below into `--release-notes`. Keep it short: this is the
 only instruction most testers read, and it is read on a phone.
 
+The tester group alias is **`fydp`**. Verify with
+`firebase appdistribution:group:list` before distributing — a wrong alias
+fails after the upload has already succeeded, with a 404 that names
+nothing.
+
 ---
 
 ```

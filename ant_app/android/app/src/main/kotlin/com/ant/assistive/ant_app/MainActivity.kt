@@ -66,50 +66,42 @@ class MainActivity : FlutterActivity() {
      * Volume Down held for [SOS_HOLD_MS] triggers the Magic Button.
      *
      * A screen button is useless to someone who cannot see it and is
-     * panicking, so the primary trigger is physical. Two limits are worth
-     * knowing rather than discovering:
+     * panicking, so the primary trigger is physical.
      *
-     * - Android only delivers key events to the **foregrounded** activity,
-     *   so this works while the app is open — which, mid-navigation, it is —
-     *   and not with the screen off. The voice trigger covers that case.
-     * - The event is consumed while held, so the volume does not drop as a
-     *   side effect of asking for help.
+     * The event is **observed, not consumed**. An earlier version swallowed
+     * it so that asking for help would not also turn the volume down — which
+     * sounded considerate and was in fact a regression for every user of the
+     * app, not just this feature: holding Volume Down is how people lower
+     * the volume, and consuming it meant the volume no longer moved while
+     * held and then fired an SOS. Volume behaves exactly as Android intends
+     * it to; the hold is timed alongside.
+     *
+     * One limit worth knowing rather than discovering: Android only delivers
+     * key events to the **foregrounded** activity, so this works while the
+     * app is open — which, mid-navigation, it is — and not with the screen
+     * off. The voice trigger covers that case.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            // repeatCount > 0 is the auto-repeat of a key already held; only
-            // the first press starts the timer, or every repeat would queue
-            // another trigger.
-            if (event.repeatCount == 0 && !holdArmed) {
-                holdArmed = true
-                holdHandler.postDelayed({
-                    if (holdArmed) {
-                        holdArmed = false
-                        emergencyChannel?.invokeMethod("sosHeld", null)
-                    }
-                }, SOS_HOLD_MS)
-            }
-            return true
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN && event.repeatCount == 0 && !holdArmed) {
+            // repeatCount == 0 is the initial press; the auto-repeats that
+            // follow are what Android uses to keep lowering the volume, and
+            // they must reach it.
+            holdArmed = true
+            holdHandler.postDelayed({
+                if (holdArmed) {
+                    holdArmed = false
+                    emergencyChannel?.invokeMethod("sosHeld", null)
+                }
+            }, SOS_HOLD_MS)
         }
+        // Always falls through: the volume is the system's to change.
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            val wasArmed = holdArmed
             holdArmed = false
             holdHandler.removeCallbacksAndMessages(null)
-            // Released before the hold completed: this was an ordinary
-            // volume press after all, so apply it rather than swallowing it.
-            if (wasArmed) {
-                val audio = getSystemService(android.media.AudioManager::class.java)
-                audio?.adjustStreamVolume(
-                    android.media.AudioManager.STREAM_MUSIC,
-                    android.media.AudioManager.ADJUST_LOWER,
-                    android.media.AudioManager.FLAG_SHOW_UI,
-                )
-            }
-            return true
         }
         return super.onKeyUp(keyCode, event)
     }

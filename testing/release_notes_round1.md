@@ -11,8 +11,9 @@ Round 1. Open your test pack — you each have a different one.
 Please: use a real phone, run everything twice (English and Bangla),
 and do at least one run outdoors with street noise.
 
-The emergency button is in PRACTICE MODE. Triggering it is safe — it
-speaks and vibrates but sends nothing to anyone. Try it.
+Not in scope this round: the emergency button. If it ever goes off by
+accident it is safe — practice mode, nothing is sent to anyone — just
+say "cancel" and carry on.
 
 Known: caretaker screens are still English-only. No need to report.
 
@@ -34,11 +35,15 @@ ways English never will. Left implicit, nobody does the second pass.
 nothing. This is the single instruction most likely to be skipped and most
 likely to find something.
 
-**The practice-mode line** does two jobs. It stops a tester panicking when
-they hold Volume Down by accident and hear "Emergency mode" — and it tells
-them the feature is safe to *deliberately* exercise, which is where the
-useful feedback is: is five seconds long enough to say "cancel"? Is the
-announcement clear? Can you tell that vibration from the others?
+**The emergency line** is reassurance, not an invitation. Module 9 is not
+in any of the four packs this round, so nobody should be spending time on
+it — but Volume Down held three seconds is a gesture people make by
+accident, and a tester who hears "Emergency mode. Sending alerts." with no
+warning will assume they have done something bad and stop testing to sort
+it out. One sentence prevents that, without asking anyone to go looking.
+
+Deliberate testing of it comes in a later round, once it has been fired on
+real hardware and switched out of practice mode.
 
 **The known-issue line** buys back the time four people would each spend
 writing up the same bilingual gap.

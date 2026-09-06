@@ -8,6 +8,8 @@ import '../services/function_call_executor.dart';
 import '../services/gemini_assistant_service.dart';
 import '../services/navigation_controller.dart';
 import '../services/route_planning_service.dart';
+import '../../features/guardian/providers/guardian_providers.dart';
+import '../services/emergency_service.dart';
 import '../services/stt_service.dart';
 import '../../core/providers/tts_providers.dart';
 import '../services/wake_word_service.dart';
@@ -40,6 +42,20 @@ final cloudSttServiceProvider = Provider<CloudSttService>((ref) {
 // on-device recognizer whenever `CloudSttConfig.isConfigured` — confirmed
 // live to fix the on-device recognizer's Bangla gibberish problem, not
 // just the Passerby overlay's original mic-flicker issue.
+/// The Magic Button (Module 9).
+///
+/// A single instance, because its "already running" guard is what stops a
+/// volume hold and a shouted "help me" seconds apart from sending two full
+/// rounds of messages — the same person asking twice, not asking for twice
+/// as much help.
+final emergencyServiceProvider = Provider<EmergencyService>(
+  (ref) => EmergencyService(
+    tts: ref.watch(ttsServiceProvider),
+    stt: ref.watch(sttServiceProvider),
+    alerts: ref.watch(alertServiceProvider),
+  ),
+);
+
 final sttServiceProvider = Provider<SttService>(
   (ref) => SttService(wakeWord: ref.watch(wakeWordServiceProvider), cloudStt: ref.watch(cloudSttServiceProvider)),
 );

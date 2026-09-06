@@ -8,6 +8,7 @@ import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/background_listening_service.dart';
+import '../../../core/services/emergency_channel.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/services/wake_word_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -50,6 +51,12 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
   late final WakeWordService _wakeWord = ref.read(wakeWordServiceProvider);
   late final BackgroundListeningService _backgroundListening = ref.read(backgroundListeningServiceProvider);
 
+  /// The Volume-Down hold. Registered here because this panel is alive for
+  /// the whole time the dashboard is, which is the whole time the physical
+  /// trigger can fire — Android only delivers key events to a foregrounded
+  /// activity.
+  final _emergencyChannel = EmergencyChannel();
+
   @override
   void initState() {
     super.initState();
@@ -61,6 +68,11 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     _stt;
     _wakeWord;
     _backgroundListening;
+    _emergencyChannel.onPhysicalTrigger(() async {
+      if (!mounted) return;
+      debugPrint('[Emergency] volume-down hold');
+      await ref.read(chatControllerProvider.notifier).triggerEmergency(widget.profile);
+    });
     ref.read(ttsServiceProvider).setVoiceId(widget.profile.voiceId);
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback(

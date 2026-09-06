@@ -38,8 +38,8 @@ more expensive than a missed one.
 | 5 | Crowdsourcing — hazard reports, clustering, Red Flag anti-spam | Built + deployed |
 | 6 | Snapshot Vision | Not started |
 | 7 | Haptics | Partial — navigation cues built |
-| 8 | Virtual Guardian | Not started |
-| 9 | Magic Button | Contacts collected; no trigger, SMS or dial yet |
+| 8 | Virtual Guardian | Read side built; alert + location writes now exist (Module 9 uses them) |
+| 9 | Magic Button | Built — triggers, SMS, auto-dial, caretaker alert. Safe-haven routing not started |
 
 ---
 

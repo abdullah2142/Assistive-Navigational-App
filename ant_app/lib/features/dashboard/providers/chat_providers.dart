@@ -132,6 +132,37 @@ class ChatController extends Notifier<ChatState> {
   /// matcher), so a "bigger text"/"smaller text" match comes back with a
   /// sentinel value instead of a number; resolved into an actual clamped
   /// scale here, where the live profile is available.
+  /// Entry point for the physical trigger (Volume Down held).
+  ///
+  /// Public because it does not come from a typed or spoken message and so
+  /// has no path through `sendFreeText`.
+  Future<void> triggerEmergency(UserProfile profile) => _runEmergency(profile);
+
+  /// Runs the Magic Button and reports the outcome in the chat.
+  ///
+  /// The service speaks each step itself as it happens — the user cannot
+  /// read this — so what is appended here is a written record for a
+  /// caretaker looking at the phone afterwards, not the primary channel.
+  Future<void> _runEmergency(UserProfile profile) async {
+    final d = Dashboard.of(profile.language);
+    final outcome = await ref.read(emergencyServiceProvider).trigger(profile: profile);
+    final text = outcome.cancelled
+        ? d.emergencyCancelled
+        : outcome.reachedAnyone
+            ? d.emergencySent(outcome.messaged.length)
+            : d.emergencyNotSent;
+    // Appended without going through `_appendAssistantReply`, which speaks
+    // what it appends: the service has already said all of this out loud as
+    // it happened, and hearing it a second time during an emergency is
+    // worse than useless.
+    state = state.copyWith(
+      messages: [
+        ...state.messages,
+        ChatMessage(sender: ChatSender.assistant, text: text, timestamp: DateTime.now()),
+      ],
+    );
+  }
+
   Map<String, Object?> _resolveLocalIntentArgs(LocalIntent intent, UserProfile profile) {
     if (intent.name != 'update_setting' || intent.args['setting'] != 'text_size') return intent.args;
     final delta = switch (intent.args['value']) {
@@ -370,6 +401,14 @@ class ChatController extends Notifier<ChatState> {
     );
     if (localIntent != null) {
       debugPrint('[Chat] local match: ${localIntent.name} ${localIntent.args} (skipping Gemini)');
+      // The Magic Button is a sequence, not a state change — speak, wait,
+      // dispatch, call, alert — so it does not go through the executor,
+      // which exists to apply one change and describe it. It also must not
+      // wait on anything the executor does first.
+      if (localIntent.name == 'trigger_emergency') {
+        await _runEmergency(profile);
+        return;
+      }
       final args = _resolveLocalIntentArgs(localIntent, profile);
       final turn = await ref
           .read(functionCallExecutorProvider)

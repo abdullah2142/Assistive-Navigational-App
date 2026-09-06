@@ -43,6 +43,54 @@ class Dashboard {
         'Sending in $seconds seconds. Say cancel to stop, or change it to say it again.',
         '$seconds সেকেন্ডে পাঠানো হবে। থামাতে বলুন বাতিল, আবার বলতে চাইলে বলুন বদলাও।',
       );
+  // ---- Magic Button (Module 9) ---------------------------------------
+
+  /// Spoken the instant a trigger fires, before anything is sent.
+  ///
+  /// Said first and said plainly, because the user needs to know the phone
+  /// understood them before they decide whether to keep holding it, shout
+  /// again, or run.
+  String get emergencyActivated =>
+      _t('Emergency mode. Sending alerts.', 'জরুরি অবস্থা। সাহায্যের বার্তা পাঠানো হচ্ছে।');
+
+  /// The cancel window's read-back for an accidental trigger.
+  String emergencyAbout(int contacts, int seconds) => _t(
+        'I will message $contacts people and call for help in $seconds seconds. '
+        'Say cancel to stop.',
+        '$contacts জনকে বার্তা পাঠাব এবং $seconds সেকেন্ডে ফোন করব। থামাতে বলুন বাতিল।',
+      );
+
+  String get emergencyCancelled =>
+      _t('Emergency cancelled. Nothing was sent.', 'জরুরি অবস্থা বাতিল। কিছু পাঠানো হয়নি।');
+
+  String emergencySent(int reached) => _t(
+        reached == 1 ? '1 person has been messaged.' : '$reached people have been messaged.',
+        '$reached জনকে বার্তা পাঠানো হয়েছে।',
+      );
+
+  /// Said when every message failed.
+  ///
+  /// Never silently optimistic: a user who believes help is coming and
+  /// stops trying to get it themselves is in a worse position than one who
+  /// knows the phone could not reach anyone.
+  String get emergencyNotSent => _t(
+        'I could not send the messages. Try calling someone directly.',
+        'বার্তা পাঠাতে পারিনি। সরাসরি কাউকে ফোন করার চেষ্টা করুন।',
+      );
+
+  String emergencyCalling(String name) =>
+      _t('Calling $name now.', '$name-কে এখন ফোন করছি।');
+
+  String get emergencyNoContacts => _t(
+        'You have no emergency contacts saved. Say: add an emergency contact.',
+        'আপনার কোনো জরুরি যোগাযোগ সংরক্ষিত নেই। বলুন: জরুরি যোগাযোগ যোগ করো।',
+      );
+
+  String get emergencyNoPermission => _t(
+        'I need permission to send messages and make calls. Please grant it in settings.',
+        'বার্তা পাঠাতে ও ফোন করতে অনুমতি দরকার। সেটিংসে অনুমতি দিন।',
+      );
+
   String get cancelWindowCancelled => _t('Cancelled. Nothing was sent.', 'বাতিল হয়েছে। কিছু পাঠানো হয়নি।');
   String cancelWindowReadBack(String value) =>
       _t('You said: $value.', 'আপনি বলেছেন: $value।');

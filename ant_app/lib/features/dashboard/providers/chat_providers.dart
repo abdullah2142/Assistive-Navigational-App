@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../../../core/config/emergency_config.dart';
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
@@ -148,9 +149,11 @@ class ChatController extends Notifier<ChatState> {
     final outcome = await ref.read(emergencyServiceProvider).trigger(profile: profile);
     final text = outcome.cancelled
         ? d.emergencyCancelled
-        : outcome.reachedAnyone
-            ? d.emergencySent(outcome.messaged.length)
-            : d.emergencyNotSent;
+        : EmergencyConfig.isRehearsal
+            ? d.emergencyRehearsal(profile.magicButtonContacts.length)
+            : outcome.reachedAnyone
+                ? d.emergencySent(outcome.messaged.length)
+                : d.emergencyNotSent;
     // Appended without going through `_appendAssistantReply`, which speaks
     // what it appends: the service has already said all of this out loud as
     // it happened, and hearing it a second time during an emergency is

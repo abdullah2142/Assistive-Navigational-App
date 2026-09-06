@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../config/emergency_config.dart';
 import '../localization/app_language.dart';
 import '../localization/dashboard_strings.dart';
 import '../../features/guardian/models/guardian_alert.dart';
@@ -146,6 +147,24 @@ class EmergencyService {
     // and who it is, which is most of its value.
     final position = await _position();
     final battery = await _channel.batteryPercent();
+
+    // Rehearsal stops here, deliberately *after* everything that is worth
+    // getting human feedback on — the announcement, the haptics, the cancel
+    // window, the contact selection — and before the only step that cannot
+    // be undone.
+    //
+    // Above the permission check on purpose: asking a tester to grant "send
+    // SMS and make phone calls" for a build that will never do either is a
+    // prompt with no honest answer, and a denied prompt would then mask the
+    // rehearsal behind a permissions error. See `EmergencyConfig`.
+    if (EmergencyConfig.isRehearsal) {
+      await _speak(d.emergencyRehearsal(recipients.length), profile.language);
+      return EmergencyOutcome(
+        cancelled: false,
+        reason: 'rehearsal — live dispatch disabled in this build',
+        messaged: const [],
+      );
+    }
 
     if (!await _channel.hasPermissions()) {
       await _channel.requestPermissions();

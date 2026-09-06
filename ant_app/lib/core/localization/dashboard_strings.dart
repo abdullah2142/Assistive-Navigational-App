@@ -86,6 +86,19 @@ class Dashboard {
         'আপনার কোনো জরুরি যোগাযোগ সংরক্ষিত নেই। বলুন: জরুরি যোগাযোগ যোগ করো।',
       );
 
+  /// Spoken instead of dispatching, in a build where live dispatch is off.
+  ///
+  /// Says plainly that nothing was sent. A rehearsal that sounded identical
+  /// to the real thing would be worse than no rehearsal: a tester would
+  /// report the feature works, and the first person to find out otherwise
+  /// would be someone in trouble.
+  String emergencyRehearsal(int contacts) => _t(
+        'Practice mode. Nothing was sent. In a real emergency I would message '
+        '$contacts people and call for help.',
+        'অনুশীলন মোড। কিছু পাঠানো হয়নি। সত্যিকারের বিপদে আমি $contacts জনকে বার্তা '
+        'পাঠাতাম এবং সাহায্যের জন্য ফোন করতাম।',
+      );
+
   String get emergencyNoPermission => _t(
         'I need permission to send messages and make calls. Please grant it in settings.',
         'বার্তা পাঠাতে ও ফোন করতে অনুমতি দরকার। সেটিংসে অনুমতি দিন।',

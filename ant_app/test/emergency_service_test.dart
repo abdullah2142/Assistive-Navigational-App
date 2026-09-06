@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ant_app/core/localization/app_language.dart';
 import 'package:ant_app/core/localization/dashboard_strings.dart';
+import 'package:ant_app/core/config/emergency_config.dart';
 import 'package:ant_app/core/services/emergency_channel.dart';
 
 void main() {
@@ -116,6 +117,38 @@ void main() {
       ]) {
         expect(RegExp(r'[ঀ-৿]').hasMatch(s), isTrue, reason: s);
       }
+    });
+  });
+
+  group('builds default to rehearsal, and say so', () {
+    // A tester enters real emergency contacts during onboarding, and the
+    // voice pack's whole job is saying unexpected things. Volume Down held
+    // three seconds is barely distinguishable from adjusting the volume.
+    // Shipping live dispatch to that would text and ring somebody's mother
+    // from code that has never run on hardware.
+    test('live dispatch is off unless explicitly compiled in', () {
+      expect(EmergencyConfig.liveDispatch, isFalse);
+      expect(EmergencyConfig.isRehearsal, isTrue);
+    });
+
+    for (final language in AppLanguage.values) {
+      test('$language rehearsal says plainly that nothing was sent', () {
+        // A rehearsal that sounded like the real thing would be worse than
+        // none: a tester would report it works, and the first person to
+        // learn otherwise would be someone in trouble.
+        final d = Dashboard.of(language);
+        final text = d.emergencyRehearsal(3);
+        expect(text.trim(), isNotEmpty);
+        expect(text, isNot(equals(d.emergencySent(3))));
+        expect(text, contains('3'));
+      });
+    }
+
+    test('the Bangla rehearsal line is Bangla', () {
+      expect(
+        RegExp(r'[ঀ-৿]').hasMatch(Dashboard.of(AppLanguage.bangla).emergencyRehearsal(2)),
+        isTrue,
+      );
     });
   });
 }

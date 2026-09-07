@@ -8,7 +8,10 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GMSServices.provideAPIKey("AIzaSyBhpaxU8ZdJ-3xGt-fTRfChMa5zIwEJiYI")
+    // This key is restricted to the Android package + signing certificate,
+    // so it will be refused here. iOS is not a shipping platform for ANT; if
+    // it becomes one, mint a separate key restricted to the iOS bundle id.
+    GMSServices.provideAPIKey("AIzaSyDhDkodAQPeZBisTKq5E3ZC_TOMoIzGPhM")
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

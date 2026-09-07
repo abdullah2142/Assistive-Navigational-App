@@ -32,7 +32,10 @@
   <title>ant_app</title>
   <link rel="manifest" href="manifest.json">
 
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBhpaxU8ZdJ-3xGt-fTRfChMa5zIwEJiYI"></script>
+  <!-- Android-restricted key: refused in a browser. Web is not a shipping
+       platform for ANT; a web build needs its own HTTP-referrer-restricted
+       key. See docs/google_maps_setup.md. -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDhDkodAQPeZBisTKq5E3ZC_TOMoIzGPhM"></script>
 </head>
 <body>
   <!--

@@ -1,4 +1,5 @@
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 import '../../features/dashboard/models/chat_message.dart';
@@ -22,9 +23,19 @@ class AssistantTurn {
     this.route,
     this.hazardPrefill,
     this.clarification,
+    this.triggersEmergency = false,
   });
 
   final String responseText;
+
+  /// True when the model judged the user to be in danger.
+  ///
+  /// A flag rather than an executed action, because the emergency is a
+  /// sequence — speak, wait, dispatch, call, alert, route — and the
+  /// executor exists to apply one change and describe it. The caller runs
+  /// it, exactly as it does for a locally-matched trigger, so both paths
+  /// converge on one implementation and one cancel window.
+  final bool triggersEmergency;
 
   /// Non-null only when a `update_setting`/contact/message function call
   /// actually changed something — the caller persists this via
@@ -224,6 +235,14 @@ User's message: "$userText"
 ''';
   }
 
+  /// The tool set the model is given.
+  ///
+  /// Exposed for tests. `trigger_emergency` takes no parameters, so its
+  /// description *is* its logic — the entire specification of when to raise
+  /// an alarm lives in that prose, and it is worth asserting on directly.
+  @visibleForTesting
+  static List<FunctionDeclaration> get functionDeclarations => _tools;
+
   static final List<FunctionDeclaration> _tools = [
     FunctionDeclaration(
       'pair_with_caretaker',
@@ -296,6 +315,27 @@ User's message: "$userText"
       Schema.object(properties: {
         'message': Schema.string(description: 'The message text to remove.'),
       }, requiredProperties: const ['message']),
+    ),
+    FunctionDeclaration(
+      'trigger_emergency',
+      "Raise the emergency alarm: message the user's emergency contacts with their location, telephone "
+          "their primary contact, and guide them somewhere safer.\n\n"
+          "Call this whenever the user appears to be in danger, hurt, frightened, trapped, lost and "
+          "distressed, being followed, being taken somewhere against their will, or asking for urgent "
+          "help — whether or not they use any particular word. Most such utterances are short, and many "
+          "describe what the person CANNOT do: 'I can't get up', 'I can't breathe', 'I can't see anyone', "
+          "'আমি নড়তে পারছি না'. Treat those as calls for help, not as refusals.\n\n"
+          "This user is blind or has low vision and is walking in Dhaka. They cannot see the screen and "
+          "cannot check whether you understood. If they sound like they might be in trouble, call this.\n\n"
+          "Do NOT call it for: ordinary requests that merely contain the word help ('can you help me with "
+          "the volume'), questions about the feature ('what happens if I say emergency'), managing "
+          "contacts ('add my sister as an emergency contact'), or an explicit refusal ('I don't need "
+          "help', 'I'm fine'). When the user is clearly asking for a route, a setting or a hazard report, "
+          "use that tool instead.\n\n"
+          "Erring toward calling this is the right mistake to make. Nothing is sent for five seconds, "
+          "during which the user is told what is about to happen and can say 'cancel'. A false alarm "
+          "costs them one word; a missed one costs everything.",
+      null,
     ),
     FunctionDeclaration(
       'open_passerby_helper',

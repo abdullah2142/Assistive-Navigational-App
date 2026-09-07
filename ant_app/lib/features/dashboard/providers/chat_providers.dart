@@ -500,6 +500,17 @@ class ChatController extends Notifier<ChatState> {
       if (turn.updatedProfile != null) {
         await ref.read(profileServiceProvider).saveProfile(turn.updatedProfile!);
       }
+      // The model judged the user to be in danger. Handled before the reply
+      // is spoken, and instead of it: the emergency sequence announces
+      // itself immediately, and making someone in trouble listen to a
+      // conversational sentence first would waste the seconds this exists
+      // to save. Same path a locally-matched trigger takes.
+      if (turn.triggersEmergency) {
+        debugPrint('[Chat] Gemini judged this an emergency');
+        state = state.copyWith(isAssistantTyping: false);
+        await _runEmergency(profile);
+        return;
+      }
       if (streaming) {
         // Reconcile with the final text (normally identical to the last
         // streamed chunk already shown) and speak it now — streaming only

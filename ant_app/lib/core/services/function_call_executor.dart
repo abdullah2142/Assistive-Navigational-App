@@ -24,6 +24,7 @@ class _AppliedCall {
     this.route,
     this.hazardPrefill,
     this.clarification,
+    this.triggersEmergency = false,
   });
   final UserProfile profile;
   final Map<String, Object?> resultForModel;
@@ -34,6 +35,9 @@ class _AppliedCall {
   /// Set when the destination could not be pinned down and the assistant is
   /// now waiting on an answer — see [DestinationClarification].
   final DestinationClarification? clarification;
+
+  /// Set when the model called `trigger_emergency`.
+  final bool triggersEmergency;
 }
 
 /// What a function name + args actually *does* — profile mutation, overlay
@@ -87,6 +91,7 @@ class FunctionCallExecutor {
       route: applied.route,
       hazardPrefill: applied.hazardPrefill,
       clarification: applied.clarification,
+      triggersEmergency: applied.triggersEmergency,
     );
   }
 
@@ -272,6 +277,12 @@ class FunctionCallExecutor {
         return bn ? 'নতুন বার্তা যোগ করা হয়েছে।' : "Added that message.";
       case 'remove_passerby_message':
         return bn ? 'বার্তা বাদ দেওয়া হয়েছে।' : 'Removed that message.';
+      // Spoken by the emergency sequence itself, which starts speaking the
+      // instant it is handed control — so this confirmation is never heard.
+      // Present so the switch stays total.
+      case 'trigger_emergency':
+        return Dashboard.of(language).emergencyActivated;
+
       case 'open_passerby_helper':
         return bn ? 'স্ক্রিন দেখাচ্ছি।' : 'Showing your screen now.';
       case 'open_hazard_report':
@@ -358,6 +369,13 @@ class FunctionCallExecutor {
           {'ok': found, if (!found) 'error': 'no matching message'},
           null,
         );
+      // The emergency is a sequence — speak, wait, dispatch, call, alert,
+      // route — not a change to apply and describe, so it is run by the
+      // caller exactly as a locally-matched trigger is. Both paths converge
+      // on one implementation and one cancel window. Nothing is sent here.
+      case 'trigger_emergency':
+        return _AppliedCall(profile, const {'ok': true}, null, triggersEmergency: true);
+
       case 'open_passerby_helper':
         return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.showScreenToPasserby);
       case 'open_hazard_report':

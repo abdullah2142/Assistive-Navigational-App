@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:ant_app/core/config/maps_config.dart';
 import 'package:ant_app/core/config/routing_config.dart';
 import 'package:ant_app/core/services/routing_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -270,6 +271,29 @@ void main() {
       final results = await service.geocodeCandidates('kacha bazar');
 
       expect(results.first.label, contains('Kacha Bazar'));
+    });
+
+    test('Geocoding and Places carry the Android headers, OSM does not', () async {
+      // The headers authenticate this app to Google. Sending an app's signing
+      // fingerprint to three volunteer OSM servers would be pointless and rude.
+      final seen = <String, Map<String, String>>{};
+      final service = RoutingService(
+        backend: RoutingBackend.google,
+        client: MockClient((request) async {
+          seen[request.url.host] = request.headers;
+          if (request.url.host.contains('maps.googleapis.com')) return geocodeEmpty;
+          if (request.url.host.contains('places.googleapis.com')) {
+            return http.Response('{}', 200);
+          }
+          return http.Response(jsonEncode([]), 200);
+        }),
+      );
+
+      await service.geocodeCandidates('anywhere');
+
+      expect(seen['maps.googleapis.com']?['x-android-cert'], MapsConfig.androidCertSha1);
+      expect(seen['places.googleapis.com']?['x-android-cert'], MapsConfig.androidCertSha1);
+      expect(seen['nominatim.openstreetmap.org']?.containsKey('x-android-cert'), isFalse);
     });
 
     test('geocode() returns the first candidate of the same cascade', () async {

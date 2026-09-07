@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:ant_app/core/config/maps_config.dart';
 import 'package:ant_app/core/config/routing_config.dart';
 import 'package:ant_app/core/services/routing_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -126,6 +127,38 @@ void main() {
       // neither means anything to somebody on foot.
       expect(mask, isNot(contains('tollInfo')));
       expect(mask, isNot(contains('travelAdvisory')));
+    });
+  });
+
+  group('Android key restriction', () {
+    // Verified live on 2026-09-07 against the restricted key: without these
+    // headers Google answers REQUEST_DENIED / "Android client application
+    // <empty> are blocked". Because RoutingService falls back to
+    // OpenStreetMap on failure, losing them would not break the app — it
+    // would silently stop using Google at all, which is far harder to notice.
+    test('Routes requests carry the Android package and cert headers', () async {
+      late http.Request captured;
+      final service = RoutingService(
+        backend: RoutingBackend.google,
+        allowFallback: false,
+        client: MockClient((request) async {
+          captured = request;
+          return http.Response(routesBody(), 200);
+        }),
+      );
+
+      await service.walkingRoutes(origin: dhaka, destination: gulshan);
+
+      expect(captured.headers['x-android-package'], MapsConfig.androidPackageName);
+      expect(captured.headers['x-android-cert'], MapsConfig.androidCertSha1);
+    });
+
+    test('the cert fingerprint is colon-free', () {
+      // With colons Google returns REQUEST_DENIED. keytool prints it with
+      // them, so this is the exact mistake a person re-deriving the value
+      // would make.
+      expect(MapsConfig.androidCertSha1, isNot(contains(':')));
+      expect(MapsConfig.androidCertSha1, matches(RegExp(r'^[0-9A-F]{40}$')));
     });
   });
 

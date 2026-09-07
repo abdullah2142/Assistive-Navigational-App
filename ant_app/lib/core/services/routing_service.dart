@@ -370,7 +370,7 @@ class RoutingService {
       'bounds': '23.62,90.28|23.92,90.52',
       'key': MapsConfig.apiKey,
     });
-    final response = await _get(uri);
+    final response = await _get(uri, headers: MapsConfig.androidRestrictionHeaders);
     final status = response['status'] as String?;
     if (status == 'ZERO_RESULTS') return const [];
     if (status != 'OK') throw RoutingException('geocode_failed:$status');
@@ -898,6 +898,9 @@ class RoutingService {
             headers: {
               'Content-Type': 'application/json',
               'User-Agent': _osmUserAgent,
+              // Without these an Android-restricted key refuses every one of
+              // these calls — see MapsConfig.androidRestrictionHeaders.
+              ...MapsConfig.androidRestrictionHeaders,
               ...headers,
             },
             body: jsonEncode(body),
@@ -925,10 +928,13 @@ class RoutingService {
     return decoded;
   }
 
-  Future<Map<String, dynamic>> _get(Uri uri) async {
+  Future<Map<String, dynamic>> _get(Uri uri, {Map<String, String> headers = const {}}) async {
     final http.Response response;
     try {
-      response = await _client.get(uri, headers: const {'User-Agent': _osmUserAgent});
+      response = await _client.get(
+        uri,
+        headers: {'User-Agent': _osmUserAgent, ...headers},
+      );
     } catch (_) {
       throw const RoutingException('network_error');
     }

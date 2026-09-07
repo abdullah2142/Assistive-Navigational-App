@@ -113,22 +113,48 @@ restrict() {
   echo "  $GCLOUD services api-keys describe $uid --project=$PROJECT"
 }
 
-# Rate caps, not monthly caps. Google offers no settable monthly limit for
-# these APIs, so this cannot keep you inside the free tier — that job belongs
-# to ApiBudget in the client (lib/core/services/api_budget.dart). What this
-# does is bound how fast a bug can spend: a runaway retry loop pinned at a few
-# requests a minute costs pennies an hour instead of hundreds.
+# Daily and per-minute caps.
+#
+# Daily is the one that matters, and it exists: every metric below exposes a
+# `1/d/{project}` unit, defaulted to int64-max (Places to 75,000/day, itself
+# 15x the monthly free tier). Set just under tier/31 it gives a real monthly
+# ceiling enforced by Google rather than by the client.
+#
+# This does not make ApiBudget redundant. Google's cap is per calendar day, so
+# 31 maxed-out days still slightly overshoots a 30-day month, and it cannot see
+# that geocoding and Places draw on separate allowances the way the client can.
+# The two are belt and braces: Google refuses the request, the client never
+# makes it.
+#
+# Per-minute caps bound how fast a bug can spend before either ceiling notices.
+#
+#   geocoding  300/day, 10/min  -> <=9,300/mo of a 10,000 tier
+#   routes     300/day, 10/min  -> <=9,300/mo of a 10,000 tier
+#   places     150/day total    -> <=4,650/mo of a  5,000 tier
+QUOTAS=(
+  "$GEOCODING|geocoding-backend.googleapis.com/billable_default|1/d/{project}|300"
+  "$GEOCODING|geocoding-backend.googleapis.com/billable_default|1/min/{project}|10"
+  "$ROUTES|routes.googleapis.com/compute_routes_requests|1/d/{project}|300"
+  "$ROUTES|routes.googleapis.com/compute_routes_requests|1/min/{project}|10"
+  "$PLACES|places.googleapis.com/SearchTextRequest|1/d/{project}|100"
+  "$PLACES|places.googleapis.com/SearchTextRequest|1/min/{project}|5"
+  "$PLACES|places.googleapis.com/SearchNearbyRequest|1/d/{project}|50"
+  "$PLACES|places.googleapis.com/SearchNearbyRequest|1/min/{project}|5"
+)
+
 quotas() {
   need_auth
-  echo "Per-minute caps bound burn rate only. The monthly ceiling is ApiBudget."
-  echo "Run '$0 discover' first and set the metric/unit from its output:"
+  local entry svc metric unit value
+  for entry in "${QUOTAS[@]}"; do
+    IFS='|' read -r svc metric unit value <<< "$entry"
+    echo "--- $metric  $unit -> $value"
+    "$GCLOUD" alpha services quota update \
+      --service="$svc" --consumer="projects/$PROJECT" \
+      --metric="$metric" --unit="$unit" --value="$value" --force 2>&1 | tail -2
+  done
   echo
-  echo "  $GCLOUD alpha services quota update \\"
-  echo "    --service=$GEOCODING --consumer=projects/$PROJECT \\"
-  echo "    --metric=<METRIC> --unit=<UNIT> --value=10 --force"
-  echo
-  echo "Suggested values — comfortably above 5 testers, far below a bug:"
-  echo "  geocoding 10/min   routes 10/min   places 5/min"
+  echo "Applied. Note these are Google's ceilings; the client-side monthly"
+  echo "budget in lib/core/services/api_budget.dart is the other half."
 }
 
 case "${1:-discover}" in

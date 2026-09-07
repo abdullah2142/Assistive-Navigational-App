@@ -59,5 +59,45 @@ class MapsConfig {
   /// - **Per-API daily quotas** below the free monthly tier, which is the
   ///   only hard spend cap Google offers. A budget alert is a notification,
   ///   not a limit.
-  static const String apiKey = 'AIzaSyBhpaxU8ZdJ-3xGt-fTRfChMa5zIwEJiYI';
+  static const String apiKey = 'AIzaSyDhDkodAQPeZBisTKq5E3ZC_TOMoIzGPhM';
+
+  /// Package name and signing-certificate SHA-1 the key is restricted to.
+  ///
+  /// ## Why the Dart code has to send these
+  ///
+  /// The Maps SDK proves which app it is automatically. Our Geocoding, Routes
+  /// and Places calls do not go through the SDK — they are plain HTTPS from
+  /// `package:http` — so an Android-restricted key **refuses them** unless the
+  /// request carries these two headers itself. Verified live against the
+  /// restricted key on 2026-09-07:
+  ///
+  /// - no headers        -> `REQUEST_DENIED` / "Android client application
+  ///   <empty> are blocked"
+  /// - with headers      -> `OK`
+  /// - SHA-1 with colons -> `REQUEST_DENIED`
+  ///
+  /// That last line is why [androidCertSha1] is stored colon-free. It is the
+  /// same fingerprint `keytool` prints, with the separators removed, and
+  /// getting it wrong fails in the worst possible way: `RoutingService` falls
+  /// back to OpenStreetMap, so the app keeps working and nobody notices that
+  /// Google is never being called.
+  ///
+  /// **These must match the certificate the APK is actually signed with.**
+  /// Release currently reuses the debug key (`android/app/build.gradle.kts`
+  /// has no release `signingConfig`), so one value covers every build. Adding
+  /// a real release keystore without updating this — and the key's
+  /// restriction in Cloud Console — silently disables Google in exactly the
+  /// build testers receive.
+  static const String androidPackageName = 'com.ant.assistive.ant_app';
+  static const String androidCertSha1 = '8F9E405C1DC3D8411056FE19FBE17832F8954AFA';
+
+  /// Headers proving to Google which Android app is calling.
+  ///
+  /// Sent only to Google hosts. Nominatim, OSRM and Overpass have no use for
+  /// them, and quietly telling three volunteer servers the app's signing
+  /// fingerprint would be rude as well as pointless.
+  static const Map<String, String> androidRestrictionHeaders = {
+    'X-Android-Package': androidPackageName,
+    'X-Android-Cert': androidCertSha1,
+  };
 }

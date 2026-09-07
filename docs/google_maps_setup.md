@@ -1,7 +1,7 @@
 # Google Maps Platform setup
 
-What ANT uses Google for, what it costs, how to keep that at zero, and the
-exact steps to switch it on.
+What ANT uses Google for, what it costs, how the free tier is enforced, and
+the exact steps to switch it on.
 
 ---
 
@@ -81,98 +81,107 @@ is six times higher. The cascade design is what keeps it small.
 
 ## 3. Keeping spend at zero
 
-Read this section carefully, because the obvious answer does not work.
+Two ceilings, applied. Either alone would be leaky; together they are hard to
+get past.
 
-### Quotas are not a spend cap
+### Google's side — daily quotas (applied 2026-09-07)
 
-The intuitive plan — "cap requests per day below the free tier" — is not
-available for these APIs. Google removed the settable per-day limit for
-Geocoding, and the Maps Platform quota pages expose mainly **per-minute**
-limits. A per-minute cap does not bound a month: even 1 request/minute is
-about 44,000/month, four times the free tier. Google's own cost-management
-page states it outright — setting a quota does not automatically cap spending.
+Settable per-day, per-project caps **do** exist for all three billable APIs.
+They are simply defaulted to effectively unlimited (int64-max, or 75,000/day
+for Places — fifteen times its own monthly free tier), which is why they look
+absent. The console's quota page is close to unreadable for these APIs; the
+values below were found and set with `gcloud`.
 
-Budget alerts do not cap anything either. They email you after the money is
-gone. You already know this shape from the Gemini Pub/Sub work.
+| Metric | Per day | Per minute |
+|---|---|---|
+| `geocoding-backend.googleapis.com/billable_default` | **300** | 10 |
+| `routes.googleapis.com/compute_routes_requests` | **300** | 10 |
+| `places.googleapis.com/SearchTextRequest` | **100** | 5 |
+| `places.googleapis.com/SearchNearbyRequest` | **50** | 5 |
 
-So there is no single switch. The protection is layered instead, and most of
-it is already in the code.
+300/day is at most 9,300 in a 31-day month against a 10,000 tier. The two
+Places metrics together are at most 4,650 against 5,000. The per-minute caps
+sit far above five testers and far below a runaway loop, so a bug is pinned at
+pennies an hour rather than hundreds.
 
-### What actually holds
+Note `billable_default` is the **v3** Geocoding metric — the classic
+`maps.googleapis.com/maps/api/geocode/json` service this app calls. The four
+`v4/*` metrics beside it belong to a different API version we do not use, and
+are the main reason that page looks full of duplicates.
 
-**1. Google is off by default — this is the strongest control.**
-`ROUTING_PREFER_GOOGLE` defaults to `false`, so an ordinary build never calls
-Geocoding, Routes or Places at all. Spend is structurally zero until someone
-deliberately builds with the flag on. Do not flip the default; pass it
-per-build.
-
-**2. Set per-minute quotas low anyway — 1 or 2 per minute per project.**
-They will not bound a month, but they stop the realistic accident: a retry
-loop or a bug burning thousands of calls in an afternoon before anyone
-notices.
-
-**3. Point the existing budget kill switch at this project.**
-The budget → Pub/Sub → Cloud Function chain built for Gemini is the only
-mechanism here that actually *stops* spend, and it is already verified
-working. A $1 budget on the Maps APIs wired to the same function is the real
-backstop.
-
-**4. Hitting a cap is survivable by design.** `RoutingService` reads
-`RESOURCE_EXHAUSTED` as a routing failure and falls through to OpenStreetMap.
-Running out of quota costs quality, not navigation. That is why the OSM path
-was kept rather than deleted.
-
-### Finding the right quota row
-
-The console listing looks like it is full of duplicates. It is not — three
-different things are interleaved:
-
-- **Version.** Geocoding has v3 (the classic `maps.googleapis.com/maps/api/
-  geocode/json` web service) and v4 (`geocode.googleapis.com`), with entirely
-  separate quotas. **This app calls v3.** Ignore every v4 row.
-- **Scope.** Each version lists *per minute per project* and *per minute per
-  user*. Only the **per-project** row bounds anything for a single client key.
-- **Service split.** "Places API" and "Places API (New)" are different
-  services with different quota pages. This app uses **(New)** —
-  `places.googleapis.com/v1/places:searchText`.
-
-Rather than guess in the UI, list the exact quota IDs:
+Re-apply any time with:
 
 ```bash
-gcloud alpha services quota list \
-  --service=geocoding-backend.googleapis.com \
-  --consumer=projects/ant-assistive-nav
+./scripts/maps_lockdown.sh quotas
 ```
 
-Repeat for `routes.googleapis.com` and `places.googleapis.com`, match the
-metric against the endpoint the code actually calls, and edit that row.
+### The client's side — `ApiBudget`
+
+`lib/core/services/api_budget.dart` counts calls project-wide in Firestore at
+`api_usage/{YYYY-MM}` and stops at 9,000 / 9,000 / 4,500.
+
+It is not redundant with the quotas. Google's cap is per calendar *day*, so 31
+maxed-out days still overshoot a 30-day month slightly, and Google cannot see
+that the two Places metrics share one allowance the way the client can. It
+also fails closed, degrades to OpenStreetMap silently rather than erroring,
+and gives this project its first readable usage figure — `api_usage` doubles
+as the dashboard the console refuses to be.
+
+### Budget alerts still do not cap anything
+
+They email you after the money is spent. Keep one — a $1 budget wired to the
+Pub/Sub kill switch already built for Gemini — as the thing that *tells* you
+the other two failed.
 
 ---
 
-## 4. Restricting the key
+## 4. The key, and why the Dart code sends two extra headers
 
-**Do this before distributing any build.** The key ships inside the APK and can
-be extracted by anyone holding the file — that is unavoidable for a client-side
-Maps key, which is why Google's answer is restriction rather than secrecy. This
-particular key has additionally been in public git history since `19c3d37`, so
-treat it as already known to strangers.
+A new key was created on `ant-assistive-nav` (the old one in git history
+belonged to a personal project with no billing and is no longer used). It was
+restricted at creation:
 
-Get the certificate fingerprints — **both**, or the map goes blank in whichever
-build you forgot:
+- **Application**: Android, package `com.ant.assistive.ant_app`, SHA-1
+  `8F:9E:40:5C:1D:C3:D8:41:10:56:FE:19:FB:E1:78:32:F8:95:4A:FA`
+- **API targets**: Maps SDK for Android, Geocoding, Routes, Places — nothing
+  else
 
-```bash
-keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
-```
+One SHA-1 covers every build because release currently reuses the debug key
+(`android/app/build.gradle.kts` has no release `signingConfig`). **Adding a
+real release keystore later without registering its fingerprint will break
+Google in exactly the build testers receive** — and break it invisibly, see
+below.
 
-**Credentials → the key →**
+### The trap that nearly shipped
 
-- **Application restrictions** → *Android apps* → add package
-  `com.ant.assistive.ant_app` with the debug SHA-1, and again with the release
-  SHA-1.
-- **API restrictions** → *Restrict key* → tick exactly the four APIs above.
+An Android application restriction blocks *web-service REST* calls, and this
+app calls Geocoding, Routes and Places over plain HTTPS rather than through
+the Maps SDK. Measured against the live restricted key on 2026-09-07:
 
-The API restriction is what stops a scraped key being spent on some unrelated
-product billed to your project.
+| Request | Result |
+|---|---|
+| Plain REST, no extra headers | `REQUEST_DENIED` |
+| Routes API, plain | 403 — *"Android client application ⟨empty⟩ are blocked"* |
+| With `X-Android-Package` + `X-Android-Cert` | **OK** |
+| Same, but SHA-1 written with colons | `REQUEST_DENIED` |
+
+So `MapsConfig.androidRestrictionHeaders` is sent on every Google REST call,
+with the fingerprint stored **colon-free** — `keytool` prints it with colons,
+which is exactly the mistake someone re-deriving the value would make.
+
+This matters more than it looks. Had the headers been missing, the app would
+not have appeared broken: `RoutingService` would have caught the denial and
+fallen back to OpenStreetMap, so every route would still work while Google was
+never called at all. Tests now assert both headers and the colon-free format.
+
+### What restriction does and does not buy
+
+The key ships inside the APK and the package name and fingerprint are both in
+this public repo, so anyone who wants to forge those two headers can. That is
+true of every Android Maps key — the fingerprint is extractable from any APK —
+and it is why the real protections are the API restriction (a stolen key can
+reach four services, not the whole platform) and the quotas above (a stolen
+key can spend 300 requests a day, not 300,000).
 
 ---
 
@@ -205,24 +214,26 @@ flutter build apk --release --dart-define=ROUTING_PREFER_GOOGLE=true
 
 ---
 
-## 6. What I need from you
+## 6. State, and what is left
 
-1. **Billing attached** to the `ant-assistive-nav` project. Required even to
-   use the free tier — Google will not serve these APIs without a payment
-   method on file. This is the step no one else can do.
-2. **The four APIs enabled** on that project.
-3. **Per-minute quotas set** and the budget kill switch pointed at this
-   project (section 3) before the key is in any distributed build. Note that
-   neither guarantees the free tier — leaving `ROUTING_PREFER_GOOGLE` off for
-   tester builds is what does.
-4. **The key restricted** (section 4), with both SHA-1 fingerprints.
-5. **The new key value**, if you create a fresh one rather than restricting the
-   existing one — it goes in `ant_app/lib/core/config/maps_config.dart`. Send it
-   however you like; it is a public identifier by design, not a secret.
+**Done** (2026-09-07, verified live):
 
-Then one thing only you can confirm: **walk a real route in Dhaka** with
-`ROUTING_PREFER_GOOGLE=true` and check the directions match a footpath a person
-could actually use. Every claim about the Google wire format in this codebase
-is pinned by tests written against documentation — no request has ever reached
-Google's servers from this code. The tests prove the parsing is self-consistent.
-They cannot prove the route is walkable.
+- Four APIs enabled on `ant-assistive-nav`, billing attached
+- New key created, Android- and API-restricted
+- Daily and per-minute quotas set on all four metrics
+- `ApiBudget` enforcing the monthly ceiling client-side
+- All four endpoints called successfully against the live APIs; every response
+  field matches the parsers
+
+**Not done, and only you can do it:**
+
+1. **Walk a real route in Dhaka** with `ROUTING_PREFER_GOOGLE=true` and check
+   the directions follow a footpath a person could actually use. The wire
+   format is now verified against Google's servers; whether the *route* is
+   walkable is not something any test here can establish.
+2. **A release signing key.** Release reuses the debug key today. When that
+   changes, add the new SHA-1 both to `MapsConfig.androidCertSha1` and to the
+   key's restriction in Cloud Console, or Google goes dark in the build that
+   matters.
+3. **A $1 budget alert** wired to the Gemini Pub/Sub kill switch, as the thing
+   that tells you the two ceilings above both failed.

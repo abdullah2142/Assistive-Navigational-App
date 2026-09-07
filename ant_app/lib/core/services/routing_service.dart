@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/maps_config.dart';
 import '../config/routing_config.dart';
+import 'api_budget.dart';
 
 /// A generic User-Agent identifying this app, not a specific user — required
 /// by Nominatim's usage policy (every request must identify the calling
@@ -272,15 +273,30 @@ class RoutingService {
     http.Client? client,
     RoutingBackend? backend,
     bool? allowFallback,
+    ApiBudget? budget,
   })  : _client = client ?? http.Client(),
         _backend = backend ?? RoutingConfig.primary,
-        _allowFallback = allowFallback ?? RoutingConfig.allowOsmFallback;
+        _allowFallback = allowFallback ?? RoutingConfig.allowOsmFallback,
+        _budget = budget ?? defaultApiBudget;
 
   final http.Client _client;
   final RoutingBackend _backend;
   final bool _allowFallback;
+  final ApiBudget _budget;
 
   bool get _preferGoogle => _backend == RoutingBackend.google;
+
+  /// Whether a billable call to [api] is both wanted and affordable.
+  ///
+  /// A refused budget is reported as "Google is not available right now",
+  /// deliberately indistinguishable from a network failure, because the
+  /// caller's correct response is identical: use OpenStreetMap. There is no
+  /// user-visible difference between the free tier running out and the key
+  /// being unreachable — both produce a working route from a free backend.
+  Future<bool> _canSpend(BillableApi api) async {
+    if (!_preferGoogle) return false;
+    return _budget.tryConsume(api);
+  }
 
   /// Resolves free-text like "Gulshan 2, Dhaka" to coordinates. Returns
   /// `null` (not a thrown exception) when nothing matches — a genuinely
@@ -306,10 +322,17 @@ class RoutingService {
   Future<List<GeocodeCandidate>> geocodeCandidates(String address, {int limit = 5}) async {
     if (_preferGoogle) {
       try {
-        final byAddress = await _geocodeCandidatesGoogle(address, limit);
-        if (byAddress.isNotEmpty) return byAddress;
-        final byName = await _placesTextSearch(address, limit);
-        if (byName.isNotEmpty) return byName;
+        // Gated separately, because they are separate SKUs with separate
+        // allowances — exhausting the cheap geocoding budget must not also
+        // spend the Places one, and vice versa.
+        if (await _canSpend(BillableApi.geocoding)) {
+          final byAddress = await _geocodeCandidatesGoogle(address, limit);
+          if (byAddress.isNotEmpty) return byAddress;
+        }
+        if (await _canSpend(BillableApi.places)) {
+          final byName = await _placesTextSearch(address, limit);
+          if (byName.isNotEmpty) return byName;
+        }
       } on RoutingException catch (e) {
         if (!_allowFallback) rethrow;
         debugPrint('[Routing] Google geocode failed (${e.reason}); trying Nominatim');
@@ -326,7 +349,7 @@ class RoutingService {
     required LatLng origin,
     required LatLng destination,
   }) async {
-    if (_preferGoogle) {
+    if (await _canSpend(BillableApi.routes)) {
       try {
         // An empty list is returned as-is, on purpose. See the class comment:
         // "Google found no pedestrian route" is a real answer, and OSRM would

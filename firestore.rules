@@ -177,5 +177,27 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if false;
     }
+
+    // api_usage/{YYYY-MM} — the client-side Google Maps free-tier counter
+    // (see `api_budget.dart`). One document per calendar month, one integer
+    // field per billable API.
+    //
+    // Client-writable, which is unusual here and is a deliberate trade. The
+    // counter's job is to stop the *app* overspending, and the app is the
+    // only thing that knows a call was made — Google exposes no usage figure
+    // a Cloud Function could read. Routing it through a callable function
+    // would put a second billable round trip in front of every route request
+    // to protect a number that is already only advisory.
+    //
+    // The exposure is bounded by what the shape allows: increments only, no
+    // deletes, and no way to lower a count. A malicious client can therefore
+    // make the app *stop* calling Google — degrading everyone to
+    // OpenStreetMap — but cannot make it spend more, which is the direction
+    // that costs money. That asymmetry is the whole reason this is
+    // acceptable.
+    match /api_usage/{period} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
   }
 }

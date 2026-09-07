@@ -5,7 +5,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart' as ll;
 
 import '../../../core/config/maps_config.dart';
-import '../../../core/config/routing_config.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/map_unavailable_placeholder.dart';
 import '../providers/guardian_providers.dart';
@@ -37,7 +36,7 @@ class OverwatchMapPanel extends ConsumerWidget {
                 message: 'Waiting for the first location update…',
               );
             }
-            if (!RoutingConfig.useOpenStreetMap && !MapsConfig.isConfigured) {
+            if (!MapsConfig.useOsmTiles && !MapsConfig.isConfigured) {
               return MapUnavailablePlaceholder(
                 message: 'Last known: ${location.lat.toStringAsFixed(4)}, ${location.lng.toStringAsFixed(4)}',
               );
@@ -46,10 +45,10 @@ class OverwatchMapPanel extends ConsumerWidget {
               children: [
                 Positioned.fill(
                   // See `DashboardMapPanel`'s doc comment — same
-                  // `RoutingConfig.useOpenStreetMap`-gated swap, so a
+                  // `MapsConfig.useOsmTiles`-gated swap, so a
                   // caretaker isn't left staring at an empty Google map
                   // either while there's no working Maps Platform key.
-                  child: RoutingConfig.useOpenStreetMap
+                  child: MapsConfig.useOsmTiles
                       ? _buildOsmMap(location.lat, location.lng)
                       : _buildGoogleMap(location.lat, location.lng),
                 ),

@@ -16,7 +16,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart' as ll;
 
 import '../../../core/config/maps_config.dart';
-import '../../../core/config/routing_config.dart';
 import '../../../core/localization/app_language.dart';
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/services/route_planning_service.dart';
@@ -52,12 +51,13 @@ ll.LatLng _toLL(LatLng p) => ll.LatLng(p.latitude, p.longitude);
 
 /// The Interactive AI-Assisted Map — bottom 40% of the Split-Mode Dashboard.
 ///
-/// Renders via free OpenStreetMap raster tiles (no API key needed) whenever
-/// [RoutingConfig.useOpenStreetMap] is on — the same flag `RoutingService`
-/// already uses for geocoding/directions, so both the map *data* and the
-/// map *picture* move together. Falls back to the original `GoogleMap`
-/// widget when that flag is off (once a real, working Maps Platform key
-/// exists) — nothing else about this widget's route/location logic
+/// Renders via free OpenStreetMap raster tiles whenever
+/// [MapsConfig.useOsmTiles] is on. That flag is purely about the *picture*
+/// and is independent of `RoutingConfig`, which decides who answers
+/// geocoding and directions — the app can draw OSM tiles while Google
+/// plans the route, and during the Google migration it does exactly that.
+/// Falls back to the original `GoogleMap` widget when the flag is off —
+/// nothing else about this widget's route/location logic
 /// changes either way, both paths consume the same backend-agnostic
 /// `RouteChoice.points`.
 class DashboardMapPanel extends ConsumerStatefulWidget {
@@ -93,7 +93,7 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
   @override
   void initState() {
     super.initState();
-    if (RoutingConfig.useOpenStreetMap || MapsConfig.isConfigured) {
+    if (MapsConfig.useOsmTiles || MapsConfig.isConfigured) {
       _resolveLocation();
     }
   }
@@ -111,7 +111,7 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
       final position = await Geolocator.getCurrentPosition();
       if (!mounted) return;
       setState(() => _myLocation = LatLng(position.latitude, position.longitude));
-      if (RoutingConfig.useOpenStreetMap && _lastFittedRoute == null) {
+      if (MapsConfig.useOsmTiles && _lastFittedRoute == null) {
         // Deferred a frame: `initialCenter` is read once at construction, and
         // the fix is on the location arriving afterwards — which on a real
         // device it always does (confirmed from a device log: two builds at
@@ -155,7 +155,7 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
     }
     final southwest = LatLng(minLat, minLng);
     final northeast = LatLng(maxLat, maxLng);
-    if (RoutingConfig.useOpenStreetMap) {
+    if (MapsConfig.useOsmTiles) {
       _osmController.fitCamera(CameraFit.bounds(
         bounds: LatLngBounds(_toLL(southwest), _toLL(northeast)),
         padding: const EdgeInsets.all(48),
@@ -255,9 +255,9 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
 
   Widget _buildMap(RouteChoice? route) {
     final d = Dashboard.of(widget.language);
-    debugPrint('[Map] building — openStreetMap=${RoutingConfig.useOpenStreetMap} '
+    debugPrint('[Map] building — openStreetMap=${MapsConfig.useOsmTiles} '
         'mapsConfigured=${MapsConfig.isConfigured} myLocation=$_myLocation');
-    if (RoutingConfig.useOpenStreetMap) {
+    if (MapsConfig.useOsmTiles) {
       return FlutterMap(
         mapController: _osmController,
         options: MapOptions(

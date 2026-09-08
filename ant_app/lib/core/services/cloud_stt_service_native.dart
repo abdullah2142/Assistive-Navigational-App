@@ -144,13 +144,21 @@ class CloudSttService {
     _listening = false;
     await _resultSub?.cancel();
     _resultSub = null;
-    _streamingService?.dispose();
-    _streamingService = null;
+    // Recorder first, streaming service second.
+    //
+    // The other order closed the streaming service's sink while the recorder
+    // was still delivering audio into it, and every screen transition after a
+    // listen logged "Bad state: Cannot add new events after calling close"
+    // (seen on device, caught by the zone guard rather than crashing).
+    // Silencing the source before closing the destination leaves nothing in
+    // flight to land on a closed stream.
     try {
       await _recorder.stop();
     } catch (_) {
       // Already stopped — fine.
     }
+    _streamingService?.dispose();
+    _streamingService = null;
   }
 
   Future<void> dispose() async {

@@ -52,6 +52,10 @@ void main() {
     expect(find.byType(DashboardMapPanel), findsOneWidget);
   });
 
+  // NOT covered here: a route arriving reveals the map on its own. That needs
+  // a RouteChoice fixture and a ProviderScope override to inject one, which is
+  // more setup than the assertion is worth right now. Verified on device
+  // instead, and listed as an open item.
   testWidgets('the map is hidden by default and the chat owns the body', (tester) async {
     // The dashboard is for users who cannot see the map. Handing it half the
     // screen before anyone asks takes room from the part they actually use.

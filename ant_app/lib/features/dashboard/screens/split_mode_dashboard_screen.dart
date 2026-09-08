@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/localization/onboarding_strings.dart';
@@ -8,6 +9,7 @@ import '../models/suggested_chip.dart';
 import '../widgets/chat_stream_panel.dart';
 import '../widgets/crowdsource_reporting_hub.dart';
 import '../widgets/dashboard_map_panel.dart';
+import '../providers/chat_providers.dart';
 import '../widgets/passerby_message_picker.dart';
 import 'my_settings_screen.dart';
 
@@ -15,16 +17,16 @@ import 'my_settings_screen.dart';
 /// a clean map with a giant directional arrow (40%), or the map alone at
 /// full screen when expanded (see [_mapFullScreen]). See UI module plan
 /// Step 2.
-class SplitModeDashboardScreen extends StatefulWidget {
+class SplitModeDashboardScreen extends ConsumerStatefulWidget {
   const SplitModeDashboardScreen({super.key, required this.profile});
 
   final UserProfile profile;
 
   @override
-  State<SplitModeDashboardScreen> createState() => _SplitModeDashboardScreenState();
+  ConsumerState<SplitModeDashboardScreen> createState() => _SplitModeDashboardScreenState();
 }
 
-class _SplitModeDashboardScreenState extends State<SplitModeDashboardScreen> {
+class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScreen> {
   /// Share of the body height the chat panel takes when the map is not
   /// expanded — the "60% chat / 40% map" split from UI module plan Step 2.
   static const double _chatFlex = 0.6;
@@ -86,6 +88,21 @@ class _SplitModeDashboardScreenState extends State<SplitModeDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final d = Dashboard.of(profile.language);
+    // A planned route reveals the map.
+    //
+    // The map is hidden by default because most of this app's users cannot
+    // see it — but asking to be taken somewhere is the one moment it has
+    // something to say, and a sighted companion or a low-vision user should
+    // not have to know about a toggle to get at it. Only ever opens it, never
+    // closes it, so someone who deliberately hid the map is not overruled on
+    // their next route.
+    //
+    // Must sit directly in build(): ref.listen asserts if called from inside
+    // a LayoutBuilder's builder, which is where this started.
+    ref.listen(chatControllerProvider.select((s) => s.pendingRoute), (previous, next) {
+      if (next == null || _mapVisible) return;
+      setState(() => _mapVisible = true);
+    });
     return Scaffold(
       // Deliberately minimal — a single icon, not a menu bar. See
       // MySettingsScreen's doc comment for why this exists at all.

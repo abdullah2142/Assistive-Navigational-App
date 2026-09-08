@@ -142,6 +142,7 @@ class _FrequentPlacesScreenState extends ConsumerState<FrequentPlacesScreen> {
           ),
         ],
         retryHint: s.placesAddAnotherSpoken,
+        unavailableMessage: s.voiceUnavailableSpoken,
         isCancelled: cancelled,
       );
       if (cancelled()) return;

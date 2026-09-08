@@ -578,6 +578,21 @@ class Onboarding {
   String get voiceChoiceRetryHint => _t(
       'Sorry, I didn\'t catch that. Say your answer, or say "help" to hear the options.',
       'দুঃখিত, বুঝতে পারিনি। আপনার উত্তর বলুন, অথবা বিকল্পগুলো শুনতে "বিকল্প" বলুন।');
+  /// Spoken when the microphone cannot be used at all.
+  ///
+  /// Every one of these voice loops used to end here with nothing but a
+  /// `debugPrint` — the app simply stopped talking. To a blind user that is
+  /// indistinguishable from a crash, and it is the reason a release that
+  /// shipped without `CLOUD_STT_API_KEY` reached testers as "voice does not
+  /// work no matter what you say" rather than as a specific, reportable
+  /// fault.
+  ///
+  /// So it names the problem, and then says the one thing that is still
+  /// true: the buttons work.
+  String get voiceUnavailableSpoken => _t(
+      'I cannot use the microphone right now. You can still tap the buttons on the screen to continue.',
+      'এই মুহূর্তে মাইক্রোফোন ব্যবহার করতে পারছি না। আপনি স্ক্রিনের বোতামে চাপ দিয়ে এগিয়ে যেতে পারেন।');
+
   String get voiceListeningIndicator => _t('Listening for your answer…', 'আপনার উত্তর শুনছি…');
   String get voiceDictateSemantics => _t('Dictate this by voice', 'কথা বলে লিখুন');
   String get voiceDoneWord => _t('done', 'শেষ');

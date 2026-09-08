@@ -144,6 +144,7 @@ class _OnboardingScaffoldState extends ConsumerState<OnboardingScaffold> {
       choices: widget.voiceChoices,
       helpText: widget.spokenOptions.isEmpty ? null : widget.spokenOptions.join('. '),
       retryHint: s.voiceChoiceRetryHint,
+      unavailableMessage: s.voiceUnavailableSpoken,
       isCancelled: () =>
           _disposed || ref.read(onboardingControllerProvider).stepGeneration != myGeneration,
     );

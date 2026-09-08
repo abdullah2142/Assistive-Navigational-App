@@ -171,6 +171,7 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
           OnboardingVoiceChoice(label: s.continueLabel, synonyms: s.continueSynonyms, onSelect: () => action = 'continue'),
         ],
         retryHint: s.contactsAddedThenAddAnotherOrContinueSpoken,
+        unavailableMessage: s.voiceUnavailableSpoken,
         isCancelled: cancelled,
       );
       if (cancelled()) return;

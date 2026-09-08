@@ -119,5 +119,29 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+
+        <!-- Without these two, Android 11+ hides the speech and text-to-speech
+             services from this app entirely, and `speech_to_text`'s
+             initialize() simply returns false. The failure is silent: STT
+             reports "mic unavailable" and onboarding gives up without saying
+             anything, which for a voice-first app aimed at blind users is
+             indistinguishable from the app being broken.
+
+             This went unnoticed for a long time because it only bites the
+             *on-device* recognizer. With CLOUD_STT_API_KEY compiled in, STT
+             streams raw audio to Google via `record` and never asks the
+             platform for a recognizer, so any build carrying that key hides
+             the bug completely. A build without the key — see
+             `scripts/release_google_build.sh` and the guard it now runs —
+             falls back to on-device recognition and dies here.
+
+             The plugin does not contribute these entries itself; they have to
+             be declared by the app. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
     </queries>
 </manifest>

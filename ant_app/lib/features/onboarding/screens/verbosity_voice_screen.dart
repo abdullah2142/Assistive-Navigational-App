@@ -77,6 +77,7 @@ class _VerbosityVoiceScreenState extends ConsumerState<VerbosityVoiceScreen> {
         ),
       ],
       retryHint: s.voiceChoiceRetryHint,
+      unavailableMessage: s.voiceUnavailableSpoken,
       isCancelled: cancelled,
     );
     if (cancelled()) return;
@@ -99,6 +100,7 @@ class _VerbosityVoiceScreenState extends ConsumerState<VerbosityVoiceScreen> {
         ),
       ],
       retryHint: s.voiceChoiceRetryHint,
+      unavailableMessage: s.voiceUnavailableSpoken,
       isCancelled: cancelled,
     );
     if (cancelled() || _verbosity == null || _voiceId == null) return;

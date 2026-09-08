@@ -307,6 +307,12 @@ Future<void> listenForVoiceChoice({
   required List<OnboardingVoiceChoice> choices,
   String? helpText,
   required String retryHint,
+  /// Spoken once if the microphone turns out to be unusable.
+  ///
+  /// Optional only so existing callers keep compiling; every onboarding
+  /// screen should pass `s.voiceUnavailableSpoken`. Silence here is what
+  /// made a mute build look like a broken app.
+  String? unavailableMessage,
   required bool Function() isCancelled,
 }) async {
   if (choices.isEmpty) return;
@@ -326,7 +332,18 @@ Future<void> listenForVoiceChoice({
   var misses = 0;
   while (!isCancelled()) {
     if (!await stt.ensureAvailable()) {
-      debugPrint('[OnboardingVoice] stt.ensureAvailable() returned false — mic unavailable, giving up silently');
+      debugPrint('[OnboardingVoice] stt.ensureAvailable() returned false — mic unavailable');
+      // Say so. The screen is still fully operable by touch, and a user who
+      // cannot see it has no other way to learn that listening has stopped.
+      // Spoken only on the first attempt: `misses` is 0 only before any
+      // listening has happened, so re-entering the loop cannot repeat it.
+      if (unavailableMessage != null && misses == 0 && !isCancelled()) {
+        try {
+          await tts.speak(unavailableMessage, language: language);
+        } catch (e) {
+          debugPrint('[OnboardingVoice] could not speak the mic-unavailable notice: $e');
+        }
+      }
       return;
     }
     OnboardingVoiceChoice? matched;

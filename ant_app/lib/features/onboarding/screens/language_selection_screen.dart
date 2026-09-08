@@ -79,6 +79,10 @@ class _LanguageSelectionScreenState extends ConsumerState<LanguageSelectionScree
         OnboardingVoiceChoice(label: 'বাংলা', onSelect: () => controller.setLanguage(AppLanguage.bangla)),
       ],
       retryHint: 'দুঃখিত, বুঝতে পারিনি। ইংরেজি অথবা বাংলা বলুন। / Sorry, please say English or Bangla.',
+      // Bilingual, like the retry hint above: the user has not chosen a
+      // language yet, so either half may be the one they understand.
+      unavailableMessage:
+          'মাইক্রোফোন ব্যবহার করতে পারছি না। স্ক্রিনে চাপ দিন। / I cannot use the microphone. Please tap the screen.',
       isCancelled: () =>
           _disposed || ref.read(onboardingControllerProvider).stepGeneration != myGeneration,
     );

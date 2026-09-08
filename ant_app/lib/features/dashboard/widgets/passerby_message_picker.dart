@@ -213,6 +213,12 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
             return;
           }
           if (extracted.isNotEmpty) _commitToCompose(extracted);
+          // The live-partial preview above wrote the in-progress utterance
+          // into the field, and that utterance turned out to be the submit
+          // command itself. Nothing put the field back, so "show it" was
+          // shown to the passerby as part of the message. `_committed` is
+          // the only authoritative text — the preview is just a preview.
+          _resetComposeToCommitted();
           if (composeController.text.trim().isNotEmpty) {
             submitted = true;
             _submitCompose(context, fromVoice: true);
@@ -228,6 +234,14 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
     final combined = [_committed, livePartial].where((s) => s.trim().isNotEmpty).join(' ').trim();
     composeController.text = combined;
     composeController.selection = TextSelection.collapsed(offset: combined.length);
+  }
+
+  /// Drops any uncommitted live preview, leaving only what was actually
+  /// dictated. Called before submitting, because the preview can contain the
+  /// submit phrase.
+  void _resetComposeToCommitted() {
+    composeController.text = _committed;
+    composeController.selection = TextSelection.collapsed(offset: _committed.length);
   }
 
   void _commitToCompose(String finalizedText) {

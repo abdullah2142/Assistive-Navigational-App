@@ -361,6 +361,10 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
             return;
           }
           if (extracted.isNotEmpty) _commitToDescription(extracted);
+          // Same fix as PasserbyMessagePicker: the live preview holds the
+          // submit phrase itself, and without this it is filed as part of
+          // the hazard description.
+          _resetDescriptionToCommitted();
           if (!_isOther || _descriptionController.text.trim().isNotEmpty) {
             submitted = true;
             _submit(fromVoice: true);
@@ -382,6 +386,13 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
         [_committedDescription, livePartial].where((s) => s.trim().isNotEmpty).join(' ').trim();
     _descriptionController.text = combined;
     _descriptionController.selection = TextSelection.collapsed(offset: combined.length);
+  }
+
+  /// Drops any uncommitted live preview — see [_updateDescriptionLive].
+  void _resetDescriptionToCommitted() {
+    _descriptionController.text = _committedDescription;
+    _descriptionController.selection =
+        TextSelection.collapsed(offset: _committedDescription.length);
   }
 
   void _commitToDescription(String finalizedText) {

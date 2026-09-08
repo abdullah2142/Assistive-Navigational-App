@@ -25,12 +25,26 @@ class OnboardingVoiceChoice {
   final List<String> synonyms;
   final void Function() onSelect;
 
-  bool matches(String heard) {
-    if (fuzzyVoiceMatch(heard, label)) return true;
+  bool matches(String heard) => matchScore(heard) > 0;
+
+  /// How well [heard] fits this choice, 0 (no match) to 1 (every word of the
+  /// target accounted for).
+  ///
+  /// A score rather than a yes/no because several choices on a screen can
+  /// legitimately match the same utterance, and the caller has to be able to
+  /// tell which fits *best*. Confirmed on device: "Low vision" selected "No
+  /// vision", because both share the word "vision", `fuzzyVoiceMatch` accepts
+  /// half a target's words, and "No vision" was simply listed first. The
+  /// discriminating word — the whole content of the answer — was the one
+  /// being ignored. Setting a blind user's vision level to the opposite of
+  /// what they said is not a near miss.
+  double matchScore(String heard) {
+    var best = fuzzyMatchScore(heard, label);
     for (final synonym in synonyms) {
-      if (fuzzyVoiceMatch(heard, synonym)) return true;
+      final score = fuzzyMatchScore(heard, synonym);
+      if (score > best) best = score;
     }
-    return false;
+    return best;
   }
 }
 
@@ -48,15 +62,22 @@ class OnboardingVoiceChoice {
 /// characters is what a English/Bangla word actually *means* to a
 /// listener — "male" and "female" are different words even though one's
 /// spelling contains the other's.
-bool fuzzyVoiceMatch(String spoken, String target) {
+bool fuzzyVoiceMatch(String spoken, String target) => fuzzyMatchScore(spoken, target) > 0;
+
+/// The fraction of [target]'s words accounted for by [spoken], or 0 when that
+/// falls below the half-match threshold.
+///
+/// [fuzzyVoiceMatch] is this reduced to a yes/no, kept because most callers
+/// only want that.
+double fuzzyMatchScore(String spoken, String target) {
   final s = spoken.toLowerCase().trim();
   final t = target.toLowerCase().trim();
-  if (s.isEmpty || t.isEmpty) return false;
-  if (s == t) return true;
+  if (s.isEmpty || t.isEmpty) return 0;
+  if (s == t) return 1;
 
   final sWords = _wordsOf(s);
   final tWords = _wordsOf(t);
-  if (tWords.isEmpty) return false;
+  if (tWords.isEmpty) return 0;
 
   var matchedWords = 0;
   for (final word in tWords) {
@@ -93,15 +114,23 @@ bool fuzzyVoiceMatch(String spoken, String target) {
       }
     }
   }
-  return matchedWords >= (tWords.length / 2).ceil();
+  if (matchedWords < (tWords.length / 2).ceil()) return 0;
+  return matchedWords / tWords.length;
 }
 
 /// Splits on whitespace and common label punctuation (the em dash in
 /// labels like "Bangla — Male voice"), dropping single-character
 /// fragments — those are never meaningful words to match against on their
 /// own, only noise from splitting on punctuation.
-Set<String> _wordsOf(String text) =>
-    text.split(RegExp(r'[\s—–\-]+')).where((w) => w.length > 1).toSet();
+Set<String> _wordsOf(String text) => text
+    .split(RegExp(r'[\s—–\-]+'))
+    // Punctuation stripped, or "vision." never equals "vision" and every
+    // exact match at the end of a sentence silently degrades into the
+    // near-miss path. Cloud STT punctuates, so this is the common case, not
+    // the edge one.
+    .map((w) => w.replaceAll(RegExp(r'[^\wঀ-৿]'), ''))
+    .where((w) => w.length > 1)
+    .toSet();
 
 /// Classifies a yes/no answer about some trait ("are you deaf?", "do
 /// crowded places make you anxious?") — deliberately *not* built on
@@ -166,6 +195,23 @@ bool? classifyTraitYesNo(
   final absent = _longestMatch(lower, trimmed, absentPhrases);
   if (present != absent) return present > absent;
 
+  // Homophones of a bare answer, accepted only when they are the *whole*
+  // utterance.
+  //
+  // Confirmed on device: answering "no" to a yes/no question, Cloud STT's
+  // command_and_search model returned interim results of "No." and then a
+  // final of "Know." Whole-word matching — which exists precisely so that
+  // the "no" inside "know" cannot fire — then found nothing, and the
+  // question was asked again. The user reported the screen refusing to take
+  // "no" for an answer, and it was.
+  //
+  // Restricted to a one-word utterance on purpose. "I know" and "you know"
+  // are ordinary speech and must not be read as refusals; a bare "Know." in
+  // reply to a yes/no question is a misheard "no" essentially every time.
+  if (_spokenWords(lower).length == 1) {
+    if (_bareNoHomophones.contains(lower.replaceAll(RegExp(r'[^\wঀ-৿]'), ''))) return false;
+  }
+
   // Common negative openers that are neither a bare particle nor
   // trait-specific. "not really" is one of the most natural ways to say no
   // to a question about yourself, and nothing above recognized it.
@@ -208,6 +254,11 @@ int _longestMatch(String lower, String original, List<String> phrases) {
   }
   return best;
 }
+
+/// What a bare "no" is most often misheard as.
+///
+/// Only ever consulted for a single-word utterance — see [classifyTraitYesNo].
+const _bareNoHomophones = {'know', 'noh', 'nou'};
 
 /// Negative answers that open a sentence and settle it.
 const _bareNoOpeners = [
@@ -419,12 +470,19 @@ Future<void> listenForVoiceChoice({
           wantsHelp = true;
           return;
         }
+        // Best score wins, rather than first past the post. See
+        // `OnboardingVoiceChoice.matchScore` for the live failure this fixes.
+        var bestScore = 0.0;
         for (final choice in choices) {
-          if (choice.matches(trimmed)) {
+          final score = choice.matchScore(trimmed);
+          if (score > bestScore) {
+            bestScore = score;
             matched = choice;
-            debugPrint('[OnboardingVoice] matched choice: "${choice.label}"');
-            break;
           }
+        }
+        if (matched != null) {
+          debugPrint('[OnboardingVoice] matched choice: "${matched!.label}" '
+              '(score ${bestScore.toStringAsFixed(2)})');
         }
       },
     );

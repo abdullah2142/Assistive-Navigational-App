@@ -95,6 +95,60 @@ void main() {
     });
   });
 
+  group('the best-matching choice wins, not the first', () {
+    // Observed on device: saying "Low vision." selected "No vision" — the
+    // opposite answer — because both share the word "vision", the matcher
+    // accepts half a target's words, and "No vision" was listed first. The
+    // discriminating word was the whole content of the answer.
+    List<OnboardingVoiceChoice> visionChoices() => [
+          OnboardingVoiceChoice(label: en.visionNoneLabel, synonyms: en.visionNoneSynonyms, onSelect: () {}),
+          OnboardingVoiceChoice(label: en.visionLowLabel, synonyms: en.visionLowSynonyms, onSelect: () {}),
+          OnboardingVoiceChoice(label: en.visionFullLabel, synonyms: en.visionFullSynonyms, onSelect: () {}),
+        ];
+
+    String? bestLabel(List<OnboardingVoiceChoice> choices, String heard) {
+      var best = 0.0;
+      String? winner;
+      for (final choice in choices) {
+        final score = choice.matchScore(heard);
+        if (score > best) {
+          best = score;
+          winner = choice.label;
+        }
+      }
+      return winner;
+    }
+
+    test('"low vision" does not select "no vision"', () {
+      expect(bestLabel(visionChoices(), 'Low vision.'), isNot(en.visionNoneLabel));
+    });
+
+    test('each vision answer selects itself', () {
+      expect(bestLabel(visionChoices(), 'No vision.'), en.visionNoneLabel);
+      expect(bestLabel(visionChoices(), 'Full vision.'), en.visionFullLabel);
+    });
+
+    test('trailing punctuation does not weaken a match', () {
+      // Cloud STT punctuates, so "vision." never equalling "vision" was the
+      // common case rather than an edge one.
+      expect(fuzzyVoiceMatch('White cane.', 'White cane'), isTrue);
+      expect(fuzzyVoiceMatch('white cane', 'White cane'), isTrue);
+    });
+
+    test('a misheard "I walk unassisted" still reaches its synonym', () {
+      // Heard on device as "I work. An assisted." three times in a row. The
+      // synonym "unassisted" contains "assisted" — but the heard word carried
+      // a full stop, so the containment check compared against "assisted."
+      // and failed.
+      final unassisted = OnboardingVoiceChoice(
+        label: en.mobilityUnassistedLabel,
+        synonyms: en.mobilityUnassistedSynonyms,
+        onSelect: () {},
+      );
+      expect(unassisted.matches('I work. An assisted.'), isTrue);
+    });
+  });
+
   group('yes/no answers that are not bare particles', () {
     bool? crowded(String heard) => classifyTraitYesNo(
           heard,
@@ -127,6 +181,24 @@ void main() {
       expect(crowded('no'), isFalse);
       expect(crowded('yes'), isTrue);
       expect(crowded('nope'), isFalse);
+    });
+
+    test('"know" alone is the misheard "no" it almost always is', () {
+      // Observed on device, three times running: answering "no" produced
+      // interim results of "No." and a final of "Know." from Cloud STT's
+      // command_and_search model. Whole-word matching — which exists so the
+      // "no" inside "know" cannot fire — then found nothing and the question
+      // repeated. "Yes" matched first time, every time, which is exactly how
+      // it was reported: takes yes, will not take no.
+      expect(crowded('Know.'), isFalse);
+      expect(crowded('know'), isFalse);
+    });
+
+    test('"know" inside a sentence is left alone', () {
+      // "I know" and "you know" are ordinary speech, not refusals. Only a
+      // bare one-word utterance is treated as a misheard "no".
+      expect(crowded('i know they do'), isNot(false));
+      expect(crowded('you know how it is'), isNot(false));
     });
 
     test('a genuinely unclear answer still returns null rather than guessing', () {

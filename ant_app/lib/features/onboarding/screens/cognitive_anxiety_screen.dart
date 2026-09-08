@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -145,6 +146,11 @@ class _CognitiveAnxietyScreenState extends ConsumerState<CognitiveAnxietyScreen>
             return;
           }
           answer = classifyTraitYesNo(trimmed, presentPhrases: presentPhrases, absentPhrases: absentPhrases);
+          // Logged because this screen's failures are otherwise invisible
+          // from a device log: a retry and a genuine second question look
+          // identical, which is exactly the ambiguity that made the reported
+          // "doesn't take no" take a device session to pin down.
+          debugPrint('[Cognitive] heard "$trimmed" -> ${answer ?? "unclear, re-asking"}');
         },
       );
       if (isCancelled()) return null;

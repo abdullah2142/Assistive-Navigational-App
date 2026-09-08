@@ -252,9 +252,19 @@ class Onboarding {
   List<String> get verbosityDescriptiveSynonyms =>
       _bn ? const ['বেশি কথা', 'বিস্তারিত', 'খুলে বলা'] : const ['detailed', 'more talking', 'long', 'descriptive'];
   String get verbosityVoiceLabel => _t('Voice', 'ভয়েস');
-  String get verbosityFemaleVoiceLabel => _t('Bangla — Female voice', 'বাংলা — নারী কণ্ঠ');
+  /// The voice options name the language the user actually chose.
+  ///
+  /// Both were hardcoded to say "Bangla", so an English user was offered
+  /// "Bangla — Female voice" and "Bangla — Male voice" and read them aloud in
+  /// English. Reported as the screen having Bangla hardcoded, which it did —
+  /// the wrong half of it was fixed first: the stored voice id, which was
+  /// also wrong but invisible.
+  String get _voiceLanguageName => _bn ? 'বাংলা' : 'English';
+  String get verbosityFemaleVoiceLabel =>
+      _t('$_voiceLanguageName — Female voice', '$_voiceLanguageName — নারী কণ্ঠ');
   List<String> get verbosityFemaleVoiceSynonyms => _bn ? const ['নারী', 'মেয়ে', 'মহিলা'] : const ['female', 'woman', 'girl'];
-  String get verbosityMaleVoiceLabel => _t('Bangla — Male voice', 'বাংলা — পুরুষ কণ্ঠ');
+  String get verbosityMaleVoiceLabel =>
+      _t('$_voiceLanguageName — Male voice', '$_voiceLanguageName — পুরুষ কণ্ঠ');
   List<String> get verbosityMaleVoiceSynonyms => _bn ? const ['পুরুষ', 'ছেলে'] : const ['male', 'man', 'boy'];
   String get verbositySpokenHint => _t(
         'How chatty should the assistant be. Option 1: Minimalist, short essential instructions only. '
@@ -262,8 +272,12 @@ class Onboarding {
         'সহকারী কতটা কথা বলবে। বিকল্প ১: সংক্ষিপ্ত, শুধু দরকারি কথা। '
             'বিকল্প ২: বিস্তারিত, পথে আরও কথা আর ভরসা।',
       );
-  String get verbositySpokenVoiceHint =>
-      _t('Then pick a voice. Option 1: Bangla, female voice. Option 2: Bangla, male voice.', 'তারপর একটি ভয়েস বেছে নিন। বিকল্প ১: বাংলা, নারী কণ্ঠ। বিকল্প ২: বাংলা, পুরুষ কণ্ঠ।');
+  String get verbositySpokenVoiceHint => _t(
+        'Then pick a voice. Option 1: $_voiceLanguageName, female voice. '
+            'Option 2: $_voiceLanguageName, male voice.',
+        'তারপর একটি ভয়েস বেছে নিন। বিকল্প ১: $_voiceLanguageName, নারী কণ্ঠ। '
+            'বিকল্প ২: $_voiceLanguageName, পুরুষ কণ্ঠ।',
+      );
 
   // Magic Button contacts
   String get contactsTitle => _t('Who should we contact in an emergency?', 'বিপদে পড়লে আমরা কাকে জানাব?');

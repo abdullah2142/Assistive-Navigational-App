@@ -68,7 +68,23 @@ bool fuzzyVoiceMatch(String spoken, String target) {
     // against heard words at least as long as a large majority of it, so a
     // short, different word (like "male" against "female") is never long
     // enough to qualify as a near-miss of a longer, unrelated word.
-    final minLen = (word.length * 0.7).ceil().clamp(3, word.length);
+    //
+    // Words of three letters or fewer require an exact hit and never take
+    // the near-miss path: there is no room in them for a "near" miss that
+    // is not simply a different word.
+    //
+    // This used to read `.clamp(3, word.length)`, which **throws** when the
+    // word is shorter than 3 — `clamp` rejects a lower limit above its upper
+    // one. Any label or synonym containing a two-letter word therefore blew
+    // up mid-match, and the exception escaped through `matches()` into the
+    // `onResult` callback, killing the whole recognition attempt. The screen
+    // then looked like it was simply ignoring the user. It broke "I am
+    // ready" on the command tour (the word "am") and every place name typed
+    // at the frequent-places prompt, because the skip list contains "no
+    // thanks" and the check runs against every skip word before the name is
+    // ever accepted. Both were reported as "doesn't take my answer".
+    if (word.length <= 3) continue;
+    final minLen = (word.length * 0.7).ceil();
     for (final heardWord in sWords) {
       if (heardWord.length < minLen) continue;
       if (heardWord.contains(word.substring(0, minLen)) || word.contains(heardWord)) {
@@ -138,23 +154,67 @@ bool? classifyTraitYesNo(
   // Ordering is the fix, not more phrases: a phrase from these lists
   // already has its negation baked in (see this function's doc comment)
   // and is strictly more specific than a bare particle, so it must win.
-  final hasPresent = presentPhrases.any((p) => lower.contains(p.toLowerCase()) || trimmed.contains(p));
-  final hasAbsent = absentPhrases.any((p) => lower.contains(p.toLowerCase()) || trimmed.contains(p));
-  if (hasPresent != hasAbsent) return hasPresent;
+  // Longest match wins, rather than "any match on both sides is a tie".
+  //
+  // The lists overlap by construction: "bother me" is a present phrase and
+  // "don't bother me" is an absent one, and the second contains the first.
+  // Treating both as equal made "they don't bother me" — an ordinary,
+  // unambiguous English answer — score as a conflict and return null, so the
+  // question was asked again and again. The longer phrase is the more
+  // specific one and is what the user actually said.
+  final present = _longestMatch(lower, trimmed, presentPhrases);
+  final absent = _longestMatch(lower, trimmed, absentPhrases);
+  if (present != absent) return present > absent;
 
-  // Nothing specific matched (or both sides did) — fall back to a bare
-  // yes/no, and only for a short utterance: a longer sentence that happens
-  // to contain "yes" in passing shouldn't decide the answer.
-  if (trimmed.length > 15) return null;
+  // Common negative openers that are neither a bare particle nor
+  // trait-specific. "not really" is one of the most natural ways to say no
+  // to a question about yourself, and nothing above recognized it.
+  for (final opener in _bareNoOpeners) {
+    if (lower == opener || lower.startsWith('$opener ') || lower.startsWith('$opener,')) return false;
+  }
+
   // Whole words, never substrings — "no" lives inside "know", "another"
   // and "normal"; "yes" inside "yesterday". Same lesson as [fuzzyVoiceMatch]
   // matching "male" inside "female": "I know I do" came back as a flat
   // refusal.
   final words = _spokenWords(lower);
+  final first = words.isEmpty ? '' : lower.split(RegExp(r'\s+')).first.replaceAll(RegExp(r'[^\wঀ-৿]'), '');
+
+  // An utterance that *opens* with yes or no is answering the question,
+  // however long it runs on afterwards — "no it doesn't bother me at all".
+  // The length guard below exists for the opposite case, a long sentence
+  // that merely contains the word somewhere, and it used to reject these
+  // too.
+  if (bareNo.any((w) => first == w.toLowerCase())) return false;
+  if (bareYes.any((w) => first == w.toLowerCase())) return true;
+
+  // Otherwise only a short utterance may be decided by a bare particle: a
+  // longer sentence that happens to contain "yes" in passing shouldn't.
+  if (trimmed.length > 15) return null;
   if (bareNo.any((w) => words.contains(w.toLowerCase()))) return false;
   if (bareYes.any((w) => words.contains(w.toLowerCase()))) return true;
   return null;
 }
+
+/// Length of the longest phrase in [phrases] found in the utterance, or 0.
+///
+/// Length, not a boolean, so an overlapping pair resolves to the more
+/// specific phrase — see [classifyTraitYesNo].
+int _longestMatch(String lower, String original, List<String> phrases) {
+  var best = 0;
+  for (final phrase in phrases) {
+    if (phrase.length <= best) continue;
+    if (lower.contains(phrase.toLowerCase()) || original.contains(phrase)) best = phrase.length;
+  }
+  return best;
+}
+
+/// Negative answers that open a sentence and settle it.
+const _bareNoOpeners = [
+  'not really', 'not at all', 'not particularly', 'not much', 'not usually',
+  'never', 'rarely',
+  'তেমন না', 'একদম না', 'না তেমন',
+];
 
 /// Whitespace-separated words with punctuation stripped. Keeps ASCII word
 /// characters and the whole Bangla Unicode block (ঀ-৿) — the same class

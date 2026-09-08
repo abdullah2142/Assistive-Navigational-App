@@ -184,6 +184,24 @@ class ChatController extends Notifier<ChatState> {
   /// when it was plainly a new instruction instead — a user is allowed to
   /// abandon a half-finished clarification by simply asking for something
   /// else, and forcing them to formally cancel first would be its own trap.
+  /// Whether the assistant's last message was a question still awaiting an
+  /// answer.
+  ///
+  /// A question mark is the signal, in both languages — Bangla uses the same
+  /// `?`. Crude on purpose: the alternative is every tool declaring whether
+  /// its reply expects an answer, which is more machinery and more places to
+  /// forget. A false positive costs one Gemini round trip; a false negative
+  /// costs the user the thread.
+  bool get _assistantAwaitingAnswer {
+    for (var i = state.messages.length - 1; i >= 0; i--) {
+      final message = state.messages[i];
+      // Skip the user turn just appended by the caller.
+      if (message.sender == ChatSender.user) continue;
+      return message.text.trimRight().endsWith('?');
+    }
+    return false;
+  }
+
   Future<bool> _continueClarification(
     DestinationClarification pending,
     String reply,
@@ -402,7 +420,27 @@ class ChatController extends Notifier<ChatState> {
       profile.language,
       recentSetting: state.lastSettingChanged,
     );
-    if (localIntent != null) {
+    // A reply to the assistant's own question belongs to that conversation,
+    // not to the command matcher.
+    //
+    // This is what made every multi-turn exchange collapse. The assistant
+    // would ask "which place, and what should I call it?", the user would
+    // answer "college", and that answer went to the matcher first, matched
+    // as a fresh destination, and the thread was gone. The same for adding a
+    // contact: it only ever worked when the whole thing was said in one
+    // breath, because any follow-up answer was intercepted. Gemini already
+    // receives the history and already has the tools to fill slots across
+    // turns — it just never got the chance.
+    //
+    // The emergency trigger is deliberately exempt. Someone in trouble does
+    // not stop being in trouble because the assistant happened to have asked
+    // them something.
+    final answeringQuestion = _assistantAwaitingAnswer;
+    if (localIntent != null &&
+        answeringQuestion &&
+        localIntent.name != 'trigger_emergency') {
+      debugPrint('[Chat] local match ${localIntent.name} suppressed — answering a question');
+    } else if (localIntent != null) {
       debugPrint('[Chat] local match: ${localIntent.name} ${localIntent.args} (skipping Gemini)');
       // The Magic Button is a sequence, not a state change — speak, wait,
       // dispatch, call, alert — so it does not go through the executor,

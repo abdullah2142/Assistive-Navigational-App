@@ -776,6 +776,23 @@ class LocalIntentMatcher {
   /// somewhere they were only wondering about is a real failure.
   static const _routeBlockers = ['should i', 'how far', 'how long', 'is it safe', 'কতদূর', 'কেমন লাগবে'];
 
+  /// Phrases that mean the user is *rejecting* a destination, not naming one.
+  ///
+  /// Reported live: "take me to work" resolved to a wrong saved place, and
+  /// every attempt to say so — "this is not my workplace", "can you take me
+  /// somewhere else" — matched here again as a fresh route request and got
+  /// the same answer. The user could not get out of the loop by talking,
+  /// which in a voice-only app means they could not get out at all.
+  ///
+  /// These belong to the conversation, not to a command, so they are handed
+  /// to the model instead. Substrings rather than whole words, because the
+  /// signal is the phrase ("not my", "somewhere else"), not a single token.
+  static const _routeRefusals = [
+    'not my', "isn't my", 'is not my', 'not the', 'somewhere else', 'another place',
+    'different place', 'wrong place', 'not there', "don't want to go", 'do not want to go',
+    'আমার না', 'অন্য কোথাও', 'অন্য জায়গা', 'ভুল জায়গা',
+  ];
+
   /// Bangla place names commonly carry the destination postposition
   /// attached (গুলশানে, ধানমন্ডিতে) right before a "go" verb — captured
   /// with the postposition still attached rather than trying to strip it,
@@ -854,6 +871,7 @@ class LocalIntentMatcher {
   static LocalIntent? _matchRoute(String lower, String text, bool bn) {
     final words = voiceWords(text);
     if (containsAny(words, _routeBlockers)) return null;
+    if (_routeRefusals.any((p) => lower.contains(p) || text.contains(p))) return null;
 
     final bareMatch = _routeBarePattern.firstMatch(text);
     if (bareMatch != null) {

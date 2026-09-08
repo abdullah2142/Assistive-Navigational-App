@@ -79,7 +79,43 @@ class TtsService {
     }
   }
 
-  Future<void> speak(String text, {AppLanguage language = AppLanguage.english}) async {
+  /// Serializes [speak] so overlapping calls queue instead of cutting each
+  /// other off.
+  Future<void> _chain = Future<void>.value();
+
+  /// Bumped by [stop]. Anything still queued behind it is abandoned rather
+  /// than spoken after the user has left the screen.
+  int _generation = 0;
+
+  /// Speaks [text], resolving when it has actually finished being spoken.
+  ///
+  /// Nearly every voice flow in this app is written as speak-then-listen and
+  /// relies on that guarantee. It did not hold: a second `speak` overlapping
+  /// the first stopped the player out from under it, which completed the
+  /// first call's future early — so a screen that correctly awaited its
+  /// narration opened the microphone while the *next* utterance was still
+  /// playing. Testers reported the narration being cut off and, worse, the
+  /// list of options being talked over, leaving them with a live mic and no
+  /// idea what they were allowed to say.
+  ///
+  /// Queuing rather than dropping: every one of these utterances is a
+  /// question or an option list that the user needs to hear in full.
+  Future<void> speak(String text, {AppLanguage language = AppLanguage.english}) {
+    final myGeneration = _generation;
+    final next = _chain.then((_) async {
+      // `stop()` ran while this was waiting its turn — the screen is gone.
+      if (myGeneration != _generation) return;
+      await _speakNow(text, language: language);
+    });
+    // Kept off the chain's failure path so one bad utterance cannot wedge
+    // every later one behind a rejected future.
+    _chain = next.catchError((Object e) {
+      debugPrint('[Tts] speak failed: $e');
+    });
+    return next;
+  }
+
+  Future<void> _speakNow(String text, {AppLanguage language = AppLanguage.english}) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
     if (CloudTtsConfig.isConfigured) {
@@ -152,7 +188,13 @@ class TtsService {
     }
   }
 
+  /// Stops whatever is speaking and abandons anything queued behind it.
+  ///
+  /// The generation bump is the important half: without it, leaving a screen
+  /// mid-narration would silence the current utterance and then let the rest
+  /// of the queue play over the next screen.
   Future<void> stop() async {
+    _generation++;
     await _tts.stop();
     await _cloudTts.stop();
   }

@@ -51,8 +51,20 @@ class VoiceConfirm {
     final s = Onboarding.of(language);
     final spoken = isDigits ? spokenDigitsForReadback(value) : value;
 
+    // Counts unclear answers, so the second attempt can say what is actually
+    // wanted. Watched on device: a user answering the read-back by repeating
+    // the address, over and over, because "I heard home address: Gulshan 1"
+    // sounds like the question is still about the address. The loop is
+    // unbounded and the wording never changed, so there was nothing to break
+    // the cycle — and for a blind user there is no visible Yes button to
+    // fall back on.
+    var unclear = 0;
     while (!isCancelled()) {
-      await tts.speak(d.confirmHeardValue(fieldLabel: fieldLabel, value: spoken), language: language);
+      final readBack = d.confirmHeardValue(fieldLabel: fieldLabel, value: spoken);
+      await tts.speak(
+        unclear == 0 ? readBack : '$readBack ${s.voiceAnswerYesOrNo}',
+        language: language,
+      );
       if (isCancelled()) return null;
       if (!await stt.ensureAvailable()) {
         // No microphone at all. Accepting is the right default here: the
@@ -88,7 +100,9 @@ class VoiceConfirm {
         await tts.speak(d.confirmValueRetry, language: language);
         return false;
       }
-      // Unclear — the loop re-reads the value and asks again.
+      // Unclear — the loop re-reads the value, now with an explicit
+      // "say yes or no", and asks again.
+      unclear++;
     }
     return null;
   }

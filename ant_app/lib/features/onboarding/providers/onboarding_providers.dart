@@ -312,9 +312,21 @@ class OnboardingController extends Notifier<OnboardingState> {
     // skip the now-pointless question entirely, same as Low Vision
     // skipping past it in the other direction. Still just a starting
     // point: changeable later via My Settings or "change theme to light".
+    // Auto-listen is derived from the vision level, and re-derived here for
+    // the same reason it is in setCognitiveAnxiety: the constructor's rule
+    // only runs for a profile being created, so answering this question on a
+    // profile that already exists never moved the setting.
+    final autoListen = autoListenDefaultFor(
+      visionLevel: level,
+      complexInstructionsHard: profile.complexInstructionsHard,
+    );
     final updated = level == VisionLevel.none
-        ? profile.copyWith(visionLevel: level, themePreference: ThemePreference.dark)
-        : profile.copyWith(visionLevel: level);
+        ? profile.copyWith(
+            visionLevel: level,
+            themePreference: ThemePreference.dark,
+            voiceAutoListen: autoListen,
+          )
+        : profile.copyWith(visionLevel: level, voiceAutoListen: autoListen);
     if (!await _persist(updated)) return;
     // Low Vision still gets a Light/Dark say — it's an independent
     // accessibility axis, not a fixed theme substituted in its place (see
@@ -361,6 +373,12 @@ class OnboardingController extends Notifier<OnboardingState> {
     final saved = await _persist(profile.copyWith(
       crowdedPlacesAnxious: crowdedPlacesAnxious,
       complexInstructionsHard: complexInstructionsHard,
+      // Re-derived, because this answer is one of its two inputs and the
+      // constructor only applies the rule to a profile being created.
+      voiceAutoListen: autoListenDefaultFor(
+        visionLevel: profile.visionLevel,
+        complexInstructionsHard: complexInstructionsHard,
+      ),
     ));
     if (!saved) return;
     _goTo(OnboardingStep.deafHearingQuestion);

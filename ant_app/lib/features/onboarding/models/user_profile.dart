@@ -252,6 +252,21 @@ class UserProfile {
 /// choice. `CloudTtsService` only reads the gender out of this and takes the
 /// language from its own parameter, which is why the mismatch went unnoticed:
 /// the wrong value still produced the right voice.
+/// The auto-listen default implied by the accessibility answers.
+///
+/// Mirrors the rule in [UserProfile]'s constructor, exposed so onboarding can
+/// re-apply it when those answers change. The constructor only derives it for
+/// a profile being *created*; a profile that already exists keeps whatever was
+/// stored, so answering the vision question later never moved it. A user who
+/// went through onboarding again — or whose profile started from the dev skip,
+/// which writes false explicitly — ended up with auto-listen off despite
+/// answering in a way that should have turned it on. Seen on device.
+bool autoListenDefaultFor({
+  required VisionLevel visionLevel,
+  required bool complexInstructionsHard,
+}) =>
+    visionLevel != VisionLevel.full || complexInstructionsHard;
+
 String voiceIdFor(AppLanguage language, {required bool female}) {
   final locale = language == AppLanguage.bangla ? 'bn-BD' : 'en-US';
   return '$locale-${female ? 'female' : 'male'}-1';

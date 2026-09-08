@@ -86,12 +86,32 @@ class CloudTtsService {
         sub.cancel();
       });
       await _player.play(BytesSource(bytes));
-      await done.future.timeout(const Duration(seconds: 30), onTimeout: () {});
+      await done.future.timeout(_playbackTimeoutFor(trimmed), onTimeout: () {});
       return true;
     } catch (e) {
       debugPrint('[CloudTts] error: $e');
       return false;
     }
+  }
+
+  /// How long to wait for playback before giving up on the completion event.
+  ///
+  /// Was a flat 30 seconds, which is shorter than this app's longest
+  /// narration. The command tour reads every command group, its examples and
+  /// a closing line telling the user what to say to continue — well past 30s.
+  /// The timeout fired, `speak()` returned while audio was still playing, and
+  /// the caller opened the microphone over the tail. The closing instruction,
+  /// the one part a blind user cannot do without, was what got talked over.
+  ///
+  /// Scaled to the text instead of guessed. Speech runs around 150 words a
+  /// minute; 0.6s per word is that with a wide margin, and the 15s floor
+  /// covers short utterances plus synthesis latency. The timeout is a
+  /// backstop against a lost completion event, not a schedule — overshooting
+  /// costs nothing, undershooting cuts a user off mid-sentence.
+  static Duration _playbackTimeoutFor(String text) {
+    final words = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    final estimated = Duration(milliseconds: 600 * words + 15000);
+    return estimated;
   }
 
   Future<void> stop() => _player.stop();

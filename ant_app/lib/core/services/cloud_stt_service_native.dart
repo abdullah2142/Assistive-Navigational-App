@@ -45,6 +45,17 @@ class CloudSttService {
   Future<bool> start({
     required AppLanguage language,
     required void Function(String text, bool isFinal) onResult,
+    /// Called if the recognition stream dies *after* a successful start.
+    ///
+    /// Without this the caller cannot know: `start()` has already returned
+    /// true, so `SttService` believes cloud recognition is running and never
+    /// tries the on-device recognizer. The user is left in a "sorry, I didn't
+    /// catch that" loop with a microphone that is recording into nothing.
+    ///
+    /// The case that makes this matter is quota. A Cloud Speech quota cap is
+    /// enforced mid-stream, not at connect time, so the *only* signal that
+    /// the free tier ran out arrives here.
+    void Function(Object error)? onStreamError,
   }) async {
     if (!CloudSttConfig.isConfigured) return false;
     if (isListening) return true;
@@ -97,7 +108,14 @@ class CloudSttService {
           if (result.alternatives.isEmpty) return;
           onResult(result.alternatives.first.transcript, result.isFinal);
         },
-        onError: (e) => debugPrint('[CloudStt] stream error: $e'),
+        onError: (Object e) {
+          debugPrint('[CloudStt] stream error: $e');
+          // Stop first, so the caller's fallback is not competing with this
+          // recorder for the microphone.
+          _listening = false;
+          unawaited(stop());
+          onStreamError?.call(e);
+        },
       );
 
       service.endlessStreamingRecognize(

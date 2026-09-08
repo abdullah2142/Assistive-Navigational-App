@@ -190,7 +190,12 @@ class SttService {
   }) async {
     await _signalListening();
     final cloud = _cloudStt;
-    if (cloud != null && CloudSttConfig.isConfigured) {
+    // No `CloudSttConfig.isConfigured` check here: `CloudSttService.start()`
+    // makes exactly that check and returns false, which lands in the same
+    // fallback two lines down. Testing it twice only made the cloud branch
+    // unreachable from a test, which is how a mid-stream failure went
+    // unnoticed long enough to reach testers.
+    if (cloud != null) {
       final usedCloud = await _listenOnceViaCloud(
         cloud,
         language: language,
@@ -236,6 +241,11 @@ class SttService {
     var heardSpeech = false;
     var lastText = '';
     var finalDelivered = false;
+    // Set when the recognition stream dies mid-session. The session then
+    // reports failure so the caller retries on the on-device recognizer,
+    // instead of the user talking to a microphone that is recording into
+    // nothing.
+    var streamFailed = false;
 
     void finish(String reason, {bool synthesizeFinal = false}) {
       if (done.isCompleted) return;
@@ -281,6 +291,12 @@ class SttService {
           resetSilenceTimer();
         }
       },
+      onStreamError: (_) {
+        streamFailed = true;
+        // Do not synthesize a final result: there is no transcript, and
+        // inventing an empty one would look like the user stayed silent.
+        finish('cloud stream error');
+      },
     );
     if (!started) {
       debugPrint('[Stt] cloud failed to start');
@@ -290,6 +306,14 @@ class SttService {
     resetSilenceTimer();
     ceilingTimer = Timer(listenFor, () => finish('listenFor ceiling', synthesizeFinal: true));
     await done.future;
+    if (streamFailed) {
+      // Nothing usable was transcribed, so returning true here would leave
+      // the caller believing the user simply said nothing. The most likely
+      // cause is the Cloud Speech quota running out, which is enforced
+      // mid-stream — this is the only place that can be noticed.
+      debugPrint('[Stt] cloud session failed mid-stream — falling back to on-device');
+      return false;
+    }
     return true;
   }
 

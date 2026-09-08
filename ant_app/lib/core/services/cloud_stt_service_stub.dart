@@ -12,6 +12,9 @@ class CloudSttService {
   Future<bool> start({
     required AppLanguage language,
     required void Function(String text, bool isFinal) onResult,
+    /// Never called here — this stub reports unavailable before any stream
+    /// exists. Present so the two implementations stay interchangeable.
+    void Function(Object error)? onStreamError,
   }) async =>
       false;
 

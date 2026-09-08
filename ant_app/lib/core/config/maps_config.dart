@@ -20,17 +20,16 @@ class MapsConfig {
   /// Draw OpenStreetMap raster tiles via `flutter_map` instead of the
   /// `GoogleMap` widget.
   ///
-  /// **On, and staying on for now.** Not for cost reasons — the Maps SDK for
-  /// Android is free with unlimited map loads, so this saves nothing. It is
-  /// on because this is the configuration that has actually been verified on
-  /// the target hardware (Redmi 10C, Adreno 610) after the Impeller blank-map
-  /// fix in `AndroidManifest.xml`. Switching the renderer would put that
-  /// fix's evidence back in question, and the map is not the part of this app
-  /// its users can see.
+  /// **Off.** It was on while the Maps key had no billing, and stayed on
+  /// afterwards because the OSM renderer was what had been verified on the
+  /// target hardware (Redmi 10C, Adreno 610) after the Impeller blank-map
+  /// fix. Testers then reported the obvious consequence: raster tiles give a
+  /// flat, non-rotating map with none of the pan/zoom/tilt behaviour anyone
+  /// expects from a map, and at a scale too coarse to see where they were.
   ///
-  /// Flip to `false` once someone has confirmed a `GoogleMap` widget renders
-  /// on that device with Impeller disabled.
-  static const bool useOsmTiles = true;
+  /// If the map ever comes back blank on that device, this is the first
+  /// thing to flip — the OSM path is still complete and still tested.
+  static const bool useOsmTiles = false;
 
   /// The Maps Platform key.
   ///

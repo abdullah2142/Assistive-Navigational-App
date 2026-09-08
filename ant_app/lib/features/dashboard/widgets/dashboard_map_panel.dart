@@ -111,6 +111,7 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
       final position = await Geolocator.getCurrentPosition();
       if (!mounted) return;
       setState(() => _myLocation = LatLng(position.latitude, position.longitude));
+      _centerOnMe();
       if (MapsConfig.useOsmTiles && _lastFittedRoute == null) {
         // Deferred a frame: `initialCenter` is read once at construction, and
         // the fix is on the location arriving afterwards — which on a real
@@ -127,6 +128,28 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
     } catch (_) {
       // Graceful degradation — the map just falls back to the Dhaka default.
     }
+  }
+
+  /// Moves the Google camera onto the user once their position is known.
+  ///
+  /// `initialCameraPosition` is read exactly once, at construction, and on a
+  /// real device the first GPS fix always lands after that — so without this
+  /// the Google map sat on the Dhaka city-centre fallback forever, zoomed out
+  /// over the wrong part of the city. Only the OSM path had a recenter, which
+  /// is why the problem appeared the moment the renderer was switched.
+  ///
+  /// Skipped while a route is displayed: the route fit is the more useful
+  /// framing, and yanking the camera back to a dot would undo it.
+  void _centerOnMe() {
+    if (MapsConfig.useOsmTiles || _lastFittedRoute != null) return;
+    final me = _myLocation;
+    final controller = _mapController;
+    if (me == null || controller == null) return;
+    controller.animateCamera(
+      gmaps.CameraUpdate.newCameraPosition(
+        gmaps.CameraPosition(target: me, zoom: _myLocationZoom),
+      ),
+    );
   }
 
   /// Zoom used when the camera is showing *where the user is* rather than a
@@ -314,13 +337,30 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
           gmaps.CameraPosition(target: _myLocation ?? _dhakaFallback, zoom: _myLocationZoom),
       style: _cleanMapStyle,
       myLocationEnabled: true,
-      myLocationButtonEnabled: false,
-      zoomControlsEnabled: false,
-      compassEnabled: false,
-      mapToolbarEnabled: false,
+      // All of these were off, which left a map that could not be zoomed,
+      // rotated, tilted or recentred — the reason it read as a static
+      // picture rather than a map. There is no accessibility argument for
+      // suppressing them: a blind user is not touching the map at all, and
+      // the people who do look at it (a low-vision user, a caretaker reading
+      // over their shoulder) are exactly the ones the controls are for.
+      myLocationButtonEnabled: true,
+      zoomControlsEnabled: true,
+      zoomGesturesEnabled: true,
+      scrollGesturesEnabled: true,
+      rotateGesturesEnabled: true,
+      tiltGesturesEnabled: true,
+      compassEnabled: true,
+      mapToolbarEnabled: true,
       onMapCreated: (controller) {
         _mapController = controller;
-        if (route != null) _fitCameraToRoute(route);
+        if (route != null) {
+          _fitCameraToRoute(route);
+        } else {
+          // The fix usually lands before the controller does, so the
+          // recenter attempt in `_resolveLocation` found no controller and
+          // did nothing. Retrying here covers whichever order they arrive in.
+          _centerOnMe();
+        }
       },
       polylines: route == null
           ? const {}

@@ -9,6 +9,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
+
+import 'package:ant_app/core/config/maps_config.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -63,7 +66,7 @@ void main() {
   // there crashed with "Unsupported operation: Cannot modify unmodifiable
   // map" the moment a real location arrived and the map actually rendered.
   // The empty-state test above never reaches that code path.
-  testWidgets('Overwatch renders a real map (OSM tile path) once a location arrives', (tester) async {
+  testWidgets('Overwatch renders a real map once a location arrives', (tester) async {
     const disabledUserUid = 'disabled-1';
     final profile = UserProfile(uid: 'caretaker-1', role: UserRole.caretaker, pairedUserId: disabledUserUid);
 
@@ -85,7 +88,15 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(find.byType(FlutterMap), findsOneWidget);
+    // Whichever renderer MapsConfig selects — the panel swaps between them
+    // and the caretaker gets a real map either way. Asserting the concrete
+    // widget tied this test to a config flag rather than to the behaviour.
+    expect(
+      MapsConfig.useOsmTiles
+          ? find.byType(FlutterMap)
+          : find.byType(gmaps.GoogleMap),
+      findsOneWidget,
+    );
     expect(find.text('72%'), findsOneWidget);
   });
 }

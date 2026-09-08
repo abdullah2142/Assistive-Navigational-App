@@ -184,20 +184,39 @@ class ChatController extends Notifier<ChatState> {
   /// when it was plainly a new instruction instead — a user is allowed to
   /// abandon a half-finished clarification by simply asking for something
   /// else, and forcing them to formally cancel first would be its own trap.
+  /// Words that open a question, in both languages.
+  ///
+  /// Needed because a question mark alone is not enough. The destination
+  /// clarifier asks "Which one — say the number, or the name." — a question
+  /// with a full stop, seen on device — and there is no reason Gemini's own
+  /// follow-ups ("What should I call it.") will punctuate any better. Keying
+  /// only off `?` would leave exactly the multi-turn exchanges this is meant
+  /// to protect unprotected.
+  static const _questionOpeners = [
+    'which', 'what', 'who', 'where', 'when', 'how', 'do you', 'would you',
+    'should i', 'shall i', 'is that', 'are you', 'can you tell',
+    'কোন', 'কী', 'কি', 'কে', 'কোথায়', 'কখন', 'কীভাবে', 'কিভাবে',
+  ];
+
   /// Whether the assistant's last message was a question still awaiting an
   /// answer.
   ///
-  /// A question mark is the signal, in both languages — Bangla uses the same
-  /// `?`. Crude on purpose: the alternative is every tool declaring whether
-  /// its reply expects an answer, which is more machinery and more places to
+  /// Crude on purpose: the alternative is every tool declaring whether its
+  /// reply expects an answer, which is more machinery and more places to
   /// forget. A false positive costs one Gemini round trip; a false negative
-  /// costs the user the thread.
+  /// costs the user the thread — which is the failure that was reported, so
+  /// this errs toward treating a reply as conversational.
   bool get _assistantAwaitingAnswer {
     for (var i = state.messages.length - 1; i >= 0; i--) {
       final message = state.messages[i];
       // Skip the user turn just appended by the caller.
       if (message.sender == ChatSender.user) continue;
-      return message.text.trimRight().endsWith('?');
+      final text = message.text.trim();
+      if (text.isEmpty) return false;
+      if (text.endsWith('?')) return true;
+      if (text.contains('?')) return true;
+      final lower = text.toLowerCase();
+      return _questionOpeners.any((q) => lower.startsWith(q) || lower.contains('. $q'));
     }
     return false;
   }

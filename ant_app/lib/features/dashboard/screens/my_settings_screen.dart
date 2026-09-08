@@ -15,10 +15,19 @@ import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../../onboarding/services/pairing_service.dart';
 
-const _voiceOptions = [
-  ('bn-BD-female-1', 'Bangla — Female voice', 'বাংলা — নারী কণ্ঠ'),
-  ('bn-BD-male-1', 'Bangla — Male voice', 'বাংলা — পুরুষ কণ্ঠ'),
-];
+/// The two voices, named for the language the profile is actually set to.
+///
+/// Was a const list hardcoded to "Bangla", so an English user's settings
+/// offered "Bangla — Female voice" and "Bangla — Male voice" — seen on
+/// device. The onboarding screen had the same defect and was fixed there;
+/// this screen keeps its own copy of the list, so it needed fixing twice.
+List<(String, String, String)> _voiceOptionsFor(AppLanguage language) {
+  final english = language == AppLanguage.bangla ? 'বাংলা' : 'English';
+  return [
+    (voiceIdFor(language, female: true), '$english — Female voice', '$english — নারী কণ্ঠ'),
+    (voiceIdFor(language, female: false), '$english — Male voice', '$english — পুরুষ কণ্ঠ'),
+  ];
+}
 
 /// Self-service settings for the Disabled User themselves — a deliberate,
 /// narrow exception to "No Settings Menus for Users."
@@ -468,7 +477,7 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
             title: d.settingsVoiceSection,
             child: Wrap(
               spacing: 8,
-              children: _voiceOptions
+              children: _voiceOptionsFor(profile.language)
                   .map(
                     (option) => Semantics(
                       button: true,

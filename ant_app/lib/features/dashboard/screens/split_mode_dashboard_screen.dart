@@ -31,6 +31,23 @@ class _SplitModeDashboardScreenState extends State<SplitModeDashboardScreen> {
 
   bool _mapFullScreen = false;
 
+  /// Whether the map is on screen at all.
+  ///
+  /// Off by default. This dashboard is built for users who cannot see the
+  /// map, so giving it half the screen from the start costs the chat — the
+  /// part they actually use — for no benefit. A sighted companion, or a user
+  /// with some vision, turns it on from the app bar.
+  bool _mapVisible = false;
+
+  /// Keeps one ChatStreamPanel State alive across the layout change.
+  ///
+  /// Toggling the map moves the panel between an `Expanded` and a
+  /// `SizedBox`, which is a different widget type at the same slot — without
+  /// a key Flutter discards the element and rebuilds the panel, dropping its
+  /// wake-word/STT session and chat scroll position every time someone
+  /// showed or hid the map.
+  final GlobalKey _chatKey = GlobalKey();
+
   UserProfile get profile => widget.profile;
 
   Future<void> _handleOverlayChip(
@@ -80,6 +97,19 @@ class _SplitModeDashboardScreenState extends State<SplitModeDashboardScreen> {
         actions: [
           Semantics(
             button: true,
+            label: _mapVisible ? d.mapHideSemantics : d.mapShowSemantics,
+            child: IconButton(
+              icon: Icon(_mapVisible ? Icons.map_rounded : Icons.map_outlined),
+              onPressed: () => setState(() {
+                _mapVisible = !_mapVisible;
+                // Leaving this set would bring the map back full-screen next
+                // time, with no chat and no obvious way out.
+                if (!_mapVisible) _mapFullScreen = false;
+              }),
+            ),
+          ),
+          Semantics(
+            button: true,
             label: d.settingsEntrySemantics,
             child: IconButton(
               icon: const Icon(Icons.tune_rounded),
@@ -93,6 +123,11 @@ class _SplitModeDashboardScreenState extends State<SplitModeDashboardScreen> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final chatPanel = ChatStreamPanel(
+              key: _chatKey,
+              profile: profile,
+              onOverlayChip: (action, prefill) => _handleOverlayChip(context, action, prefill),
+            );
             return Column(
               children: [
                 // NOT `Visibility(child: Expanded(...))`. `Expanded` is a
@@ -111,23 +146,25 @@ class _SplitModeDashboardScreenState extends State<SplitModeDashboardScreen> {
                 // and takes zero room in the Column — so the map's
                 // `Expanded` below is the only child claiming space and
                 // fills the whole body when expanded.
-                Offstage(
-                  offstage: _mapFullScreen,
-                  child: SizedBox(
-                    height: constraints.maxHeight * _chatFlex,
-                    child: ChatStreamPanel(
-                      profile: profile,
-                      onOverlayChip: (action, prefill) => _handleOverlayChip(context, action, prefill),
+                if (!_mapVisible)
+                  // Map off: the chat is the whole dashboard.
+                  Expanded(child: chatPanel)
+                else ...[
+                  Offstage(
+                    offstage: _mapFullScreen,
+                    child: SizedBox(
+                      height: constraints.maxHeight * _chatFlex,
+                      child: chatPanel,
                     ),
                   ),
-                ),
-                Expanded(
-                  child: DashboardMapPanel(
-                    language: profile.language,
-                    isFullScreen: _mapFullScreen,
-                    onToggleFullScreen: () => setState(() => _mapFullScreen = !_mapFullScreen),
+                  Expanded(
+                    child: DashboardMapPanel(
+                      language: profile.language,
+                      isFullScreen: _mapFullScreen,
+                      onToggleFullScreen: () => setState(() => _mapFullScreen = !_mapFullScreen),
+                    ),
                   ),
-                ),
+                ],
               ],
             );
           },

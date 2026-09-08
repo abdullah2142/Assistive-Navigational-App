@@ -7,6 +7,7 @@ import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/services/tts_service.dart';
 import '../models/disability_profile_enums.dart';
+import '../models/user_profile.dart';
 import '../providers/onboarding_providers.dart';
 import '../widgets/big_choice_card.dart';
 import '../widgets/onboarding_scaffold.dart';
@@ -91,12 +92,12 @@ class _VerbosityVoiceScreenState extends ConsumerState<VerbosityVoiceScreen> {
         OnboardingVoiceChoice(
           label: s.verbosityFemaleVoiceLabel,
           synonyms: s.verbosityFemaleVoiceSynonyms,
-          onSelect: () => setState(() => _voiceId = 'bn-BD-female-1'),
+          onSelect: () => setState(() => _voiceId = voiceIdFor(language, female: true)),
         ),
         OnboardingVoiceChoice(
           label: s.verbosityMaleVoiceLabel,
           synonyms: s.verbosityMaleVoiceSynonyms,
-          onSelect: () => setState(() => _voiceId = 'bn-BD-male-1'),
+          onSelect: () => setState(() => _voiceId = voiceIdFor(language, female: false)),
         ),
       ],
       retryHint: s.voiceChoiceRetryHint,
@@ -114,8 +115,8 @@ class _VerbosityVoiceScreenState extends ConsumerState<VerbosityVoiceScreen> {
     final s = Onboarding.of(language);
     final canContinue = _verbosity != null && _voiceId != null;
     final voiceOptions = [
-      ('bn-BD-female-1', s.verbosityFemaleVoiceLabel),
-      ('bn-BD-male-1', s.verbosityMaleVoiceLabel),
+      (voiceIdFor(language, female: true), s.verbosityFemaleVoiceLabel),
+      (voiceIdFor(language, female: false), s.verbosityMaleVoiceLabel),
     ];
 
     return OnboardingScaffold(

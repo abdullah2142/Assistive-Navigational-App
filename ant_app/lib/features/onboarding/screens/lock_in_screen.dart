@@ -102,10 +102,28 @@ class _SummaryTile extends StatelessWidget {
       label: '$label: $value',
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
+        // Both sides flexible. The value used to be a bare `Text` beside an
+        // `Expanded` label, which let the label claim every spare pixel and
+        // squeezed the value to almost no width — a saved home address then
+        // wrapped one character per line, rendering as a vertical column of
+        // letters. Giving the value the larger share, and letting the label
+        // shrink, is what keeps a long address on one or two normal lines.
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: Text(label, style: Theme.of(context).textTheme.bodyMedium)),
-            Text(value, style: Theme.of(context).textTheme.titleMedium),
+            Flexible(
+              flex: 2,
+              child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+            ),
+            const SizedBox(width: 12),
+            Flexible(
+              flex: 3,
+              child: Text(
+                value,
+                textAlign: TextAlign.end,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
           ],
         ),
       ),

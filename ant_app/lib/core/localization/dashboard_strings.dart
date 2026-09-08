@@ -655,6 +655,28 @@ class Dashboard {
   String get settingsWriteMessageSemantics => _t('Write a new passerby message', 'নতুন বার্তা লিখুন');
   String get settingsSpeakMessageSemantics => _t('Speak your message', 'কথা বলে বলুন');
   String get settingsAddMessageButton => _t('Add message', 'বার্তা যোগ করুন');
+  /// Map visibility toggle. The map is off by default: this app is built
+  /// for users who cannot see it, so it starts out of the way and the chat
+  /// gets the whole screen until someone asks for it.
+  String get mapShowSemantics => _t('Show map', 'ম্যাপ দেখান');
+  String get mapHideSemantics => _t('Hide map', 'ম্যাপ লুকান');
+
+  /// Redo-onboarding section. Exists because testers who reached the
+  /// dashboard had no way back into onboarding except reinstalling the app —
+  /// which for a testing round means losing the round, not just the setup.
+  String get settingsRedoOnboardingSection => _t('Setup', 'সেটআপ');
+  String get settingsRedoOnboardingButton =>
+      _t('Go through setup again', 'আবার সেটআপ করুন');
+  String get settingsRedoOnboardingExplain => _t(
+        'Takes you back to the first setup question. Your saved places and '
+        'contacts are kept.',
+        'আপনাকে প্রথম সেটআপ প্রশ্নে ফিরিয়ে নেবে। আপনার সেভ করা জায়গা ও '
+        'যোগাযোগগুলো থাকবে।',
+      );
+  String get settingsRedoOnboardingConfirm =>
+      _t('Go through setup again?', 'আবার সেটআপ করবেন?');
+  String get settingsRedoOnboardingCancel => _t('Cancel', 'বাতিল');
+
   String get settingsFooterNote => _t('Changes here save immediately.', 'এখানে যা পাল্টাবেন সাথে সাথে সেভ হবে।');
 
   String languageLabel(AppLanguage language) =>

@@ -111,6 +111,35 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
     super.dispose();
   }
 
+  /// Sends the user back to the first onboarding question.
+  ///
+  /// Confirmed first, because it is reachable by voice and by touch on a
+  /// screen the user may not be able to see, and because landing back in
+  /// onboarding unexpectedly is disorienting in a way a settings toggle is
+  /// not. `AppRoot` watches `onboardingComplete` on the profile stream, so
+  /// clearing it is all that is needed — no navigation call, no route stack
+  /// to unwind.
+  Future<void> _confirmRedoOnboarding(Dashboard d, UserProfile profile) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: Text(d.settingsRedoOnboardingConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(d.settingsRedoOnboardingCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(d.settingsRedoOnboardingButton),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _save(profile.copyWith(onboardingComplete: false));
+  }
+
   Future<void> _save(UserProfile updated) {
     return ref.read(profileServiceProvider).saveProfile(updated);
   }
@@ -722,6 +751,31 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                     ),
                   ),
                   child: Text(d.settingsSaveAddressesButton),
+                ),
+              ],
+            ),
+          ),
+          // Redo onboarding. Testers who reached the dashboard had no way back
+          // into the setup flow except uninstalling and reinstalling, which
+          // costs a testing round rather than a minute. Only clears the
+          // completion flag — every answer already given is kept, so this is
+          // a re-run, not a wipe.
+          _SectionCard(
+            title: d.settingsRedoOnboardingSection,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  d.settingsRedoOnboardingExplain,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  label: Text(d.settingsRedoOnboardingButton),
+                  onPressed: () => _confirmRedoOnboarding(d, profile),
                 ),
               ],
             ),

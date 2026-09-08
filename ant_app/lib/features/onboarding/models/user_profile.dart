@@ -61,6 +61,13 @@ class UserProfile {
 
   // Step 3.1 — AI verbosity & voice.
   final VerbosityLevel verbosity;
+  /// Which synthesized voice narrates the app, e.g. `en-US-female-1`.
+  ///
+  /// The language half must match [language]. It used to be hardcoded to
+  /// `bn-BD-*` on the voice-selection screen regardless of what the user had
+  /// chosen, so an English user's profile claimed a Bangla voice — confusing
+  /// anywhere the value is shown or read back, and wrong the moment anything
+  /// infers a language from it. Build it with [voiceIdFor].
   final String voiceId;
 
   // Step 3.2 — Magic Button contacts.
@@ -236,4 +243,16 @@ class UserProfile {
         voiceAutoListen: voiceAutoListen ?? this.voiceAutoListen,
         savedPlaces: savedPlaces ?? this.savedPlaces,
       );
+}
+
+
+/// The voice id for [language] and gender.
+///
+/// One place, so the language half can never drift from the user's actual
+/// choice. `CloudTtsService` only reads the gender out of this and takes the
+/// language from its own parameter, which is why the mismatch went unnoticed:
+/// the wrong value still produced the right voice.
+String voiceIdFor(AppLanguage language, {required bool female}) {
+  final locale = language == AppLanguage.bangla ? 'bn-BD' : 'en-US';
+  return '$locale-${female ? 'female' : 'male'}-1';
 }

@@ -34,16 +34,38 @@ void main() {
     await tester.pump();
   }
 
+  /// Turns the map on. It is hidden by default, so every layout test needs
+  /// this first.
+  Future<void> showMap(WidgetTester tester) async {
+    await tester.tap(find.byIcon(Icons.map_outlined));
+    await tester.pump();
+  }
+
   testWidgets('body renders without a ParentDataWidget error', (tester) async {
     await pumpDashboard(tester);
 
     expect(tester.takeException(), isNull);
     expect(find.byType(ChatStreamPanel), findsOneWidget);
+
+    await showMap(tester);
+    expect(tester.takeException(), isNull);
     expect(find.byType(DashboardMapPanel), findsOneWidget);
   });
 
-  testWidgets('chat takes ~60% and the map ~40% of the body by default', (tester) async {
+  testWidgets('the map is hidden by default and the chat owns the body', (tester) async {
+    // The dashboard is for users who cannot see the map. Handing it half the
+    // screen before anyone asks takes room from the part they actually use.
     await pumpDashboard(tester);
+
+    final bodyHeight = tester.getSize(find.byType(SafeArea).first).height;
+
+    expect(find.byType(DashboardMapPanel, skipOffstage: false), findsNothing);
+    expect(tester.getSize(find.byType(ChatStreamPanel)).height, closeTo(bodyHeight, 1.0));
+  });
+
+  testWidgets('showing the map splits the body ~60/40', (tester) async {
+    await pumpDashboard(tester);
+    await showMap(tester);
 
     final bodyHeight = tester.getSize(find.byType(SafeArea).first).height;
     final chatHeight = tester.getSize(find.byType(ChatStreamPanel)).height;
@@ -53,8 +75,41 @@ void main() {
     expect(mapHeight, closeTo(bodyHeight * 0.4, 1.0));
   });
 
+  testWidgets('hiding the map keeps the same chat panel State', (tester) async {
+    // Toggling moves the panel between an Expanded and a SizedBox — a
+    // different widget type in the same slot. Without the GlobalKey the
+    // element is discarded and rebuilt, dropping the wake-word/STT session
+    // and the chat scroll position every single time.
+    await pumpDashboard(tester);
+    final before = tester.state(find.byType(ChatStreamPanel));
+
+    await showMap(tester);
+    expect(tester.state(find.byType(ChatStreamPanel)), same(before));
+
+    await tester.tap(find.byIcon(Icons.map_rounded));
+    await tester.pump();
+    expect(tester.state(find.byType(ChatStreamPanel)), same(before));
+  });
+
+  testWidgets('hiding a full-screen map does not leave it full-screen next time', (tester) async {
+    await pumpDashboard(tester);
+    await showMap(tester);
+    await tester.tap(find.byIcon(Icons.fullscreen_rounded));
+    await tester.pump();
+
+    // Hide while expanded, then show again — it must come back as a split,
+    // not full-screen with no chat and no obvious way out.
+    await tester.tap(find.byIcon(Icons.map_rounded));
+    await tester.pump();
+    await showMap(tester);
+
+    final bodyHeight = tester.getSize(find.byType(SafeArea).first).height;
+    expect(tester.getSize(find.byType(DashboardMapPanel)).height, closeTo(bodyHeight * 0.4, 1.0));
+  });
+
   testWidgets('expanding the map gives it the full body while the chat stays mounted', (tester) async {
     await pumpDashboard(tester);
+    await showMap(tester);
 
     final bodyHeight = tester.getSize(find.byType(SafeArea).first).height;
 

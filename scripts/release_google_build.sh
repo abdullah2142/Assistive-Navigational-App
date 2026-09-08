@@ -23,6 +23,12 @@ PROJECT="ant-assistive-nav"
 # *after* a successful upload.
 GROUP="fydp"
 
+# From google-services.json (client_info.mobilesdk_app_id). Required by
+# appdistribution:distribute — without it the CLI fails with "set the --app
+# option", *after* the artifact checks have already passed, which reads like
+# the build was rejected rather than the command being incomplete.
+APP_ID="1:514133180208:android:45009c17a5721198b2d2f5"
+
 # Secrets live here, gitignored: GEMINI_API_KEY, CLOUD_STT_API_KEY.
 # NOT optional. See preflight() for what happens without it.
 DEFINES_FILE="$APP_DIR/dart_defines.local.json"
@@ -157,6 +163,7 @@ distribute() {
   preflight
   verify_apk
   firebase appdistribution:distribute "$APK" \
+    --app "$APP_ID" \
     --project "$PROJECT" \
     --groups "$GROUP" \
     --release-notes "$notes"

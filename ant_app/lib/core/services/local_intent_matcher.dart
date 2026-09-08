@@ -787,6 +787,29 @@ class LocalIntentMatcher {
   /// These belong to the conversation, not to a command, so they are handed
   /// to the model instead. Substrings rather than whole words, because the
   /// signal is the phrase ("not my", "somewhere else"), not a single token.
+  /// Whether a captured destination is a description rather than a place.
+  ///
+  /// Seen on device: "take me to a nice place" matched as a route request
+  /// with the destination "a nice place", which is then handed to a geocoder
+  /// that can only fail or return something arbitrary. An indefinite article
+  /// is the giveaway — real destinations here are proper nouns ("Labaid"),
+  /// saved labels ("work", "home") or addresses, none of which begin with
+  /// "a" or "some". A request shaped like this wants the assistant to
+  /// *choose*, which is Gemini's job and not a lookup's.
+  static bool _isVagueDestination(String destination) {
+    final lower = destination.toLowerCase().trim();
+    if (_vagueDestinations.contains(lower)) return true;
+    return lower.startsWith('a ') ||
+        lower.startsWith('an ') ||
+        lower.startsWith('some ') ||
+        lower.startsWith('any ');
+  }
+
+  static const _vagueDestinations = {
+    'somewhere', 'anywhere', 'someplace', 'somewhere else', 'anywhere else',
+    'কোথাও', 'যেকোনো জায়গা',
+  };
+
   static const _routeRefusals = [
     'not my', "isn't my", 'is not my', 'not the', 'somewhere else', 'another place',
     'different place', 'wrong place', 'not there', "don't want to go", 'do not want to go',
@@ -885,7 +908,9 @@ class LocalIntentMatcher {
     final enMatch = _routeEnPattern.firstMatch(text);
     if (enMatch != null) {
       final destination = _tidyDestination(enMatch.group(1)!);
-      if (destination.isNotEmpty) return LocalIntent('request_route', {'destination': destination});
+      if (destination.isNotEmpty && !_isVagueDestination(destination)) {
+        return LocalIntent('request_route', {'destination': destination});
+      }
     }
     if (bn && !_isNegatedBn(text)) {
       final bnMatch = _routeBnPattern.firstMatch(text);

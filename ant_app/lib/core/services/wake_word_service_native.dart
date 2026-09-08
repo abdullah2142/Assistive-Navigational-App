@@ -249,6 +249,20 @@ class WakeWordService {
   DateTime? _lastScoreLog;
   double _peakSinceLog = 0;
 
+  /// Consecutive log windows whose peak was *exactly* zero.
+  ///
+  /// Real silence still produces a small, varying score from background
+  /// noise. An unbroken 0.000 means the classifier is being fed nothing at
+  /// all — the signature, documented on [pauseAround], of another capture
+  /// session holding the microphone.
+  int _deadWindows = 0;
+
+  /// How many such windows before the recorder is restarted.
+  ///
+  /// Two, so roughly six seconds. One could be a genuine gap right after a
+  /// restart, before any audio has arrived.
+  static const int _deadWindowsBeforeRestart = 2;
+
   void _logScore(double score) {
     _peakSinceLog = score > _peakSinceLog ? score : _peakSinceLog;
     final now = DateTime.now();
@@ -256,8 +270,37 @@ class WakeWordService {
     if (now.difference(_lastScoreLog!) < _scoreLogInterval) return;
     debugPrint('[WakeWord] peak=${_peakSinceLog.toStringAsFixed(3)} '
         '(threshold $detectionThreshold) over the last ${_scoreLogInterval.inSeconds}s');
+    final wasDead = _peakSinceLog == 0;
     _lastScoreLog = now;
     _peakSinceLog = 0;
+
+    // Self-heal a deaf recorder.
+    //
+    // Watched on device: after a Cloud STT session ended, the wake word
+    // restarted and then reported peak=0.000 indefinitely. It was running,
+    // logging, and detecting nothing — the mic had been handed back too
+    // early and the stream carried silence. The 500ms handoff in
+    // `pauseAround` is a guess at the release timing, and on this hardware
+    // it is sometimes wrong; rather than tune a delay that will be wrong on
+    // some other device, notice the failure and recover from it.
+    if (!wasDead) {
+      _deadWindows = 0;
+      return;
+    }
+    _deadWindows++;
+    if (_deadWindows < _deadWindowsBeforeRestart) return;
+    _deadWindows = 0;
+    final onDetected = _lastOnDetected;
+    if (onDetected == null || _suspendDepth > 0) return;
+    debugPrint('[WakeWord] no audio for '
+        '${_scoreLogInterval.inSeconds * _deadWindowsBeforeRestart}s — restarting the recorder');
+    unawaited(() async {
+      await stop();
+      if (_suspendDepth > 0) return;
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (_suspendDepth > 0) return;
+      await start(onDetected: onDetected);
+    }());
   }
 
   void _processChunk(Int16List pcm, void Function() onDetected) {

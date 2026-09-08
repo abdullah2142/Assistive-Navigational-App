@@ -306,6 +306,18 @@ class SttService {
     resetSilenceTimer();
     ceilingTimer = Timer(listenFor, () => finish('listenFor ceiling', synthesizeFinal: true));
     await done.future;
+    // Cancelled here as well as in `finish()`, because the completer can be
+    // completed from outside — `stop()` does exactly that so this method
+    // cannot hang. On that path `finish()` never runs, so these timers used
+    // to survive their own session and fire into the *next* one: they logged
+    // "silence" and called `cloud.stop()` on a session that had just begun.
+    //
+    // Watched live. Listen sessions degraded from a full 8-second window to
+    // ending 64ms after they started, each stale timer killing the next
+    // session and leaving one more behind, until the microphone was
+    // effectively dead while still reporting that it was listening.
+    silenceTimer?.cancel();
+    ceilingTimer?.cancel();
     if (streamFailed) {
       // Nothing usable was transcribed, so returning true here would leave
       // the caller believing the user simply said nothing. The most likely

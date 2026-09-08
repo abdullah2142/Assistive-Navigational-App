@@ -75,44 +75,76 @@ exports.onUserRoleWritten = onDocumentWritten("users/{uid}", async (event) => {
 });
 
 /**
- * Blaze-plan budget kill-switch.
+ * Budget kill-switch: stops the paid APIs before the bill grows.
  *
- * The project is on Firebase's free Spark plan by default (see this
- * function's own doc history / task.md) — Blaze only bills for usage past
- * the same free-tier quotas Spark already has, but a runaway bug or bad
- * actor could still rack up unexpected cost once real paid APIs are in
- * play. This is Google's own documented reference pattern for a hard
- * spending cap: a Cloud Billing Budget's Pub/Sub notification triggers
- * this function, which detaches the billing account the moment actual
- * cost exceeds the budget amount — cutting off every paid resource in the
- * project, not just one API. Deliberately blunt on purpose: a disabled
- * project you have to consciously re-enable beats a bill you didn't expect.
+ * ## What it kills, and what it deliberately does not
  *
- * Deployed 2026-09-01 (`us-east1`, alongside `onUserRoleWritten` once Blaze
- * unblocked 2nd-gen functions) — the deploy itself auto-created the
- * `budget-alerts` Pub/Sub topic it's wired to, since a 2nd-gen Pub/Sub
- * trigger provisions its topic if it doesn't already exist. Two things
- * remain, both billing/IAM changes on the account itself — not something
- * to automate without the account owner present, and this deploy can't
- * reach them from code either way:
- *   1. The user's existing $2 budget alert needs its Pub/Sub notification
- *      connected to this topic: Cloud Console -> Billing -> Budgets &
- *      alerts -> open that budget -> Manage notifications -> Connect a
- *      Pub/Sub topic -> `projects/ant-assistive-nav/topics/budget-alerts`.
- *      (Firebase Console's simplified budget-alert UI is email-only; this
- *      step needs the full Cloud Console Billing section.)
- *   2. Grant this function's actual runtime service account —
- *      `514133180208-compute@developer.gserviceaccount.com` (confirmed via
- *      `firebase functions:list --json` after deploy; it's the default
- *      Compute Engine SA Cloud Functions v2 uses unless configured
- *      otherwise) — the "Billing Account Costs Manager" IAM role *on the
- *      Billing Account* (not the project — Console: Billing -> Account
- *      Management -> Permissions -> Add Principal), so it's actually
- *      authorized to call `updateBillingInfo`. Without this grant the
- *      function will run on a budget breach but silently fail to disable
- *      billing — check its Cloud Logging output if that ever needs
- *      verifying.
+ * The previous version detached the billing account, which is Google's own
+ * reference pattern and far too blunt here. Against a $2 budget it would
+ * take Firestore and Cloud Functions down with the paid APIs — bricking the
+ * app for testers, requiring a manual re-link in the Console, and killing
+ * this very function in the process.
+ *
+ * So it disables [KILL_SERVICES] instead. Every one of them has a free
+ * fallback the app already uses when they fail:
+ *
+ *   speech            -> on-device recognizer (SttService falls through on a
+ *                        stream error; see cloud_stt_service_native.dart)
+ *   texttospeech      -> flutter_tts, the device voice
+ *   geocoding/routes/places -> Nominatim, OSRM, Overpass (RoutingConfig)
+ *
+ * The result is an app that gets worse rather than one that stops. Firestore,
+ * Auth and Functions keep running, so onboarding, the emergency contacts and
+ * the guardian side are untouched.
+ *
+ * `maps-android-backend` is left enabled on purpose: map loads are free and
+ * unlimited, so disabling it would blank the map for no saving at all.
+ *
+ * ## Why it fires at 90%, not 100%
+ *
+ * Cloud Billing cost data lags — typically hours, sometimes most of a day.
+ * By the time a 100% alert arrives the real spend is already past the
+ * budget. Firing at [KILL_AT_RATIO] leaves headroom for whatever was spent
+ * but not yet reported. This still cannot guarantee a hard ceiling; the
+ * per-API quotas are what bound the *rate*, and this bounds the tail.
+ *
+ * ## Re-enabling
+ *
+ * Nothing here ever re-enables a service. That is deliberate — an automatic
+ * reset would let a runaway loop rediscover the same spend every month. To
+ * bring them back after fixing the cause:
+ *
+ *   gcloud services enable speech.googleapis.com texttospeech.googleapis.com \
+ *     geocoding-backend.googleapis.com routes.googleapis.com \
+ *     places.googleapis.com --project=ant-assistive-nav
+ *
+ * ## Setup this depends on
+ *
+ *   1. The $2 budget must publish to `projects/ant-assistive-nav/topics/
+ *      budget-alerts` (verified connected 2026-09-08, thresholds 50/90/100%).
+ *   2. The runtime service account
+ *      `514133180208-compute@developer.gserviceaccount.com` needs
+ *      `roles/serviceusage.serviceUsageAdmin` **on the project**. Without it
+ *      this runs on a breach and silently fails to disable anything — check
+ *      Cloud Logging if that ever needs confirming.
+ *
+ * Note the budget covers this project only. The Gemini key is an AI Studio
+ * key billing to a different project, so assistant usage is NOT capped by
+ * this and needs its own budget there.
  */
+
+/** Paid APIs to switch off. Each has a free fallback the app already uses. */
+const KILL_SERVICES = [
+  "speech.googleapis.com",
+  "texttospeech.googleapis.com",
+  "geocoding-backend.googleapis.com",
+  "routes.googleapis.com",
+  "places.googleapis.com",
+];
+
+/** Act at 90% of budget, to absorb the lag in reported cost. */
+const KILL_AT_RATIO = 0.9;
+
 exports.disableBillingOnBudgetExceeded = onMessagePublished(
   { topic: "budget-alerts" },
   async (event) => {
@@ -122,37 +154,51 @@ exports.disableBillingOnBudgetExceeded = onMessagePublished(
       return;
     }
 
-    console.log(`Budget check: spent ${alert.costAmount} of ${alert.budgetAmount} ${alert.currencyCode || ""}`);
-    if (alert.costAmount <= alert.budgetAmount) {
-      console.log("Still under budget — no action taken.");
+    const { costAmount, budgetAmount, currencyCode = "" } = alert;
+    // A zero budget would make this ratio infinite or NaN; treat a missing or
+    // zero budget as "act", since it cannot mean "spend freely".
+    const ratio = budgetAmount > 0 ? costAmount / budgetAmount : 1;
+    console.log(
+      `Budget check: spent ${costAmount} of ${budgetAmount} ${currencyCode} ` +
+      `(${Math.round(ratio * 100)}%)`,
+    );
+
+    if (ratio < KILL_AT_RATIO) {
+      console.log(`Under ${Math.round(KILL_AT_RATIO * 100)}% — no action taken.`);
       return;
     }
 
     const projectId = process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT;
-    const projectName = `projects/${projectId}`;
-
     const auth = new google.auth.GoogleAuth({
-      scopes: [
-        "https://www.googleapis.com/auth/cloud-billing",
-        "https://www.googleapis.com/auth/cloud-platform",
-      ],
+      scopes: ["https://www.googleapis.com/auth/cloud-platform"],
     });
-    const billing = google.cloudbilling({ version: "v1", auth: await auth.getClient() });
+    const serviceusage = google.serviceusage({ version: "v1", auth: await auth.getClient() });
 
-    const current = await billing.projects.getBillingInfo({ name: projectName });
-    if (!current.data.billingEnabled) {
-      console.log("Billing is already disabled — nothing to do.");
-      return;
+    const disabled = [];
+    const failed = {};
+    for (const service of KILL_SERVICES) {
+      try {
+        await serviceusage.services.disable({
+          name: `projects/${projectId}/services/${service}`,
+        });
+        disabled.push(service);
+      } catch (e) {
+        // Keep going. Disabling four of five APIs is far better than
+        // abandoning the whole attempt because one was already off.
+        failed[service] = e && e.message ? e.message : String(e);
+      }
     }
 
-    // Detaching the billing account (empty name) disables billing for the
-    // whole project — every paid API stops working until it's manually
-    // re-linked in the Console.
-    await billing.projects.updateBillingInfo({
-      name: projectName,
-      requestBody: { billingAccountName: "" },
-    });
-    console.log(`ACTION TAKEN: billing disabled for ${projectName} — budget of ${alert.budgetAmount} exceeded.`);
+    console.log(
+      `ACTION TAKEN at ${Math.round(ratio * 100)}% of ${budgetAmount} ${currencyCode}. ` +
+      `Disabled: ${disabled.join(", ") || "none"}. ` +
+      `Failed: ${JSON.stringify(failed)}`,
+    );
+    console.log(
+      "The app now runs on its free fallbacks (on-device speech, device TTS, " +
+      "OpenStreetMap routing). Re-enable with `gcloud services enable ...` " +
+      "once the cause is understood.",
+    );
   },
 );
 

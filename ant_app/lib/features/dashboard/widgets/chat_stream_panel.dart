@@ -43,6 +43,12 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
   final _scrollController = ScrollController();
   bool _listening = false;
 
+  /// True between "a listen was requested" and "that listen finished".
+  /// Separate from [_listening], which only becomes true once the recognizer
+  /// is actually up — the gap between the two is what a second wake-word
+  /// detection used to land in.
+  bool _startingListen = false;
+
   // Captured once, here, rather than `ref.read` inside `dispose()` — `ref`
   // is unsafe to use once a widget is unmounting (a real crash this caused
   // live: "Bad state: Using 'ref' when a widget is about to or has been
@@ -188,34 +194,50 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
   /// comment) — every mic entry point in the app gets that coordination
   /// automatically, so this doesn't need its own copy of that logic.
   Future<void> _toggleListening(Dashboard d) async {
+    // Reentrancy guard. A wake-word detection calls this without awaiting,
+    // and the 2-second detection cooldown is shorter than a listen session,
+    // so a second detection could arrive while one was already starting. It
+    // took the `_listening` branch and *stopped* the session instead —
+    // which is what "Hey ANT works once, then stops working while the mic
+    // icon stays on" actually was: alternating start/stop, with the icon
+    // left showing whenever the pair ended on a start.
+    if (_startingListen) return;
     if (_listening) {
       await _stt.stop();
-      setState(() => _listening = false);
+      if (mounted) setState(() => _listening = false);
       return;
     }
-    if (!await _stt.ensureAvailable()) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d.chatVoiceUnavailable)));
-      return;
-    }
-    setState(() => _listening = true);
-    await _stt.listenOnce(
-      language: widget.profile.language,
-      onResult: (text, isFinal) {
-        // `mounted` must gate the whole callback — a pending listen session
-        // can still deliver a result after this widget is gone (same crash
-        // class confirmed live elsewhere: writing into a disposed
-        // controller).
+    _startingListen = true;
+    try {
+      if (!await _stt.ensureAvailable()) {
         if (!mounted) return;
-        _textController.text = text;
-        _textController.selection = TextSelection.collapsed(offset: text.length);
-        if (isFinal) {
-          setState(() => _listening = false);
-          if (text.trim().isNotEmpty) _submitText();
-        }
-      },
-    );
-    if (mounted) setState(() => _listening = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d.chatVoiceUnavailable)));
+        return;
+      }
+      setState(() => _listening = true);
+      await _stt.listenOnce(
+        language: widget.profile.language,
+        onResult: (text, isFinal) {
+          // `mounted` must gate the whole callback — a pending listen session
+          // can still deliver a result after this widget is gone (same crash
+          // class confirmed live elsewhere: writing into a disposed
+          // controller).
+          if (!mounted) return;
+          _textController.text = text;
+          _textController.selection = TextSelection.collapsed(offset: text.length);
+          if (isFinal) {
+            setState(() => _listening = false);
+            if (text.trim().isNotEmpty) _submitText();
+          }
+        },
+      );
+    } finally {
+      // In `finally` so a throw from `listenOnce` cannot strand the flag —
+      // that would wedge the mic button permanently, with no way back short
+      // of leaving the screen.
+      _startingListen = false;
+      if (mounted) setState(() => _listening = false);
+    }
   }
 
   @override

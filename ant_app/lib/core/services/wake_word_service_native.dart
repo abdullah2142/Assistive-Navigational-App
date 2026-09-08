@@ -28,7 +28,13 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 /// `flutter analyze`/compilation could be checked here. Verify on a real
 /// device before relying on it.
 class WakeWordService {
-  final AudioRecorder _recorder = AudioRecorder();
+  /// Built on first use, not on construction.
+  ///
+  /// The recorder reaches its platform plugin the moment it exists, so an
+  /// eager field meant simply *having* this service required a working mic
+  /// plugin — it allocated one for every user including those who never turn
+  /// the wake word on, and made the coordination logic untestable off-device.
+  late final AudioRecorder _recorder = AudioRecorder();
 
   Interpreter? _melInterpreter;
   Interpreter? _embeddingInterpreter;
@@ -56,9 +62,20 @@ class WakeWordService {
 
   void Function()? _lastOnDetected;
 
-  /// Pauses wake-word listening (if active) for the duration of [action],
-  /// then restarts it afterward using the same `onDetected` callback last
-  /// given to [start] — with a short handoff gap first.
+  /// How many suspensions are currently held.
+  ///
+  /// Reference-counted because they nest. `SttService.listenOnce` takes one
+  /// around every single listen, and a voice *flow* — the hazard hub, the
+  /// passerby picker — takes one around its whole narrate-then-listen loop.
+  /// Without counting, the inner release restarted the recorder in the gap
+  /// between two steps of the outer flow, which is precisely when the app is
+  /// talking. The wake-word recorder then held the microphone through the
+  /// narration and the next listen came up empty, so the hub read out the
+  /// hazard options and took no answer.
+  int _suspendDepth = 0;
+  bool _resumeWhenReleased = false;
+
+  /// Suspends wake-word listening for the duration of [action].
   ///
   /// Centralizes a fix that used to live duplicated (and, in one real case,
   /// forgotten) in each caller of [SttService.listenOnce]: two separate
@@ -72,20 +89,60 @@ class WakeWordService {
   /// session off before a word was even transcribed. [SttService] now
   /// calls this around every `listenOnce`, so any caller gets the
   /// coordination for free without needing to know wake-word exists at all.
+  ///
+  /// Nest it around a whole spoken exchange when one screen owns the
+  /// microphone for several turns — otherwise the recorder comes back
+  /// between them.
   Future<T> pauseAround<T>(Future<T> Function() action) async {
-    final wasListening = isListening;
-    if (wasListening) await stop();
+    await _acquireSuspend();
     try {
       return await action();
     } finally {
-      if (wasListening && _lastOnDetected != null) {
-        // Brief handoff gap: reclaiming the mic immediately after the other
-        // session ends raced Android's own audio-session teardown on
-        // device — see the doc comment above for what that looked like.
-        await Future.delayed(const Duration(milliseconds: 500));
-        await start(onDetected: _lastOnDetected!);
-      }
+      await _releaseSuspend();
     }
+  }
+
+  /// Takes a suspension held until [resume]. For a screen that owns the
+  /// microphone across several spoken turns — [pauseAround] is the right
+  /// shape when the work is a single awaitable.
+  ///
+  /// Deliberately not awaited by callers in `initState`; the stop it may
+  /// trigger is fire-and-forget and the screen must not block its first
+  /// frame on it.
+  void suspend() => unawaited(_acquireSuspend());
+
+  /// Releases a [suspend]. Safe to call when nothing is held.
+  void resume() {
+    if (_suspendDepth == 0) return;
+    unawaited(_releaseSuspend());
+  }
+
+  Future<void> _acquireSuspend() async {
+    _suspendDepth++;
+    if (_suspendDepth > 1) return;
+    if (isListening) {
+      _resumeWhenReleased = true;
+      await stop();
+    }
+  }
+
+  Future<void> _releaseSuspend() async {
+    _suspendDepth--;
+    // Still held by an outer flow — leave the microphone alone.
+    if (_suspendDepth > 0) return;
+    _suspendDepth = 0;
+    if (!_resumeWhenReleased || _lastOnDetected == null) return;
+    _resumeWhenReleased = false;
+    // Brief handoff gap: reclaiming the mic immediately after the other
+    // session ends raced Android's own audio-session teardown on device —
+    // see the doc comment above for what that looked like.
+    await Future.delayed(const Duration(milliseconds: 500));
+    // A new suspension may have been taken during that delay.
+    if (_suspendDepth > 0) {
+      _resumeWhenReleased = true;
+      return;
+    }
+    await start(onDetected: _lastOnDetected!);
   }
 
   Future<bool> _ensureModelsLoaded() async {

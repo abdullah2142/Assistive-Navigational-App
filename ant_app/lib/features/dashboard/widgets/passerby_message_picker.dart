@@ -8,6 +8,7 @@ import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/stt_service.dart';
+import '../../../core/services/wake_word_service.dart';
 import '../../../core/services/voice_cancel_window.dart';
 import '../../../core/services/tts_service.dart';
 import 'passerby_helper_overlay.dart';
@@ -91,6 +92,7 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
   // has been unmounted is unsafe"). Also lets this sheet stop an
   // in-progress listening session if it's dismissed mid-recognition.
   late final SttService _stt = ref.read(sttServiceProvider);
+  late final WakeWordService _wakeWord = ref.read(wakeWordServiceProvider);
   late final TtsService _tts = ref.read(ttsServiceProvider);
 
   List<String> get messages => widget.messages;
@@ -100,6 +102,11 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
   @override
   void initState() {
     super.initState();
+    _wakeWord;
+    // Held for the whole sheet — see CrowdsourceReportingHub for the failure
+    // this prevents. The picker narrates between utterances too, so it has
+    // the same gap for the wake-word recorder to reclaim the microphone in.
+    _wakeWord.suspend();
     // Forces the lazy `late final _stt` initializer to run now, while `ref`
     // is still safe to use — otherwise, if the mic button here is never
     // tapped, `dispose()` ends up being the *first* access, which is
@@ -118,6 +125,7 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
 
   @override
   void dispose() {
+    _wakeWord.resume();
     _stt.stop();
     _composeController.dispose();
     super.dispose();

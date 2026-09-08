@@ -10,6 +10,7 @@ import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/stt_service.dart';
+import '../../../core/services/wake_word_service.dart';
 import '../../../core/services/voice_cancel_window.dart';
 import '../../../core/services/tts_service.dart';
 import '../../../core/utils/ai_text_summarizer.dart';
@@ -104,6 +105,7 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
   // live: "Bad state: Using 'ref' when a widget is about to or has been
   // unmounted is unsafe").
   late final SttService _stt = ref.read(sttServiceProvider);
+  late final WakeWordService _wakeWord = ref.read(wakeWordServiceProvider);
   late final TtsService _tts = ref.read(ttsServiceProvider);
 
   // Bumped every time the step changes (category picked, sub-category
@@ -171,13 +173,24 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
     // tapped, `dispose()` ends up being the *first* access, which is
     // exactly the unsafe-`ref` crash this field was introduced to avoid.
     _stt;
+    _wakeWord;
     _descriptionController.addListener(() => setState(() {}));
+    // Suspended for as long as this hub is open, not merely around each
+    // individual listen. Per-listen suspension let the wake-word recorder
+    // reclaim the microphone in the gap between two steps — which is exactly
+    // when the app is reading the hazard options aloud. It then held the mic
+    // through the narration and the following listen returned nothing, so
+    // the options were read out and no answer was ever taken. Reported as
+    // working with auto-listen on and "Hey ANT" off, and broken with both
+    // on; this is why.
+    _wakeWord.suspend();
     WidgetsBinding.instance.addPostFrameCallback((_) => _narrateAndListenForStep());
   }
 
   @override
   void dispose() {
     _stt.stop();
+    _wakeWord.resume();
     _descriptionController.dispose();
     super.dispose();
   }

@@ -17,5 +17,11 @@ class WakeWordService {
 
   Future<void> dispose() async {}
 
+  /// Nestable, like the native one — there is nothing to suspend here, so
+  /// depth does not need tracking.
   Future<T> pauseAround<T>(Future<T> Function() action) => action();
+
+  void suspend() {}
+
+  void resume() {}
 }

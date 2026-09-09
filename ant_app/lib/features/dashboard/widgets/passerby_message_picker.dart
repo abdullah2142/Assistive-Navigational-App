@@ -198,14 +198,41 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
   /// command?" decision its own short, clean listening window rather than
   /// asking the recognizer to find it buried in one long run-on utterance.
   Future<void> _autoListenLoop() async {
+    // Narrate first, listen second — never both at once.
+    //
+    // The first pass used to skip straight to opening the microphone, which
+    // was wrong twice over. The user heard a listening buzz with no idea
+    // what to say into it; and the chat's own "Showing your screen now."
+    // was still playing, so the recorder came up *underneath* it. Caught on
+    // device 10 September:
+    //
+    //   02:19:13.467  [CloudStt] continuous listening started
+    //   02:19:13.545  audioplayers requestAudioFocus req=3
+    //   02:19:13.564  onAudioFocusChange(-3) -> record
+    //
+    // `record` treats a duck request as a full focus loss, and its default
+    // interruption mode pauses without resuming — so the session that just
+    // opened was already dead, and the message spoken into it never arrived.
+    // That empty message is what made the "show it" prompt loop forever.
+    //
+    // `TtsService` serializes utterances, so awaiting this also waits out
+    // whatever the chat is still saying.
     var first = true;
+    // Set when the previous turn already said something more specific than
+    // the standing prompt, so the user is not given two instructions for one
+    // turn.
+    var alreadyPrompted = false;
     while (mounted && widget.autoListen) {
-      if (!first) await _speak(strings.passerbyPickerContinueOrShowSpoken);
+      if (!alreadyPrompted) {
+        await _speak(first ? strings.passerbyPickerIntroSpoken : strings.passerbyPickerContinueOrShowSpoken);
+      }
+      alreadyPrompted = false;
       first = false;
       if (!mounted) return;
       if (!await _stt.ensureAvailable()) return;
       setState(() => _listening = true);
       var submitted = false;
+      var heardSubmitWithNothing = false;
       await _stt.listenOnce(
         language: widget.language,
         pauseFor: const Duration(seconds: 4),
@@ -230,11 +257,20 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
           if (composeController.text.trim().isNotEmpty) {
             submitted = true;
             _submitCompose(context, fromVoice: true);
+          } else {
+            // "Show it" with nothing to show. The loop used to fall through
+            // here and replay the identical prompt, forever — reported from
+            // the device as exactly that. Say what is actually missing.
+            heardSubmitWithNothing = true;
           }
         },
       );
       if (mounted) setState(() => _listening = false);
       if (submitted || !mounted) return;
+      if (heardSubmitWithNothing) {
+        await _speak(strings.passerbyPickerNothingToShowSpoken);
+        alreadyPrompted = true;
+      }
     }
   }
 

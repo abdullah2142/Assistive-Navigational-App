@@ -98,6 +98,28 @@ class CloudSttService {
           // background noise on top of that.
           echoCancel: true,
           noiseSuppress: true,
+          // Resume automatically once whatever interrupted us is done.
+          //
+          // The default is `pause`, which the package documents as "pauses
+          // automatically, resumes *manually*" — nothing in this app ever
+          // resumed it, so any interruption killed the session silently and
+          // the user carried on talking into a recorder that had stopped.
+          // Seen on device 10 September in the passerby picker, where this
+          // app's own narration ducked its own dictation session:
+          //
+          //   02:19:13.564  onAudioFocusChange(-3) -> record
+          //   02:19:15.513  onAudioFocusChange(1)  -> record
+          //
+          // `record` treats a duck request as a full focus loss, so -3 is
+          // enough to trigger it. The narration ordering is fixed separately
+          // (see `PasserbyMessagePicker._autoListenLoop`); this is what keeps
+          // a phone call, an alarm or another app from doing the same.
+          //
+          // Deliberately not `none`, unlike the wake word: pausing a
+          // dictation session the user deliberately started, while something
+          // else has the speakers, is the right behaviour. It just has to
+          // come back afterwards.
+          audioInterruption: AudioInterruptionMode.pauseResume,
         ),
       );
 

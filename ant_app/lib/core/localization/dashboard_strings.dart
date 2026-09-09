@@ -642,6 +642,30 @@ class Dashboard {
       _t('Got it. Say more, or say "show it" to display your message now.',
           'ঠিক আছে। আরও বলুন, বা এখনই দেখাতে "দেখাও" বলুন।');
 
+  /// Spoken once as the sheet opens, **before** the microphone is opened.
+  ///
+  /// It used to open the mic immediately and say nothing, so the user heard
+  /// a listening buzz with no idea what they were meant to say into it. Says
+  /// what the screen is for and what to do with it, in that order, because
+  /// somebody who cannot see the sheet has no other way to find out.
+  String get passerbyPickerIntroSpoken => _t(
+        'This shows a message full-screen so someone nearby can read it. '
+            'Say what you need, then say "show it".',
+        'এটি আপনার বার্তা বড় করে স্ক্রিনে দেখাবে যাতে কাছের কেউ পড়তে পারে। '
+            'যা বলতে চান বলুন, তারপর "দেখাও" বলুন।',
+      );
+
+  /// Said when "show it" arrives with nothing dictated yet.
+  ///
+  /// The old loop simply re-asked the same question, forever: the submit
+  /// phrase was recognized, there was nothing to submit, and the identical
+  /// prompt played again. Reported from the device as exactly that — "it
+  /// loops on, telling me it got it and i should say show it".
+  String get passerbyPickerNothingToShowSpoken => _t(
+        'I do not have a message yet. Tell me what to say first, then say "show it".',
+        'এখনো কোনো বার্তা পাইনি। আগে কী বলতে চান সেটা বলুন, তারপর "দেখাও" বলুন।',
+      );
+
   // Crowdsource Reporting Hub
   String get crowdsourceTitle => _t('Report a Hazard', 'বিপদ জানান');
   String get crowdsourceDescribeItTitle => _t('Describe It', 'বলুন কী হয়েছে');

@@ -210,7 +210,7 @@ pipeline that does three inferences every 80 ms.
 
 ---
 
-## 6. "Hey ANT" answers once, then never again until relaunch — ROOT CAUSE FOUND
+## 6. "Hey ANT" answers once, then never again until relaunch — FIXED, CONFIRMED ON DEVICE
 
 **Reported:** "hey jarvis works the first time, opens mic and takes input,
 answers and right after it doesnt respond to hey jarvis anymore. works again
@@ -256,8 +256,11 @@ permanently stop whatever else was playing — so a user listening to music lost
 it for good the first time ANT said anything. That is a separate defect the
 same log exposed.
 
-**Awaiting device confirmation.** The mechanism is proven from the log; the
-fix is not yet.
+**Confirmed on device, same night.** Three exchanges back to back, detections
+at 0.630, 0.674 and 0.969, and the peak line ran unbroken straight through a
+15-second spoken reply where it had previously stopped dead at it. Zero
+`onAudioFocusChange(-1)` dispatched to the recorder across the whole session;
+every TTS request now shows `req=3`.
 
 ---
 
@@ -299,7 +302,7 @@ a file to read afterwards.
 
 ---
 
-## 7. The red mic button cannot be turned off — FIXED
+## 7. The red mic button could not be turned off — FIXED
 
 **Reported:** "clicking on the red mic button after its been activated doesnt
 deactivate it."
@@ -339,16 +342,55 @@ but not this one.
 
 ---
 
-## 9. Show Screen opens the microphone before saying what it is for
+## 9. Show Screen opened the microphone before saying what it is for — FIXED
 
 **Reported:** "show screen option should first narrate what user can/should do
-here before opening mic."
+here before opening mic." And, separately: "after i say my message it asks me
+to say show it, i say show it, and it loops on, telling me it got it and i
+should say show it, basically keeping on looping."
 
-`PasserbyMessagePicker` starts `_autoListenLoop()` from a post-frame callback
-the instant the sheet opens. The user hears a listening buzz with no idea
-what they are meant to say. Narrate the purpose and the options first, then
-open the microphone — which is the order `CrowdsourceReportingHub` already
-uses (`_narrateAndListenForStep`).
+Those turned out to be the same bug seen from two ends, and it is worse than
+a missing announcement. `_autoListenLoop` skipped narration entirely on its
+first pass and opened the recorder immediately — while the chat's own
+"Showing your screen now." was still playing. Caught on device:
+
+```
+02:19:13.467  [CloudStt] continuous listening started
+02:19:13.545  audioplayers requestAudioFocus req=3
+02:19:13.564  onAudioFocusChange(-3) -> record
+02:19:15.513  onAudioFocusChange(1)  -> record
+```
+
+`record` treats a duck request (-3) as a full focus loss, and its default
+`AudioInterruptionMode.pause` is documented as "pauses automatically, resumes
+**manually**" — nothing resumed it. So the session that had just opened was
+already dead and the message spoken into it never arrived. `_committed` stayed
+empty, "show it" therefore submitted nothing, and the loop replayed the
+identical prompt forever. The user was talking into a stopped recorder and
+being told to repeat a command that could never work.
+
+**Three fixes:**
+
+1. **Narrate first, listen second.** The loop now speaks an intro before its
+   first listen — what the screen does and what to say into it — and
+   `TtsService` serializes utterances, so awaiting it also waits out whatever
+   the chat is still saying. This is the order `CrowdsourceReportingHub`
+   already used.
+2. **`audioInterruption: AudioInterruptionMode.pauseResume`** on
+   `CloudSttService`, so a dictation session recovers from *any* interruption
+   — a phone call, an alarm, another app — not just this one. Deliberately not
+   `none` like the wake word: pausing a session the user started while
+   something else has the speakers is right, it just has to come back.
+3. **The dead end has an exit.** "Show it" with nothing dictated now says what
+   is missing rather than replaying the standing prompt, and does not stack
+   both instructions into one turn.
+
+(`test/passerby_picker_voice_test.dart`)
+
+**The general rule this establishes,** worth applying wherever a flow
+narrates and then listens: the microphone must be closed for the whole of the
+narration and opened only after it finishes. Any overlap ducks our own
+recorder, and `record` cannot tell our voice from an interruption.
 
 ---
 

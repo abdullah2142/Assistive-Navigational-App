@@ -325,7 +325,7 @@ old guard.)
 
 ---
 
-## 8. Onboarding narration repeats and overlaps into the caretaker code step
+## 8. Onboarding narration repeats and overlaps into the caretaker code step — FIXED
 
 **Reported:** "the hey ant dialogue repeats and overlaps into the caretaker
 code section."
@@ -336,10 +336,39 @@ still playing while the next screen is up. The second is the dangerous one —
 overlapping speech is unusable for a blind user, and the caretaker pairing
 code is six digits that have to be heard exactly once, clearly.
 
-Suspect `TtsService` not being stopped on step transition, and
-`OnboardingScaffold`'s narrate-then-listen loop re-entering. Related to
-`onboarding_stale_listener_test.dart`, which covers the tap-during-save case
-but not this one.
+**Diagnosed by reading, one layer below where it looked.** `OnboardingScaffold`
+already stops TTS on dispose, and `TtsService` already has a generation guard
+that abandons anything still queued behind a `stop()`. Both were working.
+
+The hole was in `CloudTtsService`. Speaking is an HTTP round trip to Google's
+synthesis API *and then* a playback — and `TtsService.stop()` reaches the
+cloud service as `stop()`, which stops a **player**. Between the request going
+out and the audio coming back there is no player to stop, so a `stop()`
+landing inside that window did nothing whatsoever: the response arrived
+afterwards and played over whatever screen had replaced the one that asked
+for it. Role selection is the step before caretaker pairing, and its narration
+is the longest in the flow (title, subtitle and every option), so it is the
+most likely to still be in flight when the user answers.
+
+**Fix:** `CloudTtsService` carries its own generation, bumped by `stop()` and
+re-checked after the fetch returns. A cancelled utterance is dropped and
+reported as success — not failure, which would send `TtsService` to the
+on-device engine to say the very thing that was just cancelled.
+
+(`test/tts_serialization_test.dart`)
+
+**Also fixed here: the caretaker's pairing code was never spoken.** The screen
+rendered six digits at 44pt and said nothing at all — no narration, and no
+`dispose` stopping the previous screen's voice. A caretaker who is blind, or
+simply not looking at the phone, had no way to read the code out to the person
+beside them. It now speaks the digits, spaced so the engine reads them one at
+a time rather than as a single number, once per code rather than on every
+rebuild while it waits.
+
+**Not reproduced: the "repeats" half.** The overlap is fixed and explains an
+utterance arriving twice as easily as it explains one arriving late. If
+repetition survives this build, it needs a device log — the guard to look at
+next is `OnboardingScaffold._speakThenListen`'s `stepGeneration` check.
 
 ---
 

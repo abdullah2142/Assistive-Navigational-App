@@ -48,6 +48,7 @@ class _FakeTts {
 }
 
 void main() {
+  group("an utterance cancelled mid-fetch", _inFlightTests);
   test('an awaited speak really has finished when it returns', () async {
     final tts = _FakeTts();
 
@@ -121,5 +122,65 @@ void main() {
     await after;
 
     expect(tts.spoken, ['still spoken']);
+  });
+}
+
+/// The second half of the same bug, one layer down.
+///
+/// `TtsService`'s generation guard checks *before* handing an utterance to
+/// the cloud engine, and its `stop()` stops a *player*. Between the synthesis
+/// request going out over HTTP and the audio coming back there is no player
+/// to stop — so a `stop()` landing inside that window did nothing at all, the
+/// response arrived afterwards, and it played over whatever screen had
+/// replaced the one that asked for it.
+///
+/// Reported from the device as onboarding narration "overlapping into the
+/// caretaker code section": role selection's speech was still in flight when
+/// the user answered and the flow moved on.
+class _FakeCloudTts {
+  final List<String> played = [];
+  int _generation = 0;
+
+  /// Completes when the test lets the synthesis request return.
+  Completer<void>? fetch;
+
+  Future<bool> speak(String text) async {
+    final myGeneration = _generation;
+    fetch = Completer<void>();
+    await fetch!.future;
+    // The check that was missing: this is the only moment that can tell a
+    // cancelled utterance from a live one.
+    if (myGeneration != _generation) return true;
+    played.add(text);
+    return true;
+  }
+
+  void stop() => _generation++;
+}
+
+void _inFlightTests() {
+  test('an utterance cancelled while it is being fetched is never played', () async {
+    final cloud = _FakeCloudTts();
+
+    final speaking = cloud.speak('Are you the person who needs help, or a caretaker?');
+    await Future<void>.delayed(Duration.zero);
+
+    // The user answers and the flow moves on while the request is in flight.
+    cloud.stop();
+    cloud.fetch!.complete();
+    await speaking;
+
+    expect(cloud.played, isEmpty, reason: 'it must not play over the next screen');
+  });
+
+  test('an utterance that was not cancelled still plays', () async {
+    final cloud = _FakeCloudTts();
+
+    final speaking = cloud.speak('Your pairing code is 4 1 7 2 9 3');
+    await Future<void>.delayed(Duration.zero);
+    cloud.fetch!.complete();
+    await speaking;
+
+    expect(cloud.played, ['Your pairing code is 4 1 7 2 9 3']);
   });
 }

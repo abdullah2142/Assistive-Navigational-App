@@ -89,10 +89,26 @@ class CloudTtsService {
   /// guarantee, same reason `TtsService`'s on-device path sets
   /// `awaitSpeakCompletion(true)`. Returns `false` (having played nothing)
   /// on any failure.
+  /// Bumped by [stop], so an utterance still being *fetched* when the screen
+  /// that asked for it goes away is abandoned rather than played over
+  /// whatever replaced it.
+  ///
+  /// `TtsService` has its own generation guard and it is not enough on its
+  /// own: it checks before handing an utterance here, and `stop()` there
+  /// calls `stop()` here — which stops a *player*. Between the request going
+  /// out and the audio coming back there is no player to stop, so a `stop()`
+  /// landing inside that window did nothing at all, and the response arrived
+  /// afterwards and played. Reported from the device as onboarding narration
+  /// "overlapping into the caretaker code section": the role-selection
+  /// screen's speech was still in flight over HTTP when the user answered
+  /// and the flow moved on.
+  int _generation = 0;
+
   Future<bool> speak(String text, {required AppLanguage language, required String voiceId}) async {
     if (!CloudTtsConfig.isConfigured) return false;
     final trimmed = text.trim();
     if (trimmed.isEmpty) return true;
+    final myGeneration = _generation;
     try {
       final uri = Uri.parse('https://texttospeech.googleapis.com/v1/text:synthesize?key=${CloudTtsConfig.apiKey}');
       final response = await http.post(
@@ -114,6 +130,15 @@ class CloudTtsService {
         return false;
       }
       final bytes = base64Decode(audioContent);
+      // Checked here, after the round trip, because this is the only moment
+      // that can tell a cancelled utterance from a live one — see
+      // [_generation]. Reported as true rather than false: nothing failed,
+      // and a false would send `TtsService` to the on-device engine to say
+      // the very thing that was just cancelled.
+      if (myGeneration != _generation) {
+        debugPrint('[CloudTts] dropping an utterance cancelled while it was being fetched');
+        return true;
+      }
       await _ensureContext();
       await _player.stop();
       final done = Completer<void>();
@@ -151,7 +176,10 @@ class CloudTtsService {
     return estimated;
   }
 
-  Future<void> stop() => _player.stop();
+  Future<void> stop() {
+    _generation++;
+    return _player.stop();
+  }
 
   Future<void> dispose() => _player.dispose();
 }

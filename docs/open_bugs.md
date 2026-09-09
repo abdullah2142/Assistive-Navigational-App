@@ -210,18 +210,67 @@ pipeline that does three inferences every 80 ms.
 
 ---
 
-## 6. "Hey ANT" answers once, then never again until relaunch — NOT FIXED
+## 6. "Hey ANT" answers once, then never again until relaunch — ROOT CAUSE FOUND
 
 **Reported:** "hey jarvis works the first time, opens mic and takes input,
 answers and right after it doesnt respond to hey jarvis anymore. works again
 when i relaunch app cleanly."
 
-This is item 1 surviving its own fix. The ordering defects in item 1 were
-real, and the tests that pin them fail against the old code — but they were
-not the whole story.
+**Caught on device, 10 September, with a profile build and a logcat stream.
+The app's own text-to-speech was killing its own microphone.**
 
-**Two candidate causes found by reading, one of them introduced on 9
-September. Both fixed; neither confirmed to be *the* cause.**
+```
+02:07:34.598  [WakeWord] listening started (cold)        <- restart works fine
+02:07:39.761  AudioRecord [audioRecordData][fine] 5s     <- audio flowing
+02:07:40.211  [WakeWord] peak=0.001                      <- first and only peak
+02:07:42.277  requestAudioFocus() USAGE_MEDIA req=1
+              clientId=...xyz.luan.audioplayers...       <- our TTS
+02:07:42.296  onAudioFocusChange(-1)
+              -> com.llfbandit.record.AudioSessionManager <- our recorder
+02:07:42.377  AudioTrack sr 24000 start                  <- the spoken reply
+              ...no AudioRecord data and no peak line, ever again
+```
+
+`req=1` is `AUDIOFOCUS_GAIN` — a **permanent** grab, which is audioplayers'
+default. Android therefore dispatches `AUDIOFOCUS_LOSS` (-1) rather than a
+transient loss, and `record`'s `AudioSessionManager` stops the recording on
+all three loss codes alike, so ducking would not have saved it either. The
+loss is permanent, so nothing ever restores the recorder — which is exactly
+why only a relaunch brought the wake word back.
+
+Every diagnosis before this one was wrong in the same way: the wake word was
+never failing to *restart*. It restarted perfectly, every time, and was then
+shot by the assistant answering out loud eight seconds later.
+
+**Fix:** `audioInterruption: AudioInterruptionMode.none` on the wake word's
+`RecordConfig`. That is the only mode where `record` skips registering a focus
+listener at all, and it is right on its own terms — a wake-word detector's job
+is to keep listening *through* other audio, including this app's own voice,
+which is what `echoCancel` is already there for. Not applied to
+`CloudSttService`: pausing a dictation session the user started, when
+something else takes the speakers, is ordinary behaviour.
+
+**Also fixed:** the TTS player now requests `gainTransientMayDuck` instead of
+permanent gain. Every sentence the assistant spoke was telling Android to
+permanently stop whatever else was playing — so a user listening to music lost
+it for good the first time ANT said anything. That is a separate defect the
+same log exposed.
+
+**Awaiting device confirmation.** The mechanism is proven from the log; the
+fix is not yet.
+
+---
+
+### What was wrong with the earlier diagnoses
+
+The ordering defects in item 1 were real, and the tests that pin them fail
+against the old code — but they were not why the wake word died. Kept here
+because both are still worth having fixed, and because the sequence of three
+wrong answers is itself the lesson: this was diagnosed twice from code and
+twice wrongly, and settled in four minutes once there was a log.
+
+Two candidates were found by reading, one of them introduced on 9 September.
+Both were fixed, and **neither was the cause**:
 
 1. **An unbounded await in the Cloud STT teardown.** `SttService` was changed
    on 9 September from `unawaited(cloud.stop())` to awaiting it, so the
@@ -235,22 +284,18 @@ September. Both fixed; neither confirmed to be *the* cause.**
    session that fails to complete strands `_startingListen`, which wedges the
    button *and* the wake word together.
 
-**What the log would settle, once there is one.** After the first exchange,
-look for `[WakeWord] listening started`:
+The decision table that settled it, kept because it will settle the next one
+too. After an exchange, look for `[WakeWord] listening started`:
 
-- **absent** → the restart path is not running. Suspect the teardown hang.
+- **absent** → the restart path is not running.
 - **present, but no `[WakeWord] peak=` lines follow** → the recorder came up
-  but delivers nothing. Suspect Android revoking mic access, or the TTS reply
-  taking the audio session.
-- **present, `peak=` lines at real values, no detection** → the model is
-  hearing and not matching; a threshold or poisoned-buffer problem.
+  and then stopped delivering. ← this is what happened.
+- **present, `peak=` at real values, no `DETECTED`** → hearing and not
+  matching; a threshold or buffer problem.
 
-Note logcat from the device *did* show `WakeWordForegroundService` starting
-three times during the session, so the app was backgrounded and refocused
-while this was being tested. The service is inert (it holds a wake lock and a
-notification, no audio) and the manifest declares
-`foregroundServiceType="microphone"` correctly, but background audio capture
-on Android 11+ is a plausible fourth candidate and has not been ruled out.
+The `peak=` line is the load-bearing one and it fires every three seconds, so
+it drowns a live stream. Filter it out of the stream and keep the full log in
+a file to read afterwards.
 
 ---
 

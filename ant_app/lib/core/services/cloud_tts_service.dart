@@ -25,6 +25,42 @@ import '../localization/app_language.dart';
 class CloudTtsService {
   final AudioPlayer _player = AudioPlayer();
 
+  /// Short spoken replies must not permanently seize audio focus.
+  ///
+  /// audioplayers defaults to `AndroidAudioFocus.gain` — a *permanent* grab.
+  /// Every sentence this assistant says therefore told Android to
+  /// permanently stop whatever else was playing, which for a user listening
+  /// to music means it never comes back. It was also the mechanism behind
+  /// the wake word dying (see `WakeWordService`'s recorder config): a
+  /// permanent gain sends every other client AUDIOFOCUS_LOSS rather than a
+  /// transient one.
+  ///
+  /// Transient-may-duck is what a navigation prompt is supposed to request:
+  /// lower the music for a moment, say the thing, give it back.
+  static final _speechContext = AudioContext(
+    android: const AudioContextAndroid(
+      isSpeakerphoneOn: false,
+      stayAwake: false,
+      contentType: AndroidContentType.speech,
+      usageType: AndroidUsageType.assistanceNavigationGuidance,
+      audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+    ),
+    iOS: AudioContextIOS(category: AVAudioSessionCategory.playback),
+  );
+
+  bool _contextApplied = false;
+
+  Future<void> _ensureContext() async {
+    if (_contextApplied) return;
+    _contextApplied = true;
+    try {
+      await _player.setAudioContext(_speechContext);
+    } catch (e) {
+      // Never let an audio-session detail cost the user the sentence itself.
+      debugPrint('[CloudTts] could not set the audio context: $e');
+    }
+  }
+
   /// `bn-IN`, not `bn-BD` — Google Cloud TTS has no Bangladesh-dialect
   /// Bangla voice, only India's. Same language, a different regional
   /// accent; still far more natural than the on-device fallback in
@@ -78,6 +114,7 @@ class CloudTtsService {
         return false;
       }
       final bytes = base64Decode(audioContent);
+      await _ensureContext();
       await _player.stop();
       final done = Completer<void>();
       late final StreamSubscription<void> sub;

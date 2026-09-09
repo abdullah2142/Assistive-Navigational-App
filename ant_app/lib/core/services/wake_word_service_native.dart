@@ -530,6 +530,32 @@ class _RecordAudioSource implements WakeWordAudioSource {
           numChannels: 1,
           echoCancel: true,
           noiseSuppress: true,
+          // The wake word does not participate in audio focus. This is the
+          // whole bug behind "Hey ANT answers once and then never again",
+          // caught on device 10 September:
+          //
+          //   requestAudioFocus() USAGE_MEDIA req=1   <- audioplayers, our TTS
+          //   onAudioFocusChange(-1) -> record's AudioSessionManager
+          //   ...no AudioRecord data, ever again
+          //
+          // `req=1` is AUDIOFOCUS_GAIN, a *permanent* grab, so Android sends
+          // the recorder AUDIOFOCUS_LOSS rather than a transient one — and
+          // `record` stops the recording on all three loss codes alike, so
+          // ducking would not have helped. The assistant speaking its own
+          // reply killed its own microphone, and nothing restored it short
+          // of relaunching the app.
+          //
+          // `none` is the only mode that skips registering the focus
+          // listener at all (see `AudioSessionManager.startSession`). It is
+          // also the correct behaviour on its own terms: a wake-word
+          // detector's entire job is to keep listening *through* other
+          // audio, including this app's own voice, which is what
+          // `echoCancel` above is for.
+          //
+          // Deliberately not applied to `CloudSttService`: pausing a
+          // dictation session when something else takes the speakers is
+          // ordinary, expected behaviour for a session the user started.
+          audioInterruption: AudioInterruptionMode.none,
         ),
       );
 

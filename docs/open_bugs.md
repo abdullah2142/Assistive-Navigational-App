@@ -342,7 +342,7 @@ but not this one.
 
 ---
 
-## 9. Show Screen opened the microphone before saying what it is for — FIXED
+## 9. Show Screen opened the microphone before saying what it is for — FIXED, CONFIRMED ON DEVICE
 
 **Reported:** "show screen option should first narrate what user can/should do
 here before opening mic." And, separately: "after i say my message it asks me
@@ -386,6 +386,25 @@ being told to repeat a command that could never work.
    both instructions into one turn.
 
 (`test/passerby_picker_voice_test.dart`)
+
+**Confirmed on device 10 September.** The ordering inverted as intended, and
+no focus loss was dispatched to the recorder anywhere in the run:
+
+```
+02:40:28.514  local match: open_passerby_helper
+02:40:29.631  TTS req=3          <- "Showing your screen now." (chat)
+02:40:32.592  TTS req=3          <- the picker intro
+02:40:40.814  [CloudStt] continuous listening started   <- after both
+```
+
+The whole flow then worked: a message dictated and committed, read back, a
+second listen, "show it", confirm window, shown. No loop.
+
+**Left open, deliberately: it now talks for 8.2 seconds before the user can
+say anything.** The chat's `passerbyOverlayShownAnnouncement` and the picker's
+own intro play back to back and overlap in meaning. Both are correct; one of
+them should be trimmed. Not done here because which one to cut is a wording
+decision, not a defect.
 
 **The general rule this establishes,** worth applying wherever a flow
 narrates and then listens: the microphone must be closed for the whole of the

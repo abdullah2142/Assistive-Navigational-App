@@ -183,6 +183,13 @@ void main() {
       expect(routes.first.steps[0].maneuver, ManeuverKind.depart);
       expect(routes.first.steps[1].maneuver, ManeuverKind.left);
       expect(routes.first.steps[1].distanceMeters, 430);
+      // Routes API has no street-name field — the road is only ever in the
+      // English prose, which is why it is pinned to `en-US` and mined here.
+      // Without this, every Google-planned turn was spoken as a bare "turn
+      // left", on the backend this app is migrating *to*.
+      expect(routes.first.steps[1].streetName, 'Satmasjid Road');
+      expect(routes.first.steps[0].streetName, '', reason: '"Head north" names no road');
+      expect(routeViaSummary(routes.first.steps), 'Satmasjid Road');
     });
 
     test('trusts the duration, unlike OSRM', () async {

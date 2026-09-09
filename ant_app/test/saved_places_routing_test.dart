@@ -12,6 +12,7 @@ import 'package:ant_app/core/localization/dashboard_strings.dart';
 import 'package:ant_app/core/services/function_call_executor.dart';
 import 'package:ant_app/core/services/route_planning_service.dart';
 import 'package:ant_app/core/services/route_safety_service.dart';
+import 'package:ant_app/core/services/routing_service.dart';
 import 'package:ant_app/features/onboarding/models/saved_place.dart';
 import 'package:ant_app/features/onboarding/models/user_profile.dart';
 import 'package:ant_app/features/onboarding/models/user_role.dart';
@@ -57,6 +58,14 @@ class _RecordingRoutePlanning implements RoutePlanningService {
       wasRerouted: false,
     ));
   }
+
+  @override
+  Future<RouteChoice> promote(
+    RouteCandidate candidate, {
+    required String destinationLabel,
+    DateTime? at,
+  }) async =>
+      throw UnimplementedError();
 }
 
 Position here() => Position(

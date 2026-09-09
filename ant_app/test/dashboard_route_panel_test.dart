@@ -1,0 +1,222 @@
+// The map's half of a planned route.
+//
+// Two reported problems live here. A route arriving has to *reveal* the map
+// — it is hidden by default, because most of this app's users cannot see it,
+// but asking to be taken somewhere is the one moment it has something to say
+// (that behaviour shipped without a test; this is it). And what it shows once
+// revealed used to be a 56dp north arrow rotated to the route's initial
+// bearing and never updated: "that stupid big arrow is confusing, i wanna see
+// the route lines as well like in google maps, as well as info about how far
+// to go in which direction."
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
+
+import 'package:ant_app/core/providers/ai_assistant_providers.dart';
+import 'package:ant_app/core/services/navigation_narrator.dart';
+import 'package:ant_app/core/services/route_planning_service.dart';
+import 'package:ant_app/core/services/route_safety_service.dart';
+import 'package:ant_app/core/services/routing_service.dart';
+import 'package:ant_app/features/dashboard/providers/chat_providers.dart';
+import 'package:ant_app/features/dashboard/screens/split_mode_dashboard_screen.dart';
+import 'package:ant_app/features/dashboard/widgets/dashboard_map_panel.dart';
+import 'package:ant_app/features/onboarding/models/user_profile.dart';
+import 'package:ant_app/features/onboarding/models/user_role.dart';
+
+void main() {
+  const safe = SafetyVerdict(safe: true, riskScore: 1, threshold: 7, dangerousThanaNames: []);
+
+  RouteChoice routeTo(String label, {SafetyVerdict verdict = safe, String via = 'Satmasjid Road'}) => RouteChoice(
+        destinationLabel: label,
+        points: const [LatLng(23.7461, 90.3742), LatLng(23.7550, 90.3800), LatLng(23.7600, 90.3900)],
+        distanceMeters: 1240,
+        durationSeconds: 900,
+        initialBearingDegrees: 40,
+        viaSummary: via,
+        verdict: verdict,
+        wasRerouted: false,
+        steps: const [
+          RouteStep(
+            location: LatLng(23.7550, 90.3800),
+            distanceMeters: 250,
+            maneuver: ManeuverKind.left,
+            streetName: 'Satmasjid Road',
+          ),
+          RouteStep(
+            location: LatLng(23.7600, 90.3900),
+            distanceMeters: 990,
+            maneuver: ManeuverKind.arrive,
+          ),
+        ],
+      );
+
+  /// Pumps the dashboard with a controller a test can push a route into,
+  /// which is the piece that was missing when this behaviour shipped
+  /// untested.
+  Future<_Harness> pumpDashboard(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final container = ProviderContainer(
+      overrides: [chatControllerProvider.overrideWith(_TestChatController.new)],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: SplitModeDashboardScreen(
+            profile: UserProfile(uid: 'user-1', role: UserRole.disabledUser),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    return _Harness(container);
+  }
+
+  testWidgets('a planned route reveals the map on its own', (tester) async {
+    final harness = await pumpDashboard(tester);
+    expect(find.byType(DashboardMapPanel, skipOffstage: false), findsNothing);
+
+    harness.publish(routeTo('Labaid'));
+    await tester.pump();
+
+    expect(find.byType(DashboardMapPanel), findsOneWidget);
+  });
+
+  testWidgets('hiding the map again is not overruled by the same route', (tester) async {
+    // Only ever opens it, never closes it — somebody who deliberately hid
+    // the map should not have it forced back on the next rebuild.
+    final harness = await pumpDashboard(tester);
+    harness.publish(routeTo('Labaid'));
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.map_rounded));
+    await tester.pump();
+    expect(find.byType(DashboardMapPanel, skipOffstage: false), findsNothing);
+
+    // A rebuild with the same route still in state must not reopen it.
+    harness.touch();
+    await tester.pump();
+    expect(find.byType(DashboardMapPanel, skipOffstage: false), findsNothing);
+  });
+
+  testWidgets('the map shows how far is left and which way to turn', (tester) async {
+    final harness = await pumpDashboard(tester);
+    harness.publish(routeTo('Labaid'));
+    await tester.pump();
+
+    // Before any GPS fix: the destination and the whole distance, rather
+    // than a blank panel or a bare arrow.
+    expect(find.textContaining('Heading to Labaid'), findsOneWidget);
+    expect(find.textContaining('1.2 km left'), findsOneWidget);
+    expect(find.textContaining('Satmasjid Road'), findsOneWidget);
+  });
+
+  testWidgets('the banner follows the walk once fixes arrive', (tester) async {
+    final harness = await pumpDashboard(tester);
+    harness.publish(routeTo('Labaid'));
+    await tester.pump();
+
+    harness.walkTo(const NavigationProgress(
+      maneuver: ManeuverKind.left,
+      streetName: 'Satmasjid Road',
+      metersToManeuver: 250,
+      metersRemaining: 940,
+    ));
+    await tester.pump();
+
+    expect(find.text('250 m'), findsOneWidget);
+    expect(find.text('Turn left onto Satmasjid Road'), findsOneWidget);
+    expect(find.text('940 m left'), findsOneWidget);
+    // Not "940 m left · Satmasjid Road" — the via identifies the route, and
+    // repeating it on the line under "Turn left onto Satmasjid Road" says
+    // the same road name twice.
+    expect(find.textContaining('940 m left · '), findsNothing);
+    // The turn is an actual turn arrow, not a compass rose the viewer has to
+    // subtract their own heading from.
+    expect(find.byIcon(Icons.turn_left_rounded), findsOneWidget);
+  });
+
+  testWidgets('coming off the route says so rather than pointing somewhere', (tester) async {
+    final harness = await pumpDashboard(tester);
+    harness.publish(routeTo('Labaid'));
+    await tester.pump();
+
+    harness.walkTo(const NavigationProgress(offRoute: true, metersRemaining: 900));
+    await tester.pump();
+
+    expect(find.text('Off the route'), findsOneWidget);
+  });
+
+  testWidgets('the whole banner is one screen-reader sentence', (tester) async {
+    // Four separate labels — "turn left", "250 m", "940 m left", "Labaid" —
+    // read as four unrelated stops. One sentence is the same thing the app
+    // would say out loud.
+    final handle = tester.ensureSemantics();
+    final harness = await pumpDashboard(tester);
+    harness.publish(routeTo('Labaid'));
+    await tester.pump();
+    harness.walkTo(const NavigationProgress(
+      maneuver: ManeuverKind.left,
+      streetName: 'Satmasjid Road',
+      metersToManeuver: 250,
+      metersRemaining: 940,
+    ));
+    await tester.pump();
+
+    expect(
+      find.bySemanticsLabel(RegExp(
+        r'In 250 metres, turn left onto Satmasjid Road\. '
+        r'Heading to Labaid via Satmasjid Road — 940 metres to go\.',
+      )),
+      findsOneWidget,
+    );
+    handle.dispose();
+  });
+
+  testWidgets('an unsafe route is still shown, and says it is unsafe', (tester) async {
+    final handle = tester.ensureSemantics();
+    final harness = await pumpDashboard(tester);
+    harness.publish(routeTo(
+      'Labaid',
+      verdict: const SafetyVerdict(safe: false, riskScore: 9, threshold: 7, dangerousThanaNames: ['X']),
+    ));
+    await tester.pump();
+
+    expect(find.bySemanticsLabel(RegExp('still passes a risky area')), findsOneWidget);
+    handle.dispose();
+  });
+}
+
+class _Harness {
+  _Harness(this.container);
+  final ProviderContainer container;
+
+  _TestChatController get _controller =>
+      container.read(chatControllerProvider.notifier) as _TestChatController;
+
+  void publish(RouteChoice route) => _controller.publish(route);
+
+  /// A rebuild that changes something other than the route.
+  void touch() => _controller.touch();
+
+  void walkTo(NavigationProgress progress) =>
+      container.read(navigationControllerProvider).progress.value = progress;
+}
+
+/// The real controller, with a door to push a planned route through.
+///
+/// Overriding the notifier rather than faking the whole panel keeps the test
+/// on the actual `ref.listen` in `SplitModeDashboardScreen.build` — which is
+/// the thing that was never covered.
+class _TestChatController extends ChatController {
+  void publish(RouteChoice route) => state = state.copyWith(pendingRoute: route);
+
+  void touch() => state = state.copyWith(isAssistantTyping: !state.isAssistantTyping);
+}

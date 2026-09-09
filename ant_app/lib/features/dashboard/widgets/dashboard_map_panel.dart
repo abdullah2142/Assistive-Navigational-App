@@ -18,7 +18,10 @@ import 'package:latlong2/latlong.dart' as ll;
 import '../../../core/config/maps_config.dart';
 import '../../../core/localization/app_language.dart';
 import '../../../core/localization/dashboard_strings.dart';
+import '../../../core/providers/ai_assistant_providers.dart';
+import '../../../core/services/navigation_narrator.dart';
 import '../../../core/services/route_planning_service.dart';
+import '../../../core/services/routing_service.dart' show ManeuverKind;
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/map_unavailable_placeholder.dart';
 import '../providers/chat_providers.dart';
@@ -211,38 +214,32 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
             width: constraints.maxWidth,
             height: constraints.maxHeight,
             child: Stack(
-              alignment: Alignment.center,
               children: [
                 SizedBox(
                   width: constraints.maxWidth,
                   height: constraints.maxHeight,
                   child: _buildMap(route),
                 ),
-                // Massive Directional Overlay — Module 4 is the first module
-                // to feed this real turn instructions (Module 2's own note:
-                // previously always a static "forward" arrow). Rotates to
-                // the active route's initial bearing; stays pointing north
-                // (unrotated) with no route active, same as before.
-                Semantics(
-                  label: route == null
-                      ? d.mapNextDirection
-                      : d.mapRouteStatus(
-                          safe: route.verdict.safe,
-                          wasRerouted: route.wasRerouted,
-                          distanceMeters: route.distanceMeters,
-                        ),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.55),
-                      shape: BoxShape.circle,
-                    ),
-                    padding: const EdgeInsets.all(18),
-                    child: Transform.rotate(
-                      angle: (route?.initialBearingDegrees ?? 0) * math.pi / 180,
-                      child: const Icon(Icons.north_rounded, color: Colors.white, size: 56),
-                    ),
+                // The route readout — what replaced the "massive directional
+                // overlay" Module 2 shipped.
+                //
+                // That was a 56dp north arrow in the middle of the map,
+                // rotated to the route's *initial* bearing and never updated
+                // after that. It was reported, in as many words, as
+                // confusing: an arrow pointing 40 degrees off north tells a
+                // sighted user nothing they can act on, it hid the map
+                // underneath it, and it answered neither of the two
+                // questions somebody walking actually has — how far, and
+                // which way at the next corner. Both of those have had
+                // answers since Modules 4-5 (the arrow's own comment
+                // predicted they would); nothing was reading them.
+                if (route != null)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    right: widget.onToggleFullScreen == null ? 12 : 60,
+                    child: _RouteBanner(route: route, strings: d),
                   ),
-                ),
                 if (widget.onToggleFullScreen != null)
                   Positioned(
                     top: 12,
@@ -311,21 +308,41 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
           ),
           if (route != null)
             PolylineLayer(polylines: [
+              // Drawn twice: a dark casing under a coloured core, which is
+              // how every map draws a route line and the only way it stays
+              // legible over both pale and dark tiles. A single stroke
+              // disappeared into light-coloured roads at exactly the zoom
+              // this panel uses.
+              Polyline(
+                points: route.points.map(_toLL).toList(),
+                strokeWidth: 9,
+                color: Colors.black.withValues(alpha: 0.35),
+              ),
               Polyline(
                 points: route.points.map(_toLL).toList(),
                 strokeWidth: 5,
                 color: route.verdict.safe ? AppColors.success : AppColors.caution,
               ),
             ]),
-          if (_myLocation != null)
-            MarkerLayer(markers: [
+          MarkerLayer(markers: [
+            if (route != null && route.points.isNotEmpty)
+              Marker(
+                point: _toLL(route.points.last),
+                width: 36,
+                height: 36,
+                child: Semantics(
+                  label: d.mapDestinationMarker(route.destinationLabel),
+                  child: const Icon(Icons.place, color: AppColors.primary, size: 32),
+                ),
+              ),
+            if (_myLocation != null)
               Marker(
                 point: _toLL(_myLocation!),
                 width: 28,
                 height: 28,
                 child: const Icon(Icons.circle, color: Colors.blue, size: 16),
               ),
-            ]),
+          ]),
         ],
       );
     }
@@ -362,16 +379,203 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
           _centerOnMe();
         }
       },
+      markers: route == null || route.points.isEmpty
+          ? const {}
+          : {
+              gmaps.Marker(
+                markerId: const gmaps.MarkerId('destination'),
+                position: route.points.last,
+                infoWindow: gmaps.InfoWindow(title: route.destinationLabel),
+              ),
+            },
       polylines: route == null
           ? const {}
           : {
+              // Casing under core — see the OSM path for why.
+              gmaps.Polyline(
+                polylineId: const gmaps.PolylineId('active_route_casing'),
+                points: route.points,
+                width: 9,
+                color: Colors.black.withValues(alpha: 0.35),
+              ),
               gmaps.Polyline(
                 polylineId: const gmaps.PolylineId('active_route'),
                 points: route.points,
                 width: 5,
                 color: route.verdict.safe ? AppColors.success : AppColors.caution,
+                zIndex: 1,
               ),
             },
     );
+  }
+}
+
+/// The live route readout that sits over the top of the map.
+///
+/// Answers the two questions somebody walking a route actually has, in the
+/// order they matter: *which way at the next corner*, and *how far is left*.
+/// Both were already available — `RouteStep` has carried manoeuvres and
+/// street names since Module 4, and `NavigationNarrator` has known the
+/// distance to each one since Module 5 — and neither was on screen.
+///
+/// Reads from `NavigationController.progress`, which updates on every GPS
+/// fix. Falls back to the route's own total before the first fix lands, so
+/// the panel is never blank while a route is active.
+class _RouteBanner extends ConsumerWidget {
+  const _RouteBanner({required this.route, required this.strings});
+
+  final RouteChoice route;
+  final Dashboard strings;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(navigationControllerProvider);
+    return ValueListenableBuilder<NavigationProgress?>(
+      valueListenable: controller.progress,
+      builder: (context, progress, _) => _build(context, progress),
+    );
+  }
+
+  Widget _build(BuildContext context, NavigationProgress? progress) {
+    final remaining = progress?.metersRemaining ?? route.distanceMeters;
+    // One label for the whole banner rather than four separate ones. A
+    // screen reader reading "turn left", "250 m", "1.2 km left" as three
+    // unrelated stops is harder to follow than one sentence, and this is the
+    // sentence the app would say out loud anyway.
+    final semanticsLabel = strings.mapRouteStatus(
+      safe: route.verdict.safe,
+      wasRerouted: route.wasRerouted,
+      distanceMeters: remaining,
+      destination: route.destinationLabel,
+      via: route.viaSummary,
+    );
+
+    return Semantics(
+      liveRegion: true,
+      label: progress == null || progress.arrived
+          ? semanticsLabel
+          : '${strings.navigateTurnAhead(
+              kind: progress.maneuver,
+              meters: progress.metersToManeuver,
+              streetName: progress.streetName,
+            )} $semanticsLabel',
+      // The children are already summarised above; letting the reader walk
+      // into them repeats the same three facts a second time.
+      excludeSemantics: true,
+      child: Material(
+        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(16),
+        elevation: 3,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              _ManeuverBadge(progress: progress, safe: route.verdict.safe),
+              const SizedBox(width: 12),
+              Expanded(child: _lines(context, progress, remaining)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _lines(BuildContext context, NavigationProgress? progress, double remaining) {
+    final theme = Theme.of(context);
+    final headline = switch (progress) {
+      null => strings.mapHeadingTo(route.destinationLabel),
+      NavigationProgress(arrived: true) => strings.mapArrived,
+      NavigationProgress(offRoute: true) => strings.mapOffRoute,
+      final p => strings.mapManeuverLine(kind: p.maneuver, streetName: p.streetName),
+    };
+    // The distance to the *next turn* is the number being acted on, so it is
+    // the big one; the total is context and sits under it.
+    final turnDistance = progress != null && !progress.arrived && !progress.offRoute
+        ? strings.mapCompactDistance(progress.metersToManeuver)
+        : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            if (turnDistance != null) ...[
+              Text(
+                turnDistance,
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(width: 8),
+            ],
+            Expanded(
+              child: Text(
+                headline,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          // The via is here to identify the *route*; when the next turn is
+          // onto that same road it says the road name twice in two lines.
+          route.viaSummary.isEmpty || route.viaSummary == progress?.streetName
+              ? strings.mapRemainingLabel(remaining)
+              : '${strings.mapRemainingLabel(remaining)} · ${route.viaSummary}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
+/// The manoeuvre icon.
+///
+/// A turn arrow, not a compass arrow. The old overlay rotated a north arrow
+/// to the route's bearing, which asks the viewer to hold their own heading in
+/// their head and subtract — exactly the work someone navigating an unfamiliar
+/// street cannot spare. "Turn left" is a left arrow, in every map anyone has
+/// used.
+class _ManeuverBadge extends StatelessWidget {
+  const _ManeuverBadge({required this.progress, required this.safe});
+
+  final NavigationProgress? progress;
+  final bool safe;
+
+  @override
+  Widget build(BuildContext context) {
+    final colour = !safe ? AppColors.caution : AppColors.primary;
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(color: colour, shape: BoxShape.circle),
+      child: Icon(_icon, color: Colors.white, size: 24),
+    );
+  }
+
+  IconData get _icon {
+    final p = progress;
+    if (p == null) return Icons.navigation_rounded;
+    if (p.arrived) return Icons.flag_rounded;
+    if (p.offRoute) return Icons.error_outline_rounded;
+    return switch (p.maneuver) {
+      ManeuverKind.left => Icons.turn_left_rounded,
+      ManeuverKind.slightLeft => Icons.turn_slight_left_rounded,
+      ManeuverKind.sharpLeft => Icons.turn_sharp_left_rounded,
+      ManeuverKind.right => Icons.turn_right_rounded,
+      ManeuverKind.slightRight => Icons.turn_slight_right_rounded,
+      ManeuverKind.sharpRight => Icons.turn_sharp_right_rounded,
+      ManeuverKind.uTurn => Icons.u_turn_left_rounded,
+      ManeuverKind.roundabout => Icons.roundabout_left_rounded,
+      ManeuverKind.crossing => Icons.directions_walk_rounded,
+      ManeuverKind.arrive => Icons.flag_rounded,
+      ManeuverKind.depart || ManeuverKind.straight => Icons.straight_rounded,
+    };
   }
 }

@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
-import '../config/cloud_stt_config.dart';
 import '../localization/app_language.dart';
 import 'cloud_stt_service.dart';
 import 'locale_preference.dart';
@@ -246,6 +245,14 @@ class SttService {
     // instead of the user talking to a microphone that is recording into
     // nothing.
     var streamFailed = false;
+    // The recorder teardown, so this method can wait for the microphone to
+    // actually be free before it returns. `finish()` is called from inside
+    // the recognition stream's own callback and cannot await anything, and
+    // leaving the stop unawaited meant `listenOnce` returned — releasing the
+    // wake-word suspension — while Cloud STT's `AudioRecorder` was still
+    // closing. Two recorders overlapping on one microphone is precisely the
+    // contention every other piece of this coordination exists to prevent.
+    Future<void>? stopping;
 
     void finish(String reason, {bool synthesizeFinal = false}) {
       if (done.isCompleted) return;
@@ -268,7 +275,7 @@ class SttService {
       _cloudSessionDone = null;
       silenceTimer?.cancel();
       ceilingTimer?.cancel();
-      unawaited(cloud.stop());
+      stopping = cloud.stop();
     }
 
     void resetSilenceTimer() {
@@ -318,6 +325,9 @@ class SttService {
     // effectively dead while still reporting that it was listening.
     silenceTimer?.cancel();
     ceilingTimer?.cancel();
+    // Null when the session ended via `SttService.stop()` rather than
+    // `finish()` — that path stops the recorder itself, and awaits it.
+    await stopping;
     if (streamFailed) {
       // Nothing usable was transcribed, so returning true here would leave
       // the caller believing the user simply said nothing. The most likely

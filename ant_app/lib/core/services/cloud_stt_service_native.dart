@@ -163,6 +163,11 @@ class CloudSttService {
 
   Future<void> dispose() async {
     await stop();
-    await _recorder.dispose();
+    try {
+      await _recorder.dispose();
+    } catch (_) {
+      // Same reasoning as `WakeWordService.dispose` — nothing to release,
+      // and this runs from container teardown where a throw is noise.
+    }
   }
 }

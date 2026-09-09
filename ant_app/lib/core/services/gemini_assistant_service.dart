@@ -11,6 +11,7 @@ import '../localization/app_language.dart';
 import 'destination_clarifier.dart';
 import 'function_call_executor.dart';
 import 'route_planning_service.dart';
+import 'routing_service.dart' show RouteCandidate;
 
 /// One completed exchange: what to show/speak, and any side effects the
 /// model (or, since `LocalIntentMatcher` was added, a plain local pattern
@@ -21,6 +22,7 @@ class AssistantTurn {
     this.updatedProfile,
     this.overlayAction,
     this.route,
+    this.routeAlternatives,
     this.hazardPrefill,
     this.clarification,
     this.triggersEmergency = false,
@@ -50,6 +52,12 @@ class AssistantTurn {
   /// Non-null when `request_route` (Module 4) successfully planned a
   /// safety-checked route — the caller surfaces it on the dashboard map.
   final RouteChoice? route;
+
+  /// The other walking routes found alongside [route], for
+  /// `request_alternative_route` to switch to. Null when this turn said
+  /// nothing about routing — distinct from empty, which means "there are no
+  /// others" and is worth telling the user.
+  final List<RouteCandidate>? routeAlternatives;
 
   /// Non-null when the hazard-report overlay was opened by a command that
   /// already named the hazard ("report an open manhole") — the Hub opens
@@ -124,6 +132,9 @@ class GeminiAssistantService {
     /// The route the user is currently walking, if any — `resolve_hazard`
     /// is scoped to the hazards on it. See `FunctionCallExecutor`.
     RouteChoice? activeRoute,
+    /// The unused alternatives to [activeRoute], which
+    /// `request_alternative_route` switches between.
+    List<RouteCandidate> routeAlternatives = const [],
   }) async {
     final contents = <Content>[
       ..._historyToContents(recentHistory),
@@ -147,6 +158,7 @@ class GeminiAssistantService {
     var workingProfile = profile;
     SuggestedChipAction? overlay;
     RouteChoice? route;
+    List<RouteCandidate>? alternatives;
     HazardReportPrefill? hazardPrefill;
     DestinationClarification? clarification;
     final confirmations = <String>[];
@@ -156,11 +168,16 @@ class GeminiAssistantService {
         args: call.args,
         profile: workingProfile,
         location: location,
-        activeRoute: activeRoute,
+        // A turn that plans a route and then immediately asks for a
+        // different one must switch between *that* route's alternatives,
+        // not the previous route's.
+        activeRoute: route ?? activeRoute,
+        routeAlternatives: alternatives ?? routeAlternatives,
       );
       workingProfile = applied.updatedProfile ?? workingProfile;
       overlay ??= applied.overlayAction;
-      route ??= applied.route;
+      if (applied.route != null) route = applied.route;
+      if (applied.routeAlternatives != null) alternatives = applied.routeAlternatives;
       hazardPrefill ??= applied.hazardPrefill;
       clarification ??= applied.clarification;
       confirmations.add(applied.responseText);
@@ -184,6 +201,7 @@ class GeminiAssistantService {
       updatedProfile: identical(workingProfile, profile) ? null : workingProfile,
       overlayAction: overlay,
       route: route,
+      routeAlternatives: alternatives,
       hazardPrefill: hazardPrefill,
       clarification: clarification,
     );
@@ -229,6 +247,8 @@ Rules:
 - If the user is asking to change any setting (text size, theme, UI language, reply style, voice, vision level, mobility aid, deaf/hearing mode, snapshot permission, crowded/complex sensitivity, home or safe-place address, emergency contacts, passerby messages, the "Hey ANT" wake word), call the matching function instead of just claiming you did it.
 - If the user wants to show a message to a passerby, or report a hazard, call the matching trigger function.
 - If the user wants to go somewhere, asks for directions, or (right after you asked where they want to go) names a place, call request_route with that destination.
+- If they are already on a route and want a different one ("another way", "I don't like this route"), call request_alternative_route.
+- If they say they have come off the route, ask to "re-route", or ask which way to go from here, call replan_route.
 - For a real emergency, tell them to use the physical Magic Button or call for help directly — you cannot dial or send messages on their behalf yet.
 
 User's message: "$userText"
@@ -410,6 +430,22 @@ User's message: "$userText"
           description: 'The destination as the user described it (e.g. "Gulshan 2", "my office", "New Market").',
         ),
       }, requiredProperties: const ['destination']),
+    ),
+    FunctionDeclaration(
+      'request_alternative_route',
+      'Switch to a different walking route to the destination the user is already heading to. Call this '
+          'when they ask for another route, a different way, or say they do not like the route you gave '
+          'them. Do NOT call this to start a new journey — that is request_route — and do not ask which '
+          'alternative they want, there is nothing for them to choose from until they hear it.',
+      null,
+    ),
+    FunctionDeclaration(
+      'replan_route',
+      'Plan the same journey again from where the user is standing right now. Call this when they say '
+          '"re-route", say they have gone the wrong way or come off the route, or ask which way to go from '
+          'here while a route is active. This keeps the destination and changes the starting point; '
+          'request_alternative_route keeps both and changes the road.',
+      null,
     ),
   ];
 }

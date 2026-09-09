@@ -133,6 +133,60 @@ class NavigationNarrator {
     );
   }
 
+  /// Where the walk currently stands, for anything that has to *show* the
+  /// route rather than speak it.
+  ///
+  /// Read-only and safe to call as often as the caller likes — it never
+  /// advances the state machine or latches an announcement band, so the map
+  /// can render every frame without changing what gets said. That
+  /// separation is the whole reason [update] can stay as terse as it is:
+  /// speech has to earn each utterance, a display does not.
+  ///
+  /// Call it after [update] so it reflects the same fix.
+  NavigationProgress progressAt(LatLng position) {
+    if (_arrived || steps.isEmpty || _current >= steps.length) {
+      return const NavigationProgress(arrived: true);
+    }
+    final step = steps[_current];
+    return NavigationProgress(
+      maneuver: step.maneuver,
+      streetName: step.streetName,
+      metersToManeuver: _distanceMeters(position, step.location),
+      metersRemaining: _remainingAlongRoute(position),
+      isFinalStep: _current == steps.length - 1,
+      offRoute: _isOffRoute(position),
+    );
+  }
+
+  List<double>? _cumulativeFromEnd;
+
+  /// Distance still to walk, measured along the route rather than as the
+  /// crow flies.
+  ///
+  /// Straight-line distance to the destination is the wrong number to show
+  /// somebody on foot: it shrinks while they walk a dogleg and then stops
+  /// shrinking, and in Dhaka the difference between the two is routinely a
+  /// factor of two. Falls back to straight-line only when there is no
+  /// geometry to measure along.
+  double _remainingAlongRoute(LatLng position) {
+    if (routePoints.length < 2) {
+      return steps.isEmpty ? 0 : _distanceMeters(position, steps.last.location);
+    }
+    _cumulativeFromEnd ??= _buildCumulativeFromEnd();
+    final index = _nearestPathIndex(position) ?? 0;
+    // Plus the hop back onto the path, so standing 30 m off the route does
+    // not read as being 30 m further along it.
+    return _cumulativeFromEnd![index] + _distanceMeters(position, routePoints[index]);
+  }
+
+  List<double> _buildCumulativeFromEnd() {
+    final out = List<double>.filled(routePoints.length, 0);
+    for (var i = routePoints.length - 2; i >= 0; i--) {
+      out[i] = out[i + 1] + _distanceMeters(routePoints[i], routePoints[i + 1]);
+    }
+    return out;
+  }
+
   /// Advances past every manoeuvre the user has already gone by.
   ///
   /// Proximity alone is not enough, and assuming it was left a real hole:
@@ -211,6 +265,39 @@ class NavigationNarrator {
 /// Ordered far-to-near so a band can only ever be superseded by a nearer
 /// one — see the jitter guard in [NavigationNarrator.update].
 enum _Band { approaching, near, imminent, offRoute }
+
+/// A continuously-updating view of the walk, for the map panel.
+///
+/// Deliberately separate from [NavigationCue]: a cue is "this is worth
+/// interrupting the user for", and there are long stretches of a route where
+/// the right number of cues is zero and the right amount of information on
+/// screen is still "250 m, then turn left onto Satmasjid Road". Conflating
+/// the two is what left the dashboard showing a single rotating arrow and no
+/// distance at all.
+class NavigationProgress {
+  const NavigationProgress({
+    this.maneuver = ManeuverKind.straight,
+    this.streetName = '',
+    this.metersToManeuver = 0,
+    this.metersRemaining = 0,
+    this.isFinalStep = false,
+    this.offRoute = false,
+    this.arrived = false,
+  });
+
+  final ManeuverKind maneuver;
+  final String streetName;
+
+  /// How far to the manoeuvre being walked toward.
+  final double metersToManeuver;
+
+  /// How far to the destination, measured along the route.
+  final double metersRemaining;
+
+  final bool isFinalStep;
+  final bool offRoute;
+  final bool arrived;
+}
 
 enum NavigationCueKind { turnAhead, turnNow, offRoute, arrived }
 

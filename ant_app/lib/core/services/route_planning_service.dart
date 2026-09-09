@@ -17,9 +17,16 @@ class RouteChoice {
     required this.verdict,
     required this.wasRerouted,
     this.steps = const [],
+    this.viaSummary = '',
   });
 
   final String destinationLabel;
+
+  /// The road this route mostly follows, or empty when no step is named.
+  ///
+  /// Exists so the assistant can say *which way* it is taking the user
+  /// rather than only that it found a way. See [routeViaSummary].
+  final String viaSummary;
   final List<LatLng> points;
   final double distanceMeters;
   final double durationSeconds;
@@ -42,8 +49,23 @@ sealed class RoutePlanResult {
 }
 
 class RoutePlanned extends RoutePlanResult {
-  const RoutePlanned(this.choice);
+  const RoutePlanned(this.choice, {this.alternatives = const []});
   final RouteChoice choice;
+
+  /// The other walking routes the backend offered, in its own preference
+  /// order, **not** safety-checked.
+  ///
+  /// Kept rather than discarded so "give me a different route" has something
+  /// to switch to — the reported gap was that the assistant announced one
+  /// route and the user had no way to ask for another, even though Google
+  /// had been asked for alternatives all along and every one but the chosen
+  /// one was being thrown away.
+  ///
+  /// Unchecked on purpose. Safety-checking all of them up front would cost
+  /// two or three extra Cloud Function round trips on every single route
+  /// request, to answer a question the user usually never asks; the check
+  /// happens in [RoutePlanningService.promote], when one is actually taken.
+  final List<RouteCandidate> alternatives;
 }
 
 /// `reason`: 'destination_not_found' | 'no_routes_found' | 'no_location' |
@@ -117,8 +139,14 @@ class RoutePlanningService {
     // have more than 2-3), then take the safest one — preferring the
     // original fastest route if it's already safe, per Step 4 of the
     // module plan ("If the route is Safe, ANT begins navigation").
+    //
+    // The loop stops at the first safe route rather than checking them all,
+    // so anything after the chosen one has *no* verdict. That distinction
+    // matters below: a candidate already known to be unsafe must not be the
+    // first thing offered when the user asks for a different route.
     RouteCandidate? best;
     SafetyVerdict? bestVerdict;
+    final rejected = <RouteCandidate, SafetyVerdict>{};
     for (final candidate in candidates) {
       final verdict = await _safety.check(encodedPolyline: candidate.encodedPolyline, at: at);
       if (verdict.safe) {
@@ -126,6 +154,7 @@ class RoutePlanningService {
         bestVerdict = verdict;
         break;
       }
+      rejected[candidate] = verdict;
       // No safe alternative found yet — keep the lowest-risk candidate seen
       // so far as a fallback.
       if (bestVerdict == null || verdict.riskScore < bestVerdict.riskScore) {
@@ -136,15 +165,68 @@ class RoutePlanningService {
 
     final chosen = best!;
     final verdict = bestVerdict!;
-    return RoutePlanned(RouteChoice(
-      destinationLabel: label ?? destinationQuery,
-      points: chosen.points,
-      distanceMeters: chosen.distanceMeters,
-      durationSeconds: chosen.durationSeconds,
-      initialBearingDegrees: chosen.initialBearingDegrees,
-      steps: chosen.steps,
-      verdict: verdict,
-      wasRerouted: !identical(chosen, candidates.first),
-    ));
+    final others = [
+      for (final candidate in candidates)
+        if (!identical(candidate, chosen)) candidate,
+    ];
+    // Unchecked first, then the ones already found unsafe, least risky
+    // first. Offering a route this method has *just measured* as dangerous
+    // ahead of one it has not looked at is the one ordering that cannot be
+    // defended to someone who cannot see where they are being sent.
+    others.sort((a, b) {
+      final ra = rejected[a]?.riskScore;
+      final rb = rejected[b]?.riskScore;
+      if (ra == null && rb == null) return 0;
+      if (ra == null) return -1;
+      if (rb == null) return 1;
+      return ra.compareTo(rb);
+    });
+    return RoutePlanned(
+      _toChoice(
+        chosen,
+        label: label ?? destinationQuery,
+        verdict: verdict,
+        wasRerouted: !identical(chosen, candidates.first),
+      ),
+      alternatives: others,
+    );
   }
+
+  /// Safety-checks one of the alternatives held from an earlier [plan] and
+  /// turns it into a route the app can walk.
+  ///
+  /// Separate from [plan] because it must not re-geocode or re-request
+  /// directions: the user asking for a different route is asking for one of
+  /// the routes already found, and going back to the network would risk
+  /// answering with a different set entirely.
+  ///
+  /// [wasRerouted] is deliberately false on everything this returns — the
+  /// user chose this route, so announcing that it was adjusted for their
+  /// safety would be untrue.
+  Future<RouteChoice> promote(
+    RouteCandidate candidate, {
+    required String destinationLabel,
+    DateTime? at,
+  }) async {
+    final verdict = await _safety.check(encodedPolyline: candidate.encodedPolyline, at: at);
+    return _toChoice(candidate, label: destinationLabel, verdict: verdict, wasRerouted: false);
+  }
+
+  RouteChoice _toChoice(
+    RouteCandidate candidate, {
+    required String label,
+    required SafetyVerdict verdict,
+    required bool wasRerouted,
+  }) =>
+      RouteChoice(
+        destinationLabel: label,
+        points: candidate.points,
+        distanceMeters: candidate.distanceMeters,
+        durationSeconds: candidate.durationSeconds,
+        initialBearingDegrees: candidate.initialBearingDegrees,
+        steps: candidate.steps,
+        viaSummary: routeViaSummary(candidate.steps),
+        verdict: verdict,
+        wasRerouted: wasRerouted,
+      );
 }

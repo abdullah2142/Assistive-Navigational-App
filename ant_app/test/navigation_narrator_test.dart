@@ -245,4 +245,61 @@ void main() {
     final narrator = NavigationNarrator(steps: const [], routePoints: const []);
     expect(narrator.update(_origin), isNull);
   });
+
+  // What the map shows between announcements. Speech has to earn every
+  // utterance; a display does not, and conflating the two is why the
+  // dashboard showed a single rotating arrow and no distance at all.
+  group('progress for the display', () {
+    test('reports the next manoeuvre continuously, not only when it speaks', () {
+      final narrator = NavigationNarrator(steps: simpleRoute(), routePoints: simpleRoutePoints());
+
+      // 50 m in: nothing worth saying yet at this band...
+      narrator.update(at(north: 50));
+      final progress = narrator.progressAt(at(north: 50));
+
+      // ...but the screen still knows exactly what is coming.
+      expect(progress.maneuver, ManeuverKind.left);
+      expect(progress.streetName, 'Satmasjid Road');
+      expect(progress.metersToManeuver, closeTo(250, 5));
+      expect(progress.offRoute, isFalse);
+      expect(progress.arrived, isFalse);
+    });
+
+    test('measures what is left along the route, not as the crow flies', () {
+      // The dogleg is the point: straight-line distance from the start to
+      // the destination is ~316 m, the walk is 400 m, and in Dhaka that gap
+      // is routinely a factor of two.
+      final narrator = NavigationNarrator(steps: simpleRoute(), routePoints: simpleRoutePoints());
+
+      expect(narrator.progressAt(_origin).metersRemaining, closeTo(400, 15));
+      narrator.update(at(north: 200));
+      expect(narrator.progressAt(at(north: 200)).metersRemaining, closeTo(200, 15));
+    });
+
+    test('standing off the route does not read as being further along it', () {
+      final narrator = NavigationNarrator(steps: simpleRoute(), routePoints: simpleRoutePoints());
+
+      final onPath = narrator.progressAt(at(north: 150)).metersRemaining;
+      final offPath = narrator.progressAt(at(north: 150, east: 30)).metersRemaining;
+
+      expect(offPath, greaterThan(onPath));
+      expect(offPath - onPath, closeTo(30, 8));
+    });
+
+    test('says it has arrived once the last manoeuvre is behind the walker', () {
+      final narrator = NavigationNarrator(steps: simpleRoute(), routePoints: simpleRoutePoints());
+      for (final p in [at(north: 150), at(north: 300), at(north: 300, east: -100)]) {
+        narrator.update(p);
+      }
+
+      expect(narrator.progressAt(at(north: 300, east: -100)).arrived, isTrue);
+    });
+
+    test('flags leaving the corridor', () {
+      final narrator = NavigationNarrator(steps: simpleRoute(), routePoints: simpleRoutePoints());
+      narrator.update(at(north: 150));
+
+      expect(narrator.progressAt(at(north: 150, east: 120)).offRoute, isTrue);
+    });
+  });
 }

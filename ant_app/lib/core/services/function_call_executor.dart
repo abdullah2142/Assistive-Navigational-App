@@ -14,6 +14,7 @@ import 'gemini_assistant_service.dart' show AssistantTurn;
 import 'destination_clarifier.dart';
 import 'route_planning_service.dart';
 import 'route_safety_service.dart';
+import 'routing_service.dart' show RouteCandidate;
 import 'saved_place_matcher.dart';
 
 class _AppliedCall {
@@ -22,6 +23,7 @@ class _AppliedCall {
     this.resultForModel,
     this.overlay, {
     this.route,
+    this.routeAlternatives,
     this.hazardPrefill,
     this.clarification,
     this.triggersEmergency = false,
@@ -30,6 +32,11 @@ class _AppliedCall {
   final Map<String, Object?> resultForModel;
   final SuggestedChipAction? overlay;
   final RouteChoice? route;
+
+  /// The routes still on the shelf after this call, or null when the call
+  /// had nothing to say about routing. Null and empty mean different things:
+  /// empty is "there are no others", which the assistant says out loud.
+  final List<RouteCandidate>? routeAlternatives;
   final HazardReportPrefill? hazardPrefill;
 
   /// Set when the destination could not be pinned down and the assistant is
@@ -81,14 +88,19 @@ class FunctionCallExecutor {
     required UserProfile profile,
     Position? location,
     RouteChoice? activeRoute,
+    /// The unused alternatives from the route currently being walked — what
+    /// `request_alternative_route` switches between. See [RoutePlanned].
+    List<RouteCandidate> routeAlternatives = const [],
   }) async {
-    final applied = await _applyFunctionCall(name, args, profile, location, activeRoute);
+    final applied =
+        await _applyFunctionCall(name, args, profile, location, activeRoute, routeAlternatives);
     final confirmation = _confirmationFor(name, args, applied.resultForModel, profile.language);
     return AssistantTurn(
       responseText: confirmation,
       updatedProfile: identical(applied.profile, profile) ? null : applied.profile,
       overlayAction: applied.overlay,
       route: applied.route,
+      routeAlternatives: applied.routeAlternatives,
       hazardPrefill: applied.hazardPrefill,
       clarification: applied.clarification,
       triggersEmergency: applied.triggersEmergency,
@@ -163,6 +175,19 @@ class FunctionCallExecutor {
     return base;
   }
 
+  /// The "via X — 1.2 km, about 15 minutes" clause, from whatever the route
+  /// result carried. Empty when the numbers are missing, so a malformed
+  /// result degrades to the old sentence rather than to "0 metres".
+  String _routeSummary(Map<String, Object?> result, AppLanguage language) {
+    final distance = (result['distanceMeters'] as num?)?.toDouble() ?? 0;
+    if (distance <= 0) return '';
+    return Dashboard.of(language).routeSummary(
+      via: result['via'] as String? ?? '',
+      distanceMeters: distance,
+      durationSeconds: (result['durationSeconds'] as num?)?.toDouble() ?? 0,
+    );
+  }
+
   String _confirmationFor(String name, Map<String, Object?> args, Map<String, Object?> result, AppLanguage language) {
     final bn = language == AppLanguage.bangla;
     if (name == 'pair_with_caretaker') {
@@ -195,6 +220,31 @@ class FunctionCallExecutor {
     if (result['error'] == 'ambiguous_saved_place') {
       return Dashboard.of(language)
           .savedPlaceAmbiguous((result['options'] as List<Object?>? ?? const []).cast<String>());
+    }
+    if (name == 'replan_route' && result['ok'] != true) {
+      final d = Dashboard.of(language);
+      return switch (result['error']) {
+        'no_active_route' => d.routeNoActiveRoute,
+        'no_location' => bn
+            ? 'আপনার অবস্থান জানতে পারছি না। লোকেশন চালু আছে কিনা দেখুন।'
+            : "I can't tell where you are right now — please check that location access is enabled.",
+        'no_routes_found' => bn
+            ? 'এখান থেকে হেঁটে যাওয়ার পথ পেলাম না।'
+            : "I couldn't find a walking route from here.",
+        _ => bn
+            ? 'নতুন পথ খুঁজতে গিয়ে সমস্যা হয়েছে। একটু পরে আবার বলুন।'
+            : 'Something went wrong finding the way from here — try again in a moment.',
+      };
+    }
+    if (name == 'request_alternative_route' && result['ok'] != true) {
+      final d = Dashboard.of(language);
+      return switch (result['error']) {
+        'no_active_route' => d.routeNoActiveRoute,
+        'no_alternatives' => d.routeNoAlternatives,
+        _ => bn
+            ? 'অন্য পথটা আনতে গিয়ে সমস্যা হয়েছে। একটু পরে আবার বলুন।'
+            : 'Something went wrong fetching the other route — try again in a moment.',
+      };
     }
     if (name == 'request_route' && result['ok'] != true) {
       final d = Dashboard.of(language);
@@ -241,11 +291,19 @@ class FunctionCallExecutor {
         final destination = result['destination'] as String? ?? '';
         final rerouted = result['wasRerouted'] == true;
         final stillUnsafe = result['stillUnsafe'] == true;
+        // Which way, how far, how long — appended to every outcome below.
+        //
+        // Reported: after "take me to Labaid" the only thing said was that
+        // the route passed a risky area. That is a warning with no route
+        // attached to it, and a user who cannot see the map has no way to
+        // ask "which way?" of a line they cannot look at.
+        final summary = _routeSummary(result, language);
         if (stillUnsafe) {
           return _withHazardNotice(
             bn
-                ? '$destination-এর সবচেয়ে নিরাপদ পথটাও কিছুটা ঝুঁকিপূর্ণ এলাকা দিয়ে যায় — সাবধানে থাকবেন।'
-                : "Even the safest route I found to $destination passes through a somewhat risky area — please stay alert.",
+                ? '$destination-এর সবচেয়ে নিরাপদ পথটাও কিছুটা ঝুঁকিপূর্ণ এলাকা দিয়ে যায় — সাবধানে থাকবেন। $summary'
+                : "Even the safest route I found to $destination passes through a somewhat risky area — "
+                    'please stay alert. $summary',
             result,
             language,
           );
@@ -253,17 +311,46 @@ class FunctionCallExecutor {
         if (rerouted) {
           return _withHazardNotice(
             bn
-                ? 'আপনার নিরাপত্তার জন্য পথ পাল্টে দিয়েছি, কারণ সরাসরি পথটা একটা অনিরাপদ এলাকা দিয়ে যেত। $destination-এর দিকে পথ দেখাচ্ছি।'
-                : "I've adjusted your route to avoid a historically unsafe area for your security. Showing the way to $destination.",
+                ? 'আপনার নিরাপত্তার জন্য পথ পাল্টে দিয়েছি, কারণ সরাসরি পথটা একটা অনিরাপদ এলাকা দিয়ে যেত। '
+                    '$destination-এর দিকে পথ দেখাচ্ছি। $summary'
+                : "I've adjusted your route to avoid a historically unsafe area for your security. "
+                    'Showing the way to $destination. $summary',
             result,
             language,
           );
         }
         return _withHazardNotice(
-          bn ? '$destination-এর দিকে পথ দেখাচ্ছি।' : "Showing the way to $destination.",
+          bn ? '$destination-এর দিকে পথ দেখাচ্ছি। $summary' : 'Showing the way to $destination. $summary',
           result,
           language,
         );
+      case 'replan_route':
+        return _withHazardNotice(
+          bn
+              ? 'এখান থেকে নতুন পথ পেয়েছি। ${_routeSummary(result, language)}'
+              : 'I have the way from here. ${_routeSummary(result, language)}',
+          result,
+          language,
+        );
+      case 'request_alternative_route':
+        final d = Dashboard.of(language);
+        final base = d.routeAlternativeTaken(
+          via: result['via'] as String? ?? '',
+          distanceMeters: (result['distanceMeters'] as num?)?.toDouble() ?? 0,
+          durationSeconds: (result['durationSeconds'] as num?)?.toDouble() ?? 0,
+        );
+        final remaining = d.routeAlternativesRemaining((result['alternativeCount'] as int?) ?? 0);
+        // The route the user asked for can be less safe than the one they
+        // rejected — the planner stops checking at the first safe route, so
+        // an alternative is only measured when it is actually taken. Saying
+        // nothing here would quietly walk them somewhere the app already
+        // knows is worse.
+        final warning = result['stillUnsafe'] == true
+            ? (bn
+                ? ' এই পথটা কিছুটা ঝুঁকিপূর্ণ এলাকা দিয়ে যায় — সাবধানে থাকবেন।'
+                : ' This one passes through a somewhat risky area — please stay alert.')
+            : '';
+        return _withHazardNotice('$base$warning $remaining', result, language);
       case 'update_setting':
         final setting = args['setting'] as String?;
         final label = (bn ? _settingLabelsBn : _settingLabelsEn)[setting];
@@ -307,10 +394,15 @@ class FunctionCallExecutor {
     UserProfile profile,
     Position? location,
     RouteChoice? activeRoute,
+    List<RouteCandidate> routeAlternatives,
   ) async {
     switch (name) {
       case 'request_route':
         return _applyRequestRoute(args, profile, location);
+      case 'request_alternative_route':
+        return _applyAlternativeRoute(profile, activeRoute, routeAlternatives);
+      case 'replan_route':
+        return _applyReplanRoute(profile, location, activeRoute);
       case 'resolve_hazard':
         return _applyResolveHazard(profile, activeRoute);
       case 'save_place':
@@ -597,7 +689,7 @@ class FunctionCallExecutor {
             null,
             clarification: DestinationClarification(originalQuery: destination).offering(options),
           );
-        case RoutePlanned(:final choice):
+        case RoutePlanned(:final choice, :final alternatives):
           return _AppliedCall(
             profile,
             {
@@ -606,6 +698,13 @@ class FunctionCallExecutor {
               'fromSavedPlace': saved != null,
               'wasRerouted': choice.wasRerouted,
               'stillUnsafe': !choice.verdict.safe,
+              // Which way, how far, how long. Announced rather than kept to
+              // ourselves: a user who cannot see the map cannot object to a
+              // route they were never told about.
+              'via': choice.viaSummary,
+              'distanceMeters': choice.distanceMeters,
+              'durationSeconds': choice.durationSeconds,
+              'alternativeCount': alternatives.length,
               // Module 5 ($w_2$). Confirmed hazards are reported separately
               // from unconfirmed ones because they earn a different
               // sentence — and, when no way around one exists, the single
@@ -617,6 +716,7 @@ class FunctionCallExecutor {
             },
             null,
             route: choice,
+            routeAlternatives: alternatives,
           );
         case RoutePlanFailed(:final reason):
           return _AppliedCall(
@@ -632,6 +732,111 @@ class FunctionCallExecutor {
                 : null,
           );
       }
+    } catch (_) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'network_error'}, null);
+    }
+  }
+
+  /// Plans the same journey again from where the user is standing now.
+  ///
+  /// This is what "re-route" means, and [Dashboard.navigateOffRoute] tells a
+  /// user who has drifted off the route to say exactly that — then promises
+  /// the way will be found from where they are. Nothing implemented the
+  /// promise, so the one command offered at the moment someone is lost did
+  /// nothing at all.
+  ///
+  /// The destination comes from the active route's own last point rather
+  /// than from re-geocoding its label: it is exact, it costs no network
+  /// call, and it cannot resolve to a different place than the one the user
+  /// was already walking to — which a second geocode of "the hospital"
+  /// very much could.
+  Future<_AppliedCall> _applyReplanRoute(
+    UserProfile profile,
+    Position? location,
+    RouteChoice? activeRoute,
+  ) async {
+    if (activeRoute == null || activeRoute.points.isEmpty) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'no_active_route'}, null);
+    }
+    if (location == null) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'no_location'}, null);
+    }
+    try {
+      final result = await _routePlanning.plan(
+        destinationQuery: activeRoute.destinationLabel,
+        destinationLabel: activeRoute.destinationLabel,
+        knownDestination: activeRoute.points.last,
+        origin: LatLng(location.latitude, location.longitude),
+      );
+      if (result case RoutePlanned(:final choice, :final alternatives)) {
+        return _AppliedCall(
+          profile,
+          {
+            'ok': true,
+            'destination': choice.destinationLabel,
+            'via': choice.viaSummary,
+            'distanceMeters': choice.distanceMeters,
+            'durationSeconds': choice.durationSeconds,
+            'stillUnsafe': !choice.verdict.safe,
+            'confirmedHazards': choice.verdict.blockingHazards.map((h) => h.subCategory).toList(),
+            'reportedHazards': choice.verdict.hazardWarnings.map((h) => h.subCategory).toList(),
+          },
+          null,
+          route: choice,
+          routeAlternatives: alternatives,
+        );
+      }
+      return _AppliedCall(profile, const {'ok': false, 'error': 'no_routes_found'}, null);
+    } catch (_) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'network_error'}, null);
+    }
+  }
+
+  /// Switches to the next walking route the backend already offered.
+  ///
+  /// Deliberately does not re-plan. Asking for "a different route" is asking
+  /// for one of the routes already found — going back to the network could
+  /// answer with an entirely different set, including the one just rejected,
+  /// and would cost a geocode and a directions call to do it.
+  ///
+  /// The safety check happens here rather than at plan time so the common
+  /// case — a user who accepts the first route, which is most of them —
+  /// never pays for two or three extra Cloud Function round trips it did not
+  /// need.
+  Future<_AppliedCall> _applyAlternativeRoute(
+    UserProfile profile,
+    RouteChoice? activeRoute,
+    List<RouteCandidate> alternatives,
+  ) async {
+    if (activeRoute == null) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'no_active_route'}, null);
+    }
+    if (alternatives.isEmpty) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'no_alternatives'}, null);
+    }
+    final remaining = alternatives.sublist(1);
+    try {
+      final choice = await _routePlanning.promote(
+        alternatives.first,
+        destinationLabel: activeRoute.destinationLabel,
+      );
+      return _AppliedCall(
+        profile,
+        {
+          'ok': true,
+          'destination': choice.destinationLabel,
+          'via': choice.viaSummary,
+          'distanceMeters': choice.distanceMeters,
+          'durationSeconds': choice.durationSeconds,
+          'stillUnsafe': !choice.verdict.safe,
+          'alternativeCount': remaining.length,
+          'confirmedHazards': choice.verdict.blockingHazards.map((h) => h.subCategory).toList(),
+          'reportedHazards': choice.verdict.hazardWarnings.map((h) => h.subCategory).toList(),
+        },
+        null,
+        route: choice,
+        routeAlternatives: remaining,
+      );
     } catch (_) {
       return _AppliedCall(profile, const {'ok': false, 'error': 'network_error'}, null);
     }

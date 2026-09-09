@@ -106,6 +106,10 @@ class LocalIntentMatcher {
         _matchLanguage(lower, text) ??
         _matchVerbosity(lower, text) ??
         _matchTextSize(lower, text) ??
+        // Before `_matchRoute`: "show me a different route" contains
+        // "route", and answering it by planning a fresh journey to nowhere
+        // is not what was asked.
+        _matchRouteChange(lower, text) ??
         _matchRoute(lower, text, bn);
   }
 
@@ -889,6 +893,55 @@ class LocalIntentMatcher {
       }
     }
     return out.replaceAll(RegExp(r'[.!?]+$'), '').trim();
+  }
+
+  // ---- request_alternative_route / replan_route ------------------------
+
+  /// "Give me a different route."
+  ///
+  /// Reported directly: after being told a route passed a risky area, the
+  /// user had no way to ask for another one — the alternatives Google had
+  /// already returned were being thrown away, and there was no command that
+  /// would have reached them anyway.
+  static const _alternativeRoutePhrases = [
+    'different route', 'another route', 'other route', 'different way',
+    'another way', 'other way', 'different path', 'another path',
+    'different road', 'another road', 'change the route', 'change route',
+    'not this route', "don't like this route", 'dont like this route',
+    'অন্য পথ', 'আরেকটা পথ', 'আরেকটি পথ', 'অন্য রাস্তা', 'আরেকটা রাস্তা',
+    'অন্য কোনো পথ', 'অন্য কোন পথ', 'পথ পাল্টাও', 'পথ বদলাও',
+  ];
+
+  /// "Re-route" — start again from where I am standing.
+  ///
+  /// This one is not a nicety: [Dashboard.navigateOffRoute] tells a user who
+  /// has drifted off the route to stop and say exactly this, and promises
+  /// that the way will be found from where they are now. Nothing matched it,
+  /// so the promise was empty at the one moment it mattered — a blind
+  /// pedestrian, off route, on a Dhaka street.
+  ///
+  /// Distinct from [_alternativeRoutePhrases]: the same destination by a
+  /// *different* road versus the same destination from a *new* origin.
+  static const _replanPhrases = [
+    're-route', 'reroute', 're route', 'route again', 'plan again',
+    'find the way again', 'where do i go from here', 'start over',
+    'নতুন পথ', 'আবার পথ', 'পথ খুঁজে দাও', 'এখান থেকে পথ',
+  ];
+
+  /// A destination named in the same breath means this is a fresh journey,
+  /// not a change to the current one — "another way to Gulshan" is for
+  /// Gemini, which has both tools and the conversation to tell them apart.
+  static final _namesADestination = RegExp(r'\bto\s+\S', caseSensitive: false);
+
+  static LocalIntent? _matchRouteChange(String lower, String text) {
+    final hasDestination = _namesADestination.hasMatch(lower);
+    if (_replanPhrases.any((p) => lower.contains(p) || text.contains(p))) {
+      return hasDestination ? null : const LocalIntent('replan_route', {});
+    }
+    if (_alternativeRoutePhrases.any((p) => lower.contains(p) || text.contains(p))) {
+      return hasDestination ? null : const LocalIntent('request_alternative_route', {});
+    }
+    return null;
   }
 
   static LocalIntent? _matchRoute(String lower, String text, bool bn) {

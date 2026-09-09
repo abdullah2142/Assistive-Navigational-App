@@ -169,28 +169,101 @@ class Dashboard {
   String get mapUnavailableTitle => _t('Map unavailable', 'মানচিত্র নেই');
   String get mapUnavailableSubtitle => _t('A Google Maps API key hasn\'t been configured yet.', 'মানচিত্র এখনো চালু করা হয়নি।');
   String get mapLiveViewLabel => _t('Live map view', 'সরাসরি মানচিত্র');
-  String get mapNextDirection => _t('Next direction: continue forward', 'পরের নির্দেশ: সোজা যান');
   String get mapExpandSemantics => _t('Expand map to full screen', 'মানচিত্র পুরো স্ক্রিনে দেখুন');
   String get mapCollapseSemantics => _t('Shrink map back to split view', 'মানচিত্র আবার ভাগ করা স্ক্রিনে আনুন');
 
-  /// Spoken/screen-reader label for the giant directional arrow once a real
-  /// route (Module 4) is active, replacing [mapNextDirection]'s static text.
-  String mapRouteStatus({required bool safe, required bool wasRerouted, required double distanceMeters}) {
-    final km = (distanceMeters / 1000).toStringAsFixed(distanceMeters >= 1000 ? 1 : 2);
+  /// Screen-reader label for the route banner, and the one sentence that
+  /// has to carry the whole route for someone who cannot look at the line.
+  ///
+  /// Reported: "that stupid big arrow is confusing, i wanna see the route
+  /// lines as well like in google maps, as well as info about how far to go
+  /// in which direction." The arrow was a static placeholder Module 2
+  /// shipped before turn-by-turn existed; this is what replaced it.
+  String mapRouteStatus({
+    required bool safe,
+    required bool wasRerouted,
+    required double distanceMeters,
+    String destination = '',
+    String via = '',
+  }) {
+    final remaining = spokenRouteLength(distanceMeters);
+    final heading = destination.isEmpty
+        ? _t('Route active', 'পথ চালু আছে')
+        : _t('Heading to $destination', '$destination-এর দিকে যাচ্ছেন');
+    final viaClause = via.isEmpty ? '' : _t(' via $via', ' $via দিয়ে');
+    final base = _t('$heading$viaClause — $remaining to go.', '$heading$viaClause — বাকি আছে $remaining।');
     if (!safe) {
       return _t(
-        'Continue ahead — $km km to go. This is the safest route found, but still passes a risky area.',
-        'সামনে এগিয়ে যান — বাকি আছে $km কিলোমিটার। এটাই সবচেয়ে নিরাপদ পথ, তবে কিছুটা ঝুঁকিপূর্ণ এলাকা দিয়ে যায়।',
+        '$base This is the safest route found, but it still passes a risky area.',
+        '$base এটাই সবচেয়ে নিরাপদ পথ, তবে কিছুটা ঝুঁকিপূর্ণ এলাকা দিয়ে যায়।',
       );
     }
     if (wasRerouted) {
       return _t(
-        'Continue ahead — $km km to go. Route adjusted to avoid an unsafe area.',
-        'সামনে এগিয়ে যান — বাকি আছে $km কিলোমিটার। অনিরাপদ এলাকা এড়াতে পথ পাল্টানো হয়েছে।',
+        '$base Route adjusted to avoid an unsafe area.',
+        '$base অনিরাপদ এলাকা এড়াতে পথ পাল্টানো হয়েছে।',
       );
     }
-    return _t('Continue ahead — $km km to go.', 'সামনে এগিয়ে যান — বাকি আছে $km কিলোমিটার।');
+    return base;
   }
+
+  /// The next manoeuvre, written for the eye rather than the ear.
+  ///
+  /// Distance first for speech ([navigateTurnAhead]) because speech is
+  /// linear and the listener needs to know how urgent it is before the
+  /// instruction lands. On a screen both are visible at once, so the
+  /// instruction leads and the distance sits beside it as its own large
+  /// number — which is the part a low-vision user is squinting at.
+  String mapManeuverLine({required ManeuverKind kind, String streetName = ''}) {
+    final direction = maneuverDirection(kind);
+    final sentence = streetName.isEmpty
+        ? direction
+        : _t('$direction onto $streetName', '$streetName-এ $direction');
+    return sentence.isEmpty ? sentence : sentence[0].toUpperCase() + sentence.substring(1);
+  }
+
+  /// The distance to the next manoeuvre, as a short label beside its icon.
+  ///
+  /// Never "a few steps": this has to fit a fixed slot and be readable at a
+  /// glance. Rounded to the same bands [spokenDistance] uses — 10 m close
+  /// in, 50 m further out — so what is on the screen and what was just said
+  /// out loud cannot disagree, which for a low-vision user reading the
+  /// screen *and* hearing the voice is worse than either alone.
+  String mapCompactDistance(double meters) {
+    if (meters >= 1000) return _compactKm(meters);
+    final rounded = meters < 100 ? (meters / 10).round() * 10 : (meters / 50).round() * 50;
+    return _bn ? '$rounded মি' : '$rounded m';
+  }
+
+  /// "1.2 km left" under the manoeuvre — the total, not the next turn.
+  ///
+  /// Rounded to 10 m throughout rather than to the announcement bands: this
+  /// number is never spoken, so it has nothing to stay in step with, and
+  /// showing "950 m left" for 940 m is a rounding nobody asked for.
+  String mapRemainingLabel(double meters) {
+    final value = meters >= 1000 ? _compactKm(meters) : '${(meters / 10).round() * 10}${_bn ? ' মি' : ' m'}';
+    return _t('$value left', 'বাকি $value');
+  }
+
+  String _compactKm(double meters) {
+    final km = (meters / 100).round() / 10;
+    return _bn ? '$km কিমি' : '$km km';
+  }
+
+  /// Shown in the banner before the first GPS fix arrives, when the route
+  /// exists but nothing has been walked yet.
+  String mapHeadingTo(String destination) =>
+      _t('Heading to $destination', '$destination-এর দিকে');
+
+  /// Shown in place of the manoeuvre when the user has left the route.
+  String get mapOffRoute => _t('Off the route', 'পথ থেকে সরে গেছেন');
+
+  /// Shown once the destination is reached.
+  String get mapArrived => _t('Arrived', 'পৌঁছে গেছেন');
+
+  /// The destination pin's screen-reader label.
+  String mapDestinationMarker(String destination) =>
+      _t('Destination: $destination', 'গন্তব্য: $destination');
 
   // Working out where an unknown destination actually is.
   //
@@ -356,6 +429,74 @@ class Dashboard {
     return _bn ? '$rounded মিটার' : '$rounded metres';
   }
 
+  /// A whole route's length, as a person would say it.
+  ///
+  /// Distinct from [spokenDistance], which is built for the *next* few
+  /// metres and answers "a few steps" below 20 m. A total is a different
+  /// question — "how far is this walk" — and wants a kilometre once it is
+  /// past one.
+  String spokenRouteLength(double meters) {
+    if (meters >= 1000) {
+      final km = (meters / 100).round() / 10;
+      return _bn ? '$km কিলোমিটার' : '$km km';
+    }
+    final rounded = (meters / 10).round() * 10;
+    return _bn ? '$rounded মিটার' : '$rounded metres';
+  }
+
+  /// How long the walk takes, rounded to whole minutes.
+  ///
+  /// Never seconds: nobody paces a walk to the second, and "about" is the
+  /// honest word for an estimate built from an average walking speed that
+  /// this app's users may not match (see `RoutingConfig`).
+  String spokenWalkDuration(double seconds) {
+    final minutes = (seconds / 60).round();
+    if (minutes < 1) return _t('under a minute', 'এক মিনিটেরও কম');
+    if (minutes == 1) return _t('about a minute', 'প্রায় এক মিনিট');
+    return _t('about $minutes minutes', 'প্রায় $minutes মিনিট');
+  }
+
+  /// The one-line description of a route the assistant is about to walk the
+  /// user along: which way, how far, how long.
+  ///
+  /// Reported directly — after "take me to Labaid" the assistant said only
+  /// that the safest route passed a risky area, and the user wanted to know
+  /// *which* way it was taking them. A route the user cannot see is a route
+  /// they cannot object to, so it has to be said.
+  ///
+  /// [via] is omitted rather than faked when no step on the route carries a
+  /// name, which is common in Dhaka.
+  String routeSummary({required String via, required double distanceMeters, required double durationSeconds}) {
+    final length = spokenRouteLength(distanceMeters);
+    final duration = spokenWalkDuration(durationSeconds);
+    if (via.isEmpty) return _t('$length, $duration.', '$length, $duration।');
+    return _t('Via $via — $length, $duration.', '$via দিয়ে — $length, $duration।');
+  }
+
+  /// Said when the user asks for a different route and there is one.
+  String routeAlternativeTaken({required String via, required double distanceMeters, required double durationSeconds}) {
+    final summary = routeSummary(via: via, distanceMeters: distanceMeters, durationSeconds: durationSeconds);
+    return _t('Here is another way. $summary', 'এই যে আরেকটা পথ। $summary');
+  }
+
+  /// Said when they ask and there is not.
+  String get routeNoAlternatives => _t(
+        "That is the only walking route I can find to there. Say \"stop\" if you would rather not go.",
+        'ওখানে যাওয়ার জন্য হেঁটে যাওয়ার এই একটাই পথ পাচ্ছি। যেতে না চাইলে "থামো" বলুন।',
+      );
+
+  /// Said when they ask for a different route without being on one.
+  String get routeNoActiveRoute => _t(
+        'You are not following a route right now. Tell me where you want to go and I will find one.',
+        'এখন আপনি কোনো পথে নেই। কোথায় যেতে চান বলুন, আমি পথ খুঁজে দিচ্ছি।',
+      );
+
+  /// How many other routes are still on the shelf, so the user knows
+  /// whether asking again will get them anywhere.
+  String routeAlternativesRemaining(int count) => count == 0
+      ? _t('That was the last one I had.', 'এটাই ছিল আমার কাছে থাকা শেষ পথ।')
+      : _t('I have $count more if you want another.', 'আরও $count টা আছে, চাইলে বলুন।');
+
   /// Far-out and mid-range warning: distance first, then the turn.
   String navigateTurnAhead({
     required ManeuverKind kind,
@@ -405,12 +546,26 @@ class Dashboard {
       );
 
   /// Spoken when navigation starts, before the first manoeuvre.
+  ///
+  /// Uses [spokenRouteLength], not [spokenDistance] — the latter rounds to
+  /// 50 m bands for the *next* manoeuvre and turned a whole journey into
+  /// "1200 metres in total", which is both harder to hear and less useful
+  /// than "1.2 km".
   String navigateStarted({required String destination, required double totalMeters}) => _t(
-        'Starting navigation to $destination, ${spokenDistance(totalMeters)} in total. '
+        'Starting navigation to $destination, ${spokenRouteLength(totalMeters)} in total. '
             'I will tell you each turn as it comes.',
-        '$destination-এর দিকে যাত্রা শুরু করছি, মোট ${spokenDistance(totalMeters)}। '
+        '$destination-এর দিকে যাত্রা শুরু করছি, মোট ${spokenRouteLength(totalMeters)}। '
             'প্রতিটি মোড় আসার আগে আমি বলে দেব।',
       );
+
+  /// The same moment, when the caller has just described the route itself.
+  ///
+  /// The chat reply already said where, which way and how far — repeating
+  /// the destination and the total straight afterwards is the "saying too
+  /// much" failure `NavigationNarrator` is built to avoid, and it lands
+  /// before the user has taken a single step.
+  String get navigateStartedBrief =>
+      _t('I will tell you each turn as it comes.', 'প্রতিটি মোড় আসার আগে আমি বলে দেব।');
 
   String get navigateStopped => _t('Navigation stopped.', 'পথ দেখানো বন্ধ করলাম।');
 

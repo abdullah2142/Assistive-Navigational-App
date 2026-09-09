@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
+import 'wake_word_audio_source.dart';
+
 /// Continuous on-device wake-word detection ("Hey ANT"), via
 /// [openWakeWord](https://github.com/dscripka/openWakeWord)'s three-stage
 /// TFLite pipeline: raw audio -> mel-spectrogram -> embedding -> classifier
@@ -28,13 +30,23 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 /// `flutter analyze`/compilation could be checked here. Verify on a real
 /// device before relying on it.
 class WakeWordService {
+  /// [audioSource] and [loadModels] are seams for tests — see
+  /// [WakeWordAudioSource]. Both default to the real thing, so production
+  /// code constructs this with no arguments.
+  WakeWordService({WakeWordAudioSource? audioSource, Future<bool> Function()? loadModels})
+      : _injectedSource = audioSource,
+        _injectedLoader = loadModels;
+
+  final WakeWordAudioSource? _injectedSource;
+  final Future<bool> Function()? _injectedLoader;
+
   /// Built on first use, not on construction.
   ///
   /// The recorder reaches its platform plugin the moment it exists, so an
   /// eager field meant simply *having* this service required a working mic
   /// plugin — it allocated one for every user including those who never turn
   /// the wake word on, and made the coordination logic untestable off-device.
-  late final AudioRecorder _recorder = AudioRecorder();
+  late final WakeWordAudioSource _recorder = _injectedSource ?? _RecordAudioSource();
 
   Interpreter? _melInterpreter;
   Interpreter? _embeddingInterpreter;
@@ -58,9 +70,45 @@ class WakeWordService {
   static const double detectionThreshold = 0.5;
   static const Duration _cooldown = Duration(seconds: 2);
 
+  /// How long to wait after the microphone is handed back before reopening
+  /// the recorder. Not `const` so a test can shrink it — every restart path
+  /// goes through this delay, and waiting half a second per assertion turns
+  /// a fast suite into a slow one.
+  @visibleForTesting
+  static Duration restartHandoff = const Duration(milliseconds: 500);
+
   bool get isListening => _audioSub != null;
 
   void Function()? _lastOnDetected;
+
+  /// Whether the app *wants* the wake word running, independent of whether
+  /// the recorder happens to be open right now.
+  ///
+  /// This is the authoritative bit, and separating it from [isListening] is
+  /// what fixes the reported "with both toggles on, neither works". The old
+  /// code inferred the intent instead, at the moment a suspension was taken:
+  /// if the recorder was live it remembered to restart it, and otherwise it
+  /// did not. That inference is wrong whenever a suspension lands while a
+  /// `start()` is still in flight — which is a routine ordering, not an
+  /// exotic one, because a wake-word detection is immediately followed by a
+  /// listen session whose release schedules a restart 500 ms later, and the
+  /// command the user just spoke ("report a hazard") opens a screen that
+  /// suspends inside that same window. The result was the worst of both:
+  /// the recorder came up *inside* the suspension and took the microphone
+  /// away from the recognizer, and the release then declined to restart it,
+  /// so the wake word never came back either.
+  ///
+  /// With an explicit flag, [start] can refuse to open the recorder while
+  /// suspended, and the release always knows whether to bring it back.
+  bool _enabled = false;
+
+  @visibleForTesting
+  bool get isEnabled => _enabled;
+
+  /// Guards two `start()` calls racing each other into `startStream()`.
+  /// `ChatStreamPanel` can issue one from `initState` and another from
+  /// `didUpdateWidget` before the first has finished loading models.
+  bool _starting = false;
 
   /// How many suspensions are currently held.
   ///
@@ -73,22 +121,24 @@ class WakeWordService {
   /// narration and the next listen came up empty, so the hub read out the
   /// hazard options and took no answer.
   int _suspendDepth = 0;
-  bool _resumeWhenReleased = false;
+
+  @visibleForTesting
+  int get suspendDepth => _suspendDepth;
 
   /// Suspends wake-word listening for the duration of [action].
   ///
   /// Centralizes a fix that used to live duplicated (and, in one real case,
   /// forgotten) in each caller of [SttService.listenOnce]: two separate
-  /// audio-capture sessions — this service's own continuous
-  /// [AudioRecorder] stream and Android's `SpeechRecognizer` — fighting
-  /// over the microphone at the same time. Confirmed live in more than one
-  /// place: the classifier's score would flatline to an exact `0.000` (not
-  /// even background-noise variance) after the recognizer grabbed the mic
-  /// mid-listen, and the *reverse* — starting a manual push-to-talk session
-  /// while this service was still actively listening — could cut the STT
-  /// session off before a word was even transcribed. [SttService] now
-  /// calls this around every `listenOnce`, so any caller gets the
-  /// coordination for free without needing to know wake-word exists at all.
+  /// audio-capture sessions — this service's own continuous recorder stream
+  /// and the speech recognizer's — fighting over the microphone at the same
+  /// time. Confirmed live in more than one place: the classifier's score
+  /// would flatline to an exact `0.000` (not even background-noise variance)
+  /// after the recognizer grabbed the mic mid-listen, and the *reverse* —
+  /// starting a manual push-to-talk session while this service was still
+  /// actively listening — could cut the STT session off before a word was
+  /// even transcribed. [SttService] now calls this around every
+  /// `listenOnce`, so any caller gets the coordination for free without
+  /// needing to know wake-word exists at all.
   ///
   /// Nest it around a whole spoken exchange when one screen owns the
   /// microphone for several turns — otherwise the recorder comes back
@@ -120,33 +170,35 @@ class WakeWordService {
   Future<void> _acquireSuspend() async {
     _suspendDepth++;
     if (_suspendDepth > 1) return;
-    if (isListening) {
-      _resumeWhenReleased = true;
-      await stop();
-    }
+    // Whatever features the pipeline has are worth keeping across this gap
+    // unless a detection already consumed them — see [_resetBuffers].
+    _markWarm();
+    // Unconditional, not `if (isListening)`. A recorder that is merely
+    // *coming up* has to be silenced too, and `isListening` is false for the
+    // whole of that window — see [_enabled]. Stopping a recorder that was
+    // never opened is a no-op on every backend.
+    await _stopRecorder();
   }
 
   Future<void> _releaseSuspend() async {
     _suspendDepth--;
     // Still held by an outer flow — leave the microphone alone.
     if (_suspendDepth > 0) return;
-    _suspendDepth = 0;
-    if (!_resumeWhenReleased || _lastOnDetected == null) return;
-    _resumeWhenReleased = false;
+    if (_suspendDepth < 0) _suspendDepth = 0;
+    if (!_enabled || _lastOnDetected == null) return;
     // Brief handoff gap: reclaiming the mic immediately after the other
     // session ends raced Android's own audio-session teardown on device —
     // see the doc comment above for what that looked like.
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(restartHandoff);
     // A new suspension may have been taken during that delay.
-    if (_suspendDepth > 0) {
-      _resumeWhenReleased = true;
-      return;
-    }
+    if (_suspendDepth > 0) return;
     await start(onDetected: _lastOnDetected!);
   }
 
   Future<bool> _ensureModelsLoaded() async {
     if (_modelsLoaded) return true;
+    final loader = _injectedLoader;
+    if (loader != null) return _modelsLoaded = await loader();
     try {
       debugPrint('[WakeWord] loading melspectrogram.tflite...');
       _melInterpreter = await Interpreter.fromAsset('$_assetDir/melspectrogram.tflite');
@@ -168,46 +220,101 @@ class WakeWordService {
   /// without starting anything if the TFLite models fail to load or the
   /// microphone permission isn't available — callers should fall back to
   /// push-to-talk-only, exactly like [SttService.ensureAvailable] failing.
+  ///
+  /// Returns `true` without opening the microphone while a suspension is
+  /// held: the intent is recorded and the recorder comes up when the last
+  /// suspension is released. Any other answer would be a lie in the
+  /// direction that hurts — a caller told `false` falls back to
+  /// push-to-talk-only and never asks again.
   Future<bool> start({required void Function() onDetected}) async {
     _lastOnDetected = onDetected;
+    _enabled = true;
     if (isListening) return true;
-    if (!await _ensureModelsLoaded()) return false;
-    if (!await _recorder.hasPermission()) {
-      debugPrint('[WakeWord] mic permission not granted');
-      return false;
-    }
+    // Someone else owns the microphone. `_releaseSuspend` starts us.
+    if (_suspendDepth > 0) return true;
+    if (_starting) return true;
+    _starting = true;
+    try {
+      if (!await _ensureModelsLoaded()) return false;
+      if (!await _recorder.hasPermission()) {
+        debugPrint('[WakeWord] mic permission not granted');
+        return false;
+      }
+      // Re-checked after every await above. A suspension taken while the
+      // models were loading, or while the permission dialog was up, must win
+      // — opening the recorder now would take the microphone from whoever
+      // suspended us, which is the whole bug this guards.
+      if (_suspendDepth > 0 || !_enabled) return true;
 
+      _resetBuffers();
+
+      final stream = await _recorder.startStream();
+      if (_suspendDepth > 0 || !_enabled) {
+        // Landed during the recorder handshake itself. Hand the microphone
+        // straight back rather than listening over the top of the session
+        // that suspended us.
+        await _recorder.stop();
+        return true;
+      }
+      _audioSub = stream.listen((bytes) => _onAudioBytes(bytes, onDetected));
+      debugPrint('[WakeWord] listening started '
+          '(${_warmRestart ? 'warm — feature buffers kept' : 'cold — buffers cleared'})');
+      _warmRestart = false;
+      return true;
+    } finally {
+      _starting = false;
+    }
+  }
+
+  /// Whether the *next* [start] may keep the mel/embedding buffers it
+  /// already has. See [_resetBuffers].
+  bool _warmRestart = false;
+
+  /// What a (re)start does to the feature pipeline.
+  ///
+  /// ## Why a restart can be warm at all
+  ///
+  /// The classifier needs 16 embedding windows before it can score anything,
+  /// each embedding needs 76 mel frames, and both are built 80 ms at a time
+  /// — about 2.5 s of audio from empty. Clearing everything on every restart
+  /// therefore left the wake word genuinely deaf for ~2 s after each voice
+  /// exchange, on top of the 500 ms handoff gap. Say "Hey ANT" into that
+  /// window and it is silently missed, which reads as the detector being
+  /// flaky rather than warming up. openWakeWord itself never clears between
+  /// utterances — it runs one continuous stream — so keeping the features is
+  /// also closer to the reference implementation than resetting was.
+  ///
+  /// ## Why it cannot be warm after a detection
+  ///
+  /// The suspension that follows a detection is taken within milliseconds of
+  /// it, so the retained buffer's newest 16 embeddings *are* the wake phrase
+  /// that just fired. On resume the window would be 15 of those plus one
+  /// fresh embedding, score essentially the same, and fire again — and the
+  /// 2-second cooldown is no help, because the suspension outlasts it by the
+  /// length of the whole command. So a detection marks the buffers poisoned
+  /// and the next start is cold. Every other reason for suspending — the mic
+  /// button, the hazard hub, the passerby picker, the emergency flow — holds
+  /// ordinary speech or silence, and keeps its warmth.
+  void _resetBuffers() {
+    // Always dropped: a partial chunk spliced across the gap would put one
+    // frame of nonsense at the seam, and it is 80 ms of context at most.
     _pendingBytes.clear();
+    if (_warmRestart) return;
     _melFrames.clear();
     _embeddings.clear();
     // Reset the detection cooldown too. Without this, a restart that lands
     // inside the cooldown window from the *previous* session's detection
     // silently swallows the next wake word — the one case where "it worked
-    // once and then stopped" is exactly what the user would see.
+    // once and then stopped" is exactly what the user would see. Safe here
+    // precisely because a cold buffer cannot re-fire the old phrase.
     _lastDetection = null;
     _lastScoreLog = null;
     _peakSinceLog = 0;
-
-    final stream = await _recorder.startStream(
-      // See `CloudSttService`'s identical config for why — the assistant's
-      // own spoken replies can play while this is still listening in the
-      // background (wake-word pausing is only coordinated around actual
-      // STT sessions, not every TTS utterance), so the same
-      // hearing-its-own-voice risk applies here too.
-      const RecordConfig(
-        encoder: AudioEncoder.pcm16bits,
-        sampleRate: sampleRate,
-        numChannels: 1,
-        echoCancel: true,
-        noiseSuppress: true,
-      ),
-    );
-    _audioSub = stream.listen((bytes) => _onAudioBytes(bytes, onDetected));
-    debugPrint('[WakeWord] listening started (restart-safe: buffers and cooldown cleared)');
-    return true;
   }
 
-  Future<void> stop() async {
+  /// Stops the recorder without changing whether the wake word is wanted.
+  /// Used by suspension; [stop] is the caller-facing "turn it off".
+  Future<void> _stopRecorder() async {
     await _audioSub?.cancel();
     _audioSub = null;
     try {
@@ -217,12 +324,26 @@ class WakeWordService {
     }
   }
 
+  /// Turns the wake word off. Distinct from a suspension: nothing brings it
+  /// back until a caller asks for it again with [start].
+  Future<void> stop() async {
+    _enabled = false;
+    await _stopRecorder();
+  }
+
   Future<void> dispose() async {
     await stop();
     _melInterpreter?.close();
     _embeddingInterpreter?.close();
     _wakeWordInterpreter?.close();
-    await _recorder.dispose();
+    try {
+      await _recorder.dispose();
+    } catch (_) {
+      // Nothing to release — a build that never opened the microphone, or a
+      // test host with no recorder plugin at all. This runs from Riverpod's
+      // container teardown, where an unhandled async throw surfaces as an
+      // unrelated test failing rather than as anything anyone can act on.
+    }
   }
 
   void _onAudioBytes(Uint8List bytes, void Function() onDetected) {
@@ -303,8 +424,28 @@ class WakeWordService {
     if (score >= detectionThreshold && offCooldown) {
       _lastDetection = now;
       debugPrint('[WakeWord] DETECTED (score=${score.toStringAsFixed(3)})');
+      // The suspension the callback is about to take must start cold — see
+      // [_resetBuffers].
+      _poisonBuffers();
       onDetected();
     }
+  }
+
+  /// Marks the feature buffers as holding a phrase that has already fired,
+  /// so the next start clears them instead of re-scoring it.
+  void _poisonBuffers() {
+    _melFrames.clear();
+    _embeddings.clear();
+  }
+
+  /// Records that the next [start] should keep whatever features the
+  /// pipeline has, because the gap in audio was not caused by a detection.
+  ///
+  /// Called by [SttService] and by every screen that suspends around its own
+  /// spoken flow — via [pauseAround]/[suspend], which is the only way in.
+  void _markWarm() {
+    // Nothing to keep if the pipeline was never running.
+    _warmRestart = _melFrames.isNotEmpty || _embeddings.isNotEmpty;
   }
 
   /// [1, 1280] raw (unnormalized — NOT divided by 32768) float32 samples in
@@ -347,4 +488,54 @@ class WakeWordService {
     final floats = Float32List.view(bytes.buffer, bytes.offsetInBytes, bytes.lengthInBytes ~/ 4);
     return List<double>.from(floats);
   }
+
+  // ---- Test seams ---------------------------------------------------------
+
+  /// The live mel-frame buffer, so a test can seed it and then assert
+  /// whether a restart kept or cleared it. See [_resetBuffers].
+  @visibleForTesting
+  List<List<double>> get debugMelFrames => _melFrames;
+
+  @visibleForTesting
+  List<List<double>> get debugEmbeddings => _embeddings;
+
+  @visibleForTesting
+  bool get debugWillRestartWarm => _warmRestart;
+
+  /// Drives the detection branch without needing the TFLite models — the
+  /// only part of [_processChunk] a test can reach off-device.
+  @visibleForTesting
+  void debugSimulateDetection() => _poisonBuffers();
+}
+
+/// The real recorder. Config lives here rather than at each call site so the
+/// wake word and Cloud STT cannot drift apart on echo cancellation, which
+/// they must agree on — see the comment inside.
+class _RecordAudioSource implements WakeWordAudioSource {
+  final AudioRecorder _recorder = AudioRecorder();
+
+  @override
+  Future<bool> hasPermission() => _recorder.hasPermission();
+
+  @override
+  Future<Stream<Uint8List>> startStream() => _recorder.startStream(
+        // See `CloudSttService`'s identical config for why — the assistant's
+        // own spoken replies can play while this is still listening in the
+        // background (wake-word pausing is only coordinated around actual
+        // STT sessions, not every TTS utterance), so the same
+        // hearing-its-own-voice risk applies here too.
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: WakeWordService.sampleRate,
+          numChannels: 1,
+          echoCancel: true,
+          noiseSuppress: true,
+        ),
+      );
+
+  @override
+  Future<void> stop() => _recorder.stop();
+
+  @override
+  Future<void> dispose() => _recorder.dispose();
 }

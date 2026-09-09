@@ -11,6 +11,7 @@ import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/local_intent_matcher.dart';
 import '../../../core/services/offline_intent_matcher.dart';
 import '../../../core/services/route_planning_service.dart';
+import '../../../core/services/routing_service.dart' show RouteCandidate;
 import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../models/chat_message.dart';
@@ -27,6 +28,7 @@ class ChatState {
     this.pendingOverlayAction,
     this.pendingHazardPrefill,
     this.pendingRoute,
+    this.routeAlternatives = const [],
     this.pendingClarification,
     this.lastSettingChanged,
   });
@@ -54,6 +56,15 @@ class ChatState {
   /// [ChatController.clearRoute].
   final RouteChoice? pendingRoute;
 
+  /// The other walking routes found alongside [pendingRoute], kept so
+  /// "give me a different route" has something to switch to.
+  ///
+  /// They used to be thrown away the instant the safest one was picked,
+  /// which is why the assistant could announce that a route passed a risky
+  /// area and then offer nothing to do about it. Not safety-checked until
+  /// one is actually taken — see [RoutePlanned.alternatives].
+  final List<RouteCandidate> routeAlternatives;
+
   /// Set while the assistant is working out where a destination actually
   /// is. Its presence changes how the *next* message is read: an answer to
   /// the question just asked, rather than a fresh command. See
@@ -72,6 +83,7 @@ class ChatState {
     HazardReportPrefill? pendingHazardPrefill,
     bool clearOverlay = false,
     RouteChoice? pendingRoute,
+    List<RouteCandidate>? routeAlternatives,
     bool clearRoute = false,
     DestinationClarification? pendingClarification,
     bool clearClarification = false,
@@ -83,6 +95,8 @@ class ChatState {
         pendingOverlayAction: clearOverlay ? null : (pendingOverlayAction ?? this.pendingOverlayAction),
         pendingHazardPrefill: clearOverlay ? null : (pendingHazardPrefill ?? this.pendingHazardPrefill),
         pendingRoute: clearRoute ? null : (pendingRoute ?? this.pendingRoute),
+        routeAlternatives:
+            clearRoute ? const [] : (routeAlternatives ?? this.routeAlternatives),
         pendingClarification:
             clearClarification ? null : (pendingClarification ?? this.pendingClarification),
         lastSettingChanged: lastSettingChanged ?? this.lastSettingChanged,
@@ -102,7 +116,43 @@ class ChatState {
 /// working exactly as before a key exists.
 class ChatController extends Notifier<ChatState> {
   @override
-  ChatState build() => const ChatState();
+  ChatState build() {
+    // Every spoken navigation cue also lands in the chat as text.
+    //
+    // `NavigationController` has emitted these since Module 4 and nothing
+    // read them, which meant turn-by-turn guidance existed *only* as speech.
+    // For a Deaf or hard-of-hearing user that is not a degraded experience,
+    // it is no experience: the app plans the route, announces it to an empty
+    // room, and then says nothing they can perceive for the rest of the
+    // walk. The map banner covers it too, but the map is hidden by default
+    // on this dashboard — the chat is the surface they are actually looking
+    // at.
+    final navigation = ref.read(navigationControllerProvider);
+    final cues = navigation.spokenCues.listen(_onNavigationCue);
+    ref.onDispose(cues.cancel);
+    // Arrival ends the walk, and is watched separately from the cue stream
+    // so it cannot depend on the order the controller happens to speak and
+    // stop in. Without this the route stayed "active" indefinitely: the map
+    // kept drawing a line the user had already walked, and `resolve_hazard`
+    // stayed scoped to a journey that finished hours ago. `clearRoute`
+    // existed for exactly this and nothing ever called it.
+    void onProgress() {
+      if (navigation.progress.value?.arrived ?? false) state = state.copyWith(clearRoute: true);
+    }
+
+    navigation.progress.addListener(onProgress);
+    ref.onDispose(() => navigation.progress.removeListener(onProgress));
+    return const ChatState();
+  }
+
+  /// Appended, never re-spoken — [NavigationController] said it as it
+  /// emitted it, and hearing every turn twice is worse than not seeing it.
+  void _onNavigationCue(String text) {
+    state = state.copyWith(messages: [
+      ...state.messages,
+      ChatMessage(sender: ChatSender.assistant, text: text, timestamp: DateTime.now()),
+    ]);
+  }
 
   /// Called once by the widget as soon as it knows the current language —
   /// idempotent, so calling it again after the first message is a no-op.
@@ -147,6 +197,20 @@ class ChatController extends Notifier<ChatState> {
   Future<void> _runEmergency(UserProfile profile) async {
     final d = Dashboard.of(profile.language);
     final outcome = await ref.read(emergencyServiceProvider).trigger(profile: profile);
+    // An escape route reaches the navigation controller directly (see
+    // `emergencyServiceProvider`'s `onRoute`), which is enough to *speak* it
+    // and nothing else. Without this the map stayed on whatever it was
+    // showing — or on nothing — through the entire emergency, so the one
+    // person most likely to be looking at the screen, a bystander or a
+    // caretaker holding the phone, could not see where the user was being
+    // sent. Surfacing it here also reveals the map, via the same listener a
+    // requested route uses.
+    final escape = ref.read(navigationControllerProvider).activeRoute;
+    if (escape != null && !identical(escape, state.pendingRoute)) {
+      // No alternatives: this route was chosen for safety, and "give me a
+      // different one" is not a question worth answering mid-emergency.
+      state = state.copyWith(pendingRoute: escape, routeAlternatives: const []);
+    }
     final text = outcome.cancelled
         ? d.emergencyCancelled
         : EmergencyConfig.isRehearsal
@@ -233,7 +297,13 @@ class ChatController extends Notifier<ChatState> {
     // phrase should not silently discard the destination being worked out.
     final escape = LocalIntentMatcher.match(reply, profile.language);
     if (escape != null &&
-        const {'request_route', 'open_passerby_helper', 'open_hazard_report'}.contains(escape.name)) {
+        const {
+          'request_route',
+          'request_alternative_route',
+          'replan_route',
+          'open_passerby_helper',
+          'open_hazard_report',
+        }.contains(escape.name)) {
       state = state.copyWith(clearClarification: true);
       return false;
     }
@@ -314,12 +384,17 @@ class ChatController extends Notifier<ChatState> {
     state = state.copyWith(isAssistantTyping: false);
 
     switch (result) {
-      case RoutePlanned(:final choice):
-        state = state.copyWith(pendingRoute: choice, clearClarification: true);
+      case RoutePlanned(:final choice, :final alternatives):
+        state = state.copyWith(
+          pendingRoute: choice,
+          routeAlternatives: alternatives,
+          clearClarification: true,
+        );
         // A place that took several questions to find is exactly the one
         // worth never having to find again.
         await _appendAssistantReply(
           '${d.savedPlaceRouting(choice.destinationLabel)} '
+          '${d.routeSummary(via: choice.viaSummary, distanceMeters: choice.distanceMeters, durationSeconds: choice.durationSeconds)} '
           '${d.clarifyResolvedOfferSave(choice.destinationLabel)}',
           profile,
         );
@@ -364,7 +439,15 @@ class ChatController extends Notifier<ChatState> {
   /// and the polyline are the sighted half of this feature, and the spoken
   /// directions are the whole of the other half.
   void _startNavigation(RouteChoice route, UserProfile profile) {
-    ref.read(navigationControllerProvider).start(route, language: profile.language);
+    ref.read(navigationControllerProvider).start(
+          route,
+          language: profile.language,
+          // The reply appended just above already said the destination, the
+          // road and the distance — see `Dashboard.routeSummary`. Saying all
+          // of it again as navigation opens is two announcements for one
+          // event, back to back, before the user has moved.
+          describeRoute: false,
+        );
   }
 
   void _appendUserMessage(String text) {
@@ -480,6 +563,7 @@ class ChatController extends Notifier<ChatState> {
             // `resolve_hazard` is scoped to whatever the user is currently
             // walking — see `_applyResolveHazard`.
             activeRoute: state.pendingRoute,
+            routeAlternatives: state.routeAlternatives,
           );
       if (turn.updatedProfile != null) {
         await ref.read(profileServiceProvider).saveProfile(turn.updatedProfile!);
@@ -492,11 +576,11 @@ class ChatController extends Notifier<ChatState> {
         );
       }
       if (turn.route != null) {
-        state = state.copyWith(pendingRoute: turn.route);
+        state = state.copyWith(
+          pendingRoute: turn.route,
+          routeAlternatives: turn.routeAlternatives,
+        );
         _startNavigation(turn.route!, profile);
-      }
-      if (turn.clarification != null) {
-        state = state.copyWith(pendingClarification: turn.clarification);
       }
       if (turn.clarification != null) {
         state = state.copyWith(pendingClarification: turn.clarification);
@@ -536,6 +620,7 @@ class ChatController extends Notifier<ChatState> {
         location: location,
         // Scopes `resolve_hazard` to what the user is actually walking.
         activeRoute: state.pendingRoute,
+        routeAlternatives: state.routeAlternatives,
         onPartialText: (partial) {
           if (!streaming) {
             streaming = true;
@@ -586,7 +671,10 @@ class ChatController extends Notifier<ChatState> {
         );
       }
       if (turn.route != null) {
-        state = state.copyWith(pendingRoute: turn.route);
+        state = state.copyWith(
+          pendingRoute: turn.route,
+          routeAlternatives: turn.routeAlternatives,
+        );
         _startNavigation(turn.route!, profile);
       }
     } catch (e, st) {

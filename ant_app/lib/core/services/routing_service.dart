@@ -64,6 +64,64 @@ class RouteStep {
   final double bearingAfter;
 }
 
+/// Pulls the road name out of a Routes API step's English instruction.
+///
+/// Routes API has no street-name field at all — OSRM's `name` has no
+/// counterpart — so "turn left onto Satmasjid Road" came out as a bare "turn
+/// left" on the Google backend, which is the backend this app is migrating
+/// *to*. Losing the road name is not cosmetic for someone who cannot see a
+/// street sign: it is the only way to confirm they turned onto the right
+/// road.
+///
+/// Parsing prose is a compromise, and is treated as one. It is safe here for
+/// one specific reason: `languageCode` is pinned to `en-US` on every request
+/// (see `_walkingRoutesGoogle`'s body), so the phrasing cannot drift with the
+/// user's locale — and anything unrecognized yields an empty string, which
+/// every consumer already handles, because unnamed lanes are everywhere in
+/// Dhaka. Only the name is taken; the sentence around it is still built in
+/// the user's own language from [ManeuverKind].
+String streetNameFromGoogleInstruction(String? instruction) {
+  final text = instruction?.trim() ?? '';
+  if (text.isEmpty) return '';
+  // "Turn left onto X", "Continue onto X", "Head north on X".
+  final match = RegExp(r'\b(?:onto|on)\s+(.+)$', caseSensitive: false).firstMatch(text);
+  if (match == null) return '';
+  var name = match.group(1)!.trim();
+  // Routes API appends destination/side notes after a comma or a dash:
+  // "onto Satmasjid Road, Destination will be on the right".
+  for (final separator in [',', ' - ', ' – ']) {
+    final cut = name.indexOf(separator);
+    if (cut > 0) name = name.substring(0, cut).trim();
+  }
+  // The tail of a destination note ("on the right"), not a road. Nothing is
+  // better than a wrong road name.
+  if (RegExp(r'^(?:the |your )?(?:right|left)$', caseSensitive: false).hasMatch(name)) return '';
+  return name;
+}
+
+/// The road a route mostly follows — the "via Satmasjid Road" in a spoken
+/// route summary.
+///
+/// One line of context that turns "showing the way to Labaid" into something
+/// the user can agree or object to. Reported directly: after asking to be
+/// taken somewhere, the assistant said only that the route passed a risky
+/// area, and the user wanted to know *which way* it was taking them.
+///
+/// The longest single named stretch, not the first one — a route usually
+/// starts on whichever lane the user is standing in, which identifies
+/// nothing. Empty when no step carries a name, which is common in Dhaka and
+/// simply means the sentence is built without it.
+String routeViaSummary(List<RouteStep> steps) {
+  final byRoad = <String, double>{};
+  for (final step in steps) {
+    final name = step.streetName.trim();
+    if (name.isEmpty) continue;
+    byRoad[name] = (byRoad[name] ?? 0) + step.distanceMeters;
+  }
+  if (byRoad.isEmpty) return '';
+  return byRoad.entries.reduce((a, b) => b.value > a.value ? b : a).key;
+}
+
 /// The turn vocabulary this app speaks, independent of any routing backend.
 enum ManeuverKind {
   depart,
@@ -831,11 +889,14 @@ class RoutingService {
   }
 
   /// Routes API describes a manoeuvre as an enum on `navigationInstruction`
-  /// plus an `instructions` prose string. Only the enum is used: the prose is
+  /// plus an `instructions` prose string. The prose is never spoken: it is
   /// localized to the *request's* language, not the user's, and reading it
   /// aloud would produce exactly the kind of half-broken sentence a
   /// screen-reader user suffers through elsewhere. Phrasing is this app's job
-  /// (see `dashboard_strings.dart`), in the user's own language.
+  /// (see `dashboard_strings.dart`), in the user's own language. The one
+  /// thing mined out of it is the road name — see
+  /// [streetNameFromGoogleInstruction], which is the only place Routes API
+  /// puts one.
   ///
   /// Defensive about shape throughout: a partial `legs` array must yield the
   /// steps it does have rather than throwing, since an empty step list
@@ -861,6 +922,9 @@ class RoutingService {
           distanceMeters: ((raw['distanceMeters'] as num?) ?? 0).toDouble(),
           maneuver: maneuverFromGoogleRoutes(
             instruction is Map ? instruction['maneuver'] as String? : null,
+          ),
+          streetName: streetNameFromGoogleInstruction(
+            instruction is Map ? instruction['instructions'] as String? : null,
           ),
           // Routes API has no per-step bearing. The narrator only uses this
           // when it exists; 0 means "unknown", the same as it does on the

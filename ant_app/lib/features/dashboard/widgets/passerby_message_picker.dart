@@ -239,6 +239,13 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
       }
       alreadyPrompted = false;
       first = false;
+      // A beat before the microphone opens. Without it the recognizer
+      // transcribed the tail of the prompt it had just played — the intro
+      // ends "Say what you need, then say 'show it'", and it came back as
+      // "What you need?" and was committed as the user's message. Twice,
+      // reproducibly, on device. `CrowdsourceReportingHub` has had a shorter
+      // version of this guard all along.
+      await Future<void>.delayed(SttService.narrationSettle);
       if (!mounted) return;
       if (!await _stt.ensureAvailable()) return;
       setState(() => _listening = true);

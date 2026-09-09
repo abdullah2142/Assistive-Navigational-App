@@ -25,6 +25,21 @@ class SttService {
       : _wakeWord = wakeWord,
         _cloudStt = cloudStt;
 
+  /// How long to wait after this app finishes speaking before opening a
+  /// microphone.
+  ///
+  /// Not a buffer-drain allowance — measured on device, the recognizer
+  /// transcribed narration that had stopped a full second earlier, because
+  /// Cloud STT reports interim results about two seconds late and had
+  /// captured audio right at the boundary. Two separate flows were broken by
+  /// it on the same night: the Show Screen picker committed "What you need?"
+  /// (the tail of its own prompt) as the user's message, and the Show Screen
+  /// overlay heard its own "say 'go back'" and dismissed itself.
+  ///
+  /// A screen must narrate with the microphone shut, and then leave a beat
+  /// before opening it.
+  static const Duration narrationSettle = Duration(milliseconds: 600);
+
   final SpeechToText _speech = SpeechToText();
   final WakeWordService? _wakeWord;
   final CloudSttService? _cloudStt;

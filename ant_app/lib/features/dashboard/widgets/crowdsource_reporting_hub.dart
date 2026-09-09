@@ -246,7 +246,7 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
       final labels = HazardCategory.values.map(_d.hazardCategoryLabel).toList();
       final spoke = await _speak(_d.crowdsourceCategoryPrompt(labels.join(', ')));
       if (!mounted || generation != _stepGeneration || !widget.voiceAutoListen) return;
-      if (spoke) await Future<void>.delayed(const Duration(milliseconds: 200));
+      if (spoke) await Future<void>.delayed(SttService.narrationSettle);
       await _listenForOption(
         generation: generation,
         matchers: {for (final c in HazardCategory.values) _d.hazardCategoryLabel(c): () => _goToCategory(c)},
@@ -260,7 +260,7 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
       final spoke =
           await _speak(_d.crowdsourceSubCategoryPrompt(_d.hazardCategoryLabel(_category!), labels.join(', ')));
       if (!mounted || generation != _stepGeneration || !widget.voiceAutoListen) return;
-      if (spoke) await Future<void>.delayed(const Duration(milliseconds: 200));
+      if (spoke) await Future<void>.delayed(SttService.narrationSettle);
       await _listenForOption(
         generation: generation,
         matchers: {for (final k in keys) _d.hazardSubCategoryLabel(k): () => _goToSubCategory(k)},

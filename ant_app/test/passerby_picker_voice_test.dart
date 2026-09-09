@@ -62,6 +62,13 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
+    // Each turn of the loop waits out `SttService.narrationSettle` before
+    // opening the microphone — a real timer, which `pumpAndSettle` does not
+    // advance on its own. Pump through enough of them for the whole script.
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(SttService.narrationSettle);
+      await tester.pumpAndSettle();
+    }
     return rec;
   }
 

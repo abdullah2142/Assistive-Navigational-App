@@ -444,6 +444,42 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
             ),
           ),
           _SectionCard(
+            title: d.settingsSavedPlacesSection,
+            child: profile.savedPlaces.isEmpty
+                ? Text(d.settingsSavedPlacesEmpty)
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final place in profile.savedPlaces)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(place.label),
+                          subtitle: Text(
+                            place.address.isNotEmpty
+                                ? place.address
+                                : place.hasCoordinates
+                                    ? '${place.lat!.toStringAsFixed(4)}, ${place.lng!.toStringAsFixed(4)}'
+                                    : d.settingsSavedPlaceNoAddress,
+                          ),
+                          trailing: Semantics(
+                            button: true,
+                            label: d.settingsSavedPlaceRemoveSemantics(place.label),
+                            child: IconButton(
+                              icon: const Icon(Icons.delete_outline_rounded),
+                              onPressed: () => _save(
+                                profile.copyWith(
+                                  savedPlaces: profile.savedPlaces
+                                      .where((p) => p.label != place.label)
+                                      .toList(),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+          ),
+          _SectionCard(
             title: d.settingsDeafSection,
             child: _SwitchRow(
               label: d.settingsDeafSwitch,

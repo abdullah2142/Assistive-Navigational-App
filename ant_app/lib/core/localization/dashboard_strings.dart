@@ -169,6 +169,10 @@ class Dashboard {
   String get mapUnavailableTitle => _t('Map unavailable', 'মানচিত্র নেই');
   String get mapUnavailableSubtitle => _t('A Google Maps API key hasn\'t been configured yet.', 'মানচিত্র এখনো চালু করা হয়নি।');
   String get mapLiveViewLabel => _t('Live map view', 'সরাসরি মানচিত্র');
+  /// The draggable divider between the chat and the map.
+  String get mapResizeSemantics =>
+      _t('Resize the map. Swipe up or down to adjust.', 'মানচিত্রের আকার বদলান। উপরে বা নিচে সোয়াইপ করুন।');
+
   String get mapExpandSemantics => _t('Expand map to full screen', 'মানচিত্র পুরো স্ক্রিনে দেখুন');
   String get mapCollapseSemantics => _t('Shrink map back to split view', 'মানচিত্র আবার ভাগ করা স্ক্রিনে আনুন');
 
@@ -812,6 +816,21 @@ class Dashboard {
   String get settingsDeafSwitch => _t('Show text and visuals instead of relying on audio', 'শব্দের বদলে লেখা ও ছবি দেখান');
   String get settingsVerbositySection => _t('Assistant verbosity', 'সহকারী কতটা কথা বলবে');
   String get settingsVoiceSection => _t('Voice', 'ভয়েস');
+  // Saved places, listed so they can be seen and removed.
+  //
+  // They were only ever reachable by voice — "take me to X", "forget X" —
+  // so there was no way to notice that "hospital" had been saved as the
+  // wrong hospital until you were walked to it, and no way to clear a junk
+  // entry that a half-understood command had created.
+  String get settingsSavedPlacesSection => _t('Your saved places', 'আপনার সেভ করা জায়গা');
+  String get settingsSavedPlacesEmpty => _t(
+        'Nothing saved yet. Say "save this place" when you are somewhere you go often.',
+        'এখনো কিছু সেভ করা নেই। যেখানে প্রায়ই যান সেখানে গিয়ে "এই জায়গাটা সেভ করো" বলুন।',
+      );
+  String settingsSavedPlaceRemoveSemantics(String label) =>
+      _t('Remove $label from your saved places', '$label সেভ করা জায়গা থেকে সরান');
+  String get settingsSavedPlaceNoAddress => _t('No address saved', 'কোনো ঠিকানা সেভ নেই');
+
   String get settingsWakeWordSection => _t('"Hey ANT" voice trigger', '"Hey ANT" ভয়েস ট্রিগার');
   String get settingsWakeWordSwitch =>
       _t('Listen for "Hey ANT" so I can talk without tapping the mic', '"Hey ANT" বললে মাইকে না চেপেই কথা বলা যাবে');

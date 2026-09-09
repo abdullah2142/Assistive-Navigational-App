@@ -37,6 +37,9 @@ void main() {
   /// Turns the map on. It is hidden by default, so every layout test needs
   /// this first.
   Future<void> showMap(WidgetTester tester) async {
+    // The toggle lives beside the mic on the input bar now, not in the app
+    // bar's far corner — that was the furthest point on screen from a thumb
+    // already resting on that row.
     await tester.tap(find.byIcon(Icons.map_outlined));
     await tester.pump();
   }
@@ -74,8 +77,10 @@ void main() {
     final chatHeight = tester.getSize(find.byType(ChatStreamPanel)).height;
     final mapHeight = tester.getSize(find.byType(DashboardMapPanel)).height;
 
+    // The map gets what is left after the chat and the drag handle between
+    // them — see `_SplitHandle`, which is what makes the split adjustable.
     expect(chatHeight, closeTo(bodyHeight * 0.6, 1.0));
-    expect(mapHeight, closeTo(bodyHeight * 0.4, 1.0));
+    expect(mapHeight, closeTo(bodyHeight * 0.4 - 24, 1.0));
   });
 
   testWidgets('hiding the map keeps the same chat panel State', (tester) async {
@@ -100,14 +105,24 @@ void main() {
     await tester.tap(find.byIcon(Icons.fullscreen_rounded));
     await tester.pump();
 
-    // Hide while expanded, then show again — it must come back as a split,
+    // Collapse first: with the map full-screen the chat is offstage, and the
+    // map toggle now lives on the chat's input bar rather than in the app
+    // bar. The full-screen map keeps its own collapse control for exactly
+    // this reason.
+    await tester.tap(find.byIcon(Icons.fullscreen_exit_rounded));
+    await tester.pump();
+
+    // Hide while collapsed, then show again — it must come back as a split,
     // not full-screen with no chat and no obvious way out.
     await tester.tap(find.byIcon(Icons.map_rounded));
     await tester.pump();
     await showMap(tester);
 
     final bodyHeight = tester.getSize(find.byType(SafeArea).first).height;
-    expect(tester.getSize(find.byType(DashboardMapPanel)).height, closeTo(bodyHeight * 0.4, 1.0));
+    expect(
+      tester.getSize(find.byType(DashboardMapPanel)).height,
+      closeTo(bodyHeight * 0.4 - 24, 1.0),
+    );
   });
 
   testWidgets('expanding the map gives it the full body while the chat stays mounted', (tester) async {
@@ -131,6 +146,30 @@ void main() {
     await tester.tap(find.byIcon(Icons.fullscreen_exit_rounded));
     await tester.pump();
     expect(tester.takeException(), isNull);
-    expect(tester.getSize(find.byType(DashboardMapPanel)).height, closeTo(bodyHeight * 0.4, 1.0));
+    expect(
+      tester.getSize(find.byType(DashboardMapPanel)).height,
+      closeTo(bodyHeight * 0.4 - 24, 1.0),
+    );
+  });
+
+  testWidgets('the split can be dragged', (tester) async {
+    // Reported: the map should not be stuck at a fixed share of the screen.
+    final handle = tester.ensureSemantics();
+    await pumpDashboard(tester);
+    await showMap(tester);
+
+    final bodyHeight = tester.getSize(find.byType(SafeArea).first).height;
+    final before = tester.getSize(find.byType(DashboardMapPanel)).height;
+
+    await tester.drag(
+      find.bySemanticsLabel(RegExp('Resize the map')),
+      const Offset(0, -120),
+    );
+    await tester.pump();
+
+    final after = tester.getSize(find.byType(DashboardMapPanel)).height;
+    expect(after, greaterThan(before), reason: 'dragging up gives the map more room');
+    expect(after, lessThan(bodyHeight), reason: 'and never all of it');
+    handle.dispose();
   });
 }

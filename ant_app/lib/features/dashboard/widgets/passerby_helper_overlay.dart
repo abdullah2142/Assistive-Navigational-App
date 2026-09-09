@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,28 +26,6 @@ class PasserbyHelperOverlay extends ConsumerStatefulWidget {
   final Dashboard strings;
   final AppLanguage language;
 
-  /// How long tap-anywhere stays inert.
-  ///
-  /// Reported as "it closed in 1 sec without me doing anything while its
-  /// narration kept on playing on the dashboard", and the device log shows
-  /// exactly what closed it — a two-finger, 15 ms touch delivered to the
-  /// activity in the same frame the overlay pushed:
-  ///
-  ///   ACTION_DOWN             pointerCount=1
-  ///   ACTION_POINTER_DOWN(1)  pointerCount=2
-  ///   ...15ms...
-  ///   ACTION_POINTER_UP(0) / ACTION_UP
-  ///
-  /// A full-screen surface whose entire body is a dismiss target will always
-  /// be vulnerable to whatever touch stream was in progress when it arrived —
-  /// a rotation re-dispatch, a lingering finger, an accessibility gesture.
-  /// The grace window is the standard guard, and it costs nothing: nobody
-  /// opens this and then dismisses it inside a second on purpose.
-  ///
-  /// The explicit back button is deliberately *not* gated. A press on a
-  /// specific control is an intention; a touch anywhere on a yellow rectangle
-  /// is not.
-  static const Duration tapGrace = Duration(milliseconds: 900);
 
   static Future<void> show(BuildContext context, String message, Dashboard strings, AppLanguage language) {
     return Navigator.of(context).push(
@@ -67,12 +43,29 @@ class PasserbyHelperOverlay extends ConsumerStatefulWidget {
 class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
   bool _dismissed = false;
 
-  /// False until [PasserbyHelperOverlay.tapGrace] has elapsed, so
-  /// tap-anywhere ignores a touch that was already in flight when this
-  /// appeared. A timer rather than a wall-clock comparison: the behaviour is
-  /// then drivable from a widget test, which a `DateTime.now()` check is not.
-  bool _tapsArmed = false;
-  Timer? _armTimer;
+  /// When the dismiss listener started, so a phrase heard in its first
+  /// moments can be ignored.
+  ///
+  /// The announcement this overlay opens with is *"Showing your screen now.
+  /// Say 'go back' any time to return, or tap anywhere to close."* — it
+  /// contains two dismiss phrases verbatim. On device it dismissed itself
+  /// 1.4 seconds after the listener started, having heard exactly that:
+  ///
+  ///   02:57:13.205  AudioTrack stop            <- announcement ends
+  ///   02:57:14.228  [PasserbyOverlay] listening for dismiss phrase
+  ///   02:57:15.673  [PasserbyOverlay] heard "Go back."
+  ///   02:57:15.673  [PasserbyOverlay] matched dismiss phrase, popping
+  ///
+  /// The listener started a full second after playback stopped, so this is
+  /// not a buffer still draining — Cloud STT reports interim results about
+  /// two seconds late, and what it reported was audio captured right at the
+  /// boundary. A screen that tells you the words that close it, and then
+  /// listens for those words, will always be one leak away from closing
+  /// itself.
+  DateTime? _dismissArmedAt;
+
+  /// How long a dismiss phrase is ignored once the listener opens.
+  static const Duration dismissGrace = Duration(seconds: 3);
 
 
   late final TtsService _tts = ref.read(ttsServiceProvider);
@@ -98,8 +91,20 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
   // its own case rather than trying to generalize it.
   static const _dismissPhrasesPhoneticBn = ['গো ব্যাক', 'গোব্যাক'];
 
+  /// Whether [text] is somebody asking for this to close.
+  ///
+  /// Bounded by length as well as by vocabulary. A bare substring test on
+  /// `back` matches "background", "call me back later", and — the case that
+  /// actually bit — this overlay's own announcement, which is a whole
+  /// sentence containing the word. Somebody asking for the screen to go away
+  /// says a few words, not a paragraph, so anything longer is not the
+  /// request.
+  static const int _maxDismissWords = 4;
+
   bool _isDismissPhrase(String text) {
     final lower = text.toLowerCase();
+    final words = lower.split(RegExp(r'[^\w\u0980-\u09FF]+')).where((w) => w.isNotEmpty);
+    if (words.length > _maxDismissWords) return false;
     return _dismissPhrasesEn.any(lower.contains) ||
         _dismissPhrasesBn.any(text.contains) ||
         _dismissPhrasesPhoneticBn.any(text.contains);
@@ -115,9 +120,6 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
     _stt;
     _cloudStt;
     _tts;
-    _armTimer = Timer(PasserbyHelperOverlay.tapGrace, () {
-      if (mounted) _tapsArmed = true;
-    });
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -128,6 +130,10 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
         await ref.read(ttsServiceProvider).speak(widget.strings.passerbyOverlayShownAnnouncement,
             language: widget.language);
       }
+      // A beat before the microphone opens. Cloud STT reports interim
+      // results about two seconds late, and on device it transcribed the
+      // tail of this very announcement — see [_dismissArmedAt].
+      await Future<void>.delayed(SttService.narrationSettle);
       if (mounted) _startListeningForDismiss();
     });
   }
@@ -142,6 +148,11 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
     // final one, so a match that only ever looked at final results
     // silently never fired despite the right words genuinely being heard.
     if (_isDismissPhrase(text)) {
+      final armedAt = _dismissArmedAt;
+      if (armedAt != null && DateTime.now().difference(armedAt) < dismissGrace) {
+        debugPrint('[PasserbyOverlay] ignoring "$text" — inside the dismiss grace window');
+        return;
+      }
       debugPrint('[PasserbyOverlay] matched dismiss phrase, popping');
       _dismissed = true;
       Navigator.of(context).maybePop();
@@ -161,6 +172,7 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
     // requested explicitly live since the OS's own mic-start sound wasn't
     // consistently present.
     HapticFeedback.lightImpact();
+    _dismissArmedAt = DateTime.now();
     final usingCloud = await _cloudStt.start(language: widget.language, onResult: _handleDismissResult);
     if (usingCloud) {
       debugPrint('[PasserbyOverlay] listening for dismiss phrase via Cloud STT (continuous)');
@@ -195,7 +207,6 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
   @override
   void dispose() {
     _dismissed = true;
-    _armTimer?.cancel();
     // A screen's narration belongs to that screen. This one kept talking on
     // the dashboard after the overlay closed — the announcement is six
     // seconds long and the overlay can be gone in one, so the user was left
@@ -212,14 +223,6 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
     Navigator.of(context).maybePop();
   }
 
-  /// Tap-anywhere, guarded by [tapGrace]. See its doc comment.
-  void _dismissByTap() {
-    if (!_tapsArmed) {
-      debugPrint('[PasserbyOverlay] ignoring a tap inside the grace window');
-      return;
-    }
-    _dismiss();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -231,7 +234,7 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
             label: '${widget.message}. ${widget.strings.passerbyOverlayTapToClose}',
             liveRegion: true,
             child: GestureDetector(
-              onTap: _dismissByTap,
+              onTap: _dismiss,
               behavior: HitTestBehavior.opaque,
               child: Center(
                 child: Padding(

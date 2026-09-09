@@ -21,7 +21,18 @@ import 'suggested_chip_row.dart';
 
 /// The Dynamic Chat Stream — top 60% of the Split-Mode Dashboard.
 class ChatStreamPanel extends ConsumerStatefulWidget {
-  const ChatStreamPanel({super.key, required this.onOverlayChip, required this.profile});
+  const ChatStreamPanel({
+    super.key,
+    required this.onOverlayChip,
+    required this.profile,
+    this.onToggleMap,
+    this.mapVisible = false,
+  });
+
+  /// Shows/hides the map. Null hides the control entirely — the panel is
+  /// usable without one.
+  final VoidCallback? onToggleMap;
+  final bool mapVisible;
 
   /// [SuggestedChipAction.showScreenToPasserby] and
   /// [SuggestedChipAction.reportHazard] open full-screen overlays owned by
@@ -330,6 +341,20 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
           child: Row(
             children: [
+              if (widget.onToggleMap != null) ...[
+                Semantics(
+                  button: true,
+                  label: widget.mapVisible ? d.mapHideSemantics : d.mapShowSemantics,
+                  child: IconButton(
+                    icon: Icon(widget.mapVisible ? Icons.map_rounded : Icons.map_outlined),
+                    // Beside the mic and the send button rather than in the
+                    // app bar's far corner, which is the furthest point on
+                    // the screen from a thumb that is already on this row.
+                    onPressed: widget.onToggleMap,
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
               Semantics(
                 button: true,
                 label: _listening ? d.chatListeningSemantics : d.chatSpeakSemantics,
@@ -360,6 +385,13 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
                     controller: _textController,
                     onSubmitted: (_) => _submitText(),
                     textInputAction: TextInputAction.send,
+                    // Grows with the text, like every messaging app, instead
+                    // of scrolling a single line sideways. Capped at five so
+                    // a long dictation cannot swallow the chat above it —
+                    // past that it scrolls within the field.
+                    minLines: 1,
+                    maxLines: 5,
+                    keyboardType: TextInputType.multiline,
                     // Denser than the theme default, which was sized for a
                     // form rather than for one line in a crowded panel.
                     decoration: InputDecoration(

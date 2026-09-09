@@ -414,7 +414,7 @@ recorder, and `record` cannot tell our voice from an interruption.
 
 ---
 
-## 20. Show Screen closed itself the moment it opened — FIXED
+## 20. Show Screen closed itself the moment it opened — NOT A BUG
 
 **Reported:** "after the voice commands in show screen it doesn't actually
 open the screen but it does when its clicked", then, watching it happen: "it
@@ -432,8 +432,14 @@ ACTION_POINTER_DOWN(1)  pointerCount=2
 ACTION_POINTER_UP(0) / ACTION_UP
 ```
 
-`PasserbyHelperOverlay`'s entire body is a tap-to-dismiss target with no
-grace period, so that closed it instantly — before `initState`'s
+**Withdrawn: that touch was the user's own.** Confirmed directly — "the show
+screen is actually fine, it WAS my touch". The tap-grace window written for
+this has been reverted, because it delayed a deliberate dismiss by 900 ms to
+guard against something that was never happening. A blind user tapping to
+close a screen should not have to tap twice.
+
+What was investigated and is worth keeping on record: the overlay's entire
+body is a tap-to-dismiss target with no grace period, so a touch closed it — before `initState`'s
 `await speak(...)` had even returned, which is why not one `[PasserbyOverlay]`
 line appears in the log despite the overlay having been built and spoken
 from. Tapping "Show This" worked because by then the touch stream had already
@@ -447,6 +453,25 @@ explicit back button is deliberately not gated: a press on a specific control
 is an intention, a touch anywhere on a yellow rectangle is not.
 
 (`test/passerby_overlay_dismiss_test.dart`)
+
+---
+
+## 23. The app transcribes its own narration — FIXED
+
+**Measured on device, twice, reproducibly.** The Show Screen picker's intro
+ends "Say what you need, then say 'show it'", and the recognizer came back
+with **"What you need?"** — which was then committed as the user's message
+and would have been shown to a passerby.
+
+Not a buffer still draining: in the Show Screen overlay the same thing
+happened with the microphone opening a full second *after* playback stopped.
+Cloud STT reports interim results about two seconds late, so audio captured
+right at the boundary surfaces well after the narration is visibly over.
+
+`SttService.narrationSettle` (600 ms) is now waited out after any narration
+before a microphone opens, in the picker, the overlay and the hazard hub —
+the hub had a 200 ms version of this guard all along, which is where the idea
+came from and which was evidently too short.
 
 ---
 
@@ -515,7 +540,7 @@ Users" guardrail both bear on this.
 
 ---
 
-## 11. No list of saved places in settings
+## 11. No list of saved places in settings — FIXED
 
 **Reported:** "(there should be a proper places list in settings)."
 
@@ -577,7 +602,7 @@ spoken half does not.
 
 ---
 
-## 15. The map's share of the screen should be draggable
+## 15. The map's share of the screen should be draggable — FIXED
 
 **Reported:** "the space the map takes up should be adjustable or draggable."
 
@@ -603,7 +628,7 @@ outside and only one is a navigation bug.
 
 ---
 
-## 17. The chat input does not grow with the text
+## 17. The chat input does not grow with the text — FIXED
 
 **Reported:** "keyboard text box should expand like that of any messaging apps
 when filled up."
@@ -613,7 +638,7 @@ cap, the way every messaging app does it.
 
 ---
 
-## 18. The map toggle is in the wrong corner
+## 18. The map toggle is in the wrong corner — FIXED
 
 **Reported:** "maps icon should be near the keyboard not on the top corner."
 

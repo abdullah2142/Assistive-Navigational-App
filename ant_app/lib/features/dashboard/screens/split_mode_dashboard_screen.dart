@@ -29,7 +29,33 @@ class SplitModeDashboardScreen extends ConsumerStatefulWidget {
 class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScreen> {
   /// Share of the body height the chat panel takes when the map is not
   /// expanded — the "60% chat / 40% map" split from UI module plan Step 2.
-  static const double _chatFlex = 0.6;
+  static const double _defaultChatFraction = 0.6;
+
+  /// How much of the body the chat gets. Draggable — the right split
+  /// depends on whether anyone is looking at the map at all, which varies by
+  /// user and by moment, and a fixed 60/40 was reported as too rigid.
+  ///
+  /// Bounded so neither panel can be dragged out of existence: a map with no
+  /// chat has no way back for someone who cannot see the map, and a chat
+  /// with a sliver of map is worse than no map.
+  double _chatFraction = _defaultChatFraction;
+  static const double _minChatFraction = 0.25;
+  static const double _maxChatFraction = 0.85;
+
+  void _dragSplit(double deltaPixels, double bodyHeight) {
+    if (bodyHeight <= 0) return;
+    setState(() {
+      _chatFraction = (_chatFraction + deltaPixels / bodyHeight)
+          .clamp(_minChatFraction, _maxChatFraction);
+    });
+  }
+
+  void _toggleMap() => setState(() {
+        _mapVisible = !_mapVisible;
+        // Leaving this set would bring the map back full-screen next time,
+        // with no chat and no obvious way out.
+        if (!_mapVisible) _mapFullScreen = false;
+      });
 
   bool _mapFullScreen = false;
 
@@ -114,19 +140,6 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
         actions: [
           Semantics(
             button: true,
-            label: _mapVisible ? d.mapHideSemantics : d.mapShowSemantics,
-            child: IconButton(
-              icon: Icon(_mapVisible ? Icons.map_rounded : Icons.map_outlined),
-              onPressed: () => setState(() {
-                _mapVisible = !_mapVisible;
-                // Leaving this set would bring the map back full-screen next
-                // time, with no chat and no obvious way out.
-                if (!_mapVisible) _mapFullScreen = false;
-              }),
-            ),
-          ),
-          Semantics(
-            button: true,
             label: d.settingsEntrySemantics,
             child: IconButton(
               icon: const Icon(Icons.tune_rounded),
@@ -144,6 +157,8 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
               key: _chatKey,
               profile: profile,
               onOverlayChip: (action, prefill) => _handleOverlayChip(context, action, prefill),
+              mapVisible: _mapVisible,
+              onToggleMap: _toggleMap,
             );
             return Column(
               children: [
@@ -170,10 +185,16 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
                   Offstage(
                     offstage: _mapFullScreen,
                     child: SizedBox(
-                      height: constraints.maxHeight * _chatFlex,
+                      height: constraints.maxHeight * _chatFraction,
                       child: chatPanel,
                     ),
                   ),
+                  if (!_mapFullScreen)
+                    _SplitHandle(
+                      onDrag: (delta) => _dragSplit(delta, constraints.maxHeight),
+                      semanticsLabel: d.mapResizeSemantics,
+                      onNudge: (delta) => _dragSplit(delta, constraints.maxHeight),
+                    ),
                   Expanded(
                     child: DashboardMapPanel(
                       language: profile.language,
@@ -185,6 +206,49 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// The grab bar between the chat and the map.
+///
+/// Also operable without dragging: a blind or low-vision user gets increase/
+/// decrease actions through the semantics layer, because a drag target is
+/// the one control shape a screen reader cannot work by itself.
+class _SplitHandle extends StatelessWidget {
+  const _SplitHandle({required this.onDrag, required this.onNudge, required this.semanticsLabel});
+
+  final void Function(double deltaPixels) onDrag;
+  final void Function(double deltaPixels) onNudge;
+  final String semanticsLabel;
+
+  /// One step of the keyboard/screen-reader adjustment.
+  static const double _nudge = 48;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: semanticsLabel,
+      slider: true,
+      onIncrease: () => onNudge(_nudge),
+      onDecrease: () => onNudge(-_nudge),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragUpdate: (details) => onDrag(details.delta.dy),
+        child: SizedBox(
+          height: 24,
+          child: Center(
+            child: Container(
+              width: 44,
+              height: 5,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ),
         ),
       ),
     );

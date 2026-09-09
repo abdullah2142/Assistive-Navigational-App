@@ -10,6 +10,7 @@ import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/local_intent_matcher.dart';
 import '../../../core/services/offline_intent_matcher.dart';
+import '../../../core/services/pending_place_save.dart';
 import '../../../core/services/route_planning_service.dart';
 import '../../../core/services/routing_service.dart' show RouteCandidate;
 import '../../onboarding/models/user_profile.dart';
@@ -30,6 +31,7 @@ class ChatState {
     this.pendingRoute,
     this.routeAlternatives = const [],
     this.pendingClarification,
+    this.pendingPlaceSave,
     this.lastSettingChanged,
   });
 
@@ -71,6 +73,11 @@ class ChatState {
   /// [DestinationClarification].
   final DestinationClarification? pendingClarification;
 
+  /// Set while the assistant is waiting to hear what to call a place the
+  /// user asked it to save. Its presence changes how the *next* message is
+  /// read — an answer, not a fresh command. See [PendingPlaceSave].
+  final PendingPlaceSave? pendingPlaceSave;
+
   /// The setting the user most recently changed by voice, so a bare
   /// follow-up ("even bigger") knows what it is adjusting. See
   /// `LocalIntentMatcher.match`'s `recentSetting`.
@@ -87,6 +94,8 @@ class ChatState {
     bool clearRoute = false,
     DestinationClarification? pendingClarification,
     bool clearClarification = false,
+    PendingPlaceSave? pendingPlaceSave,
+    bool clearPlaceSave = false,
     String? lastSettingChanged,
   }) =>
       ChatState(
@@ -99,6 +108,7 @@ class ChatState {
             clearRoute ? const [] : (routeAlternatives ?? this.routeAlternatives),
         pendingClarification:
             clearClarification ? null : (pendingClarification ?? this.pendingClarification),
+        pendingPlaceSave: clearPlaceSave ? null : (pendingPlaceSave ?? this.pendingPlaceSave),
         lastSettingChanged: lastSettingChanged ?? this.lastSettingChanged,
       );
 }
@@ -283,6 +293,72 @@ class ChatController extends Notifier<ChatState> {
       return _questionOpeners.any((q) => lower.startsWith(q) || lower.contains('. $q'));
     }
     return false;
+  }
+
+  /// Handles one turn of "what should I call that place?".
+  ///
+  /// Returns true when the reply was consumed as an answer. Returns false
+  /// when it was plainly a new instruction instead — the same escape hatch
+  /// [_continueClarification] has, and for the same reason: a user is
+  /// allowed to abandon a half-finished save by simply asking for something
+  /// else, and forcing them to formally cancel first would be its own trap.
+  Future<bool> _continuePlaceSave(
+    PendingPlaceSave pending,
+    String reply,
+    UserProfile profile,
+    Position? location,
+    Dashboard d,
+  ) async {
+    // An unmistakable command wins. Routing and the safety-critical triggers
+    // only — a stray settings phrase should not silently discard the save.
+    final escape = LocalIntentMatcher.match(reply, profile.language);
+    if (escape != null &&
+        const {
+          'request_route',
+          'replan_route',
+          'trigger_emergency',
+          'open_passerby_helper',
+          'open_hazard_report',
+        }.contains(escape.name)) {
+      state = state.copyWith(clearPlaceSave: true);
+      return false;
+    }
+
+    if (DestinationClarifier.isCancellation(reply)) {
+      state = state.copyWith(clearPlaceSave: true);
+      await _appendAssistantReply(d.clarifyCancelled, profile);
+      return true;
+    }
+
+    final answer = reply.trim();
+    if (answer.isEmpty || pending.isExhausted) {
+      state = state.copyWith(clearPlaceSave: true);
+      await _appendAssistantReply(d.savedPlaceGaveUp, profile);
+      return true;
+    }
+
+    // The outstanding question is the name — the only slot that can be
+    // missing once the request itself has been rejected as a name.
+    final filled = pending.withLabel(answer);
+    final turn = await ref.read(functionCallExecutorProvider).execute(
+          name: 'save_place',
+          args: {
+            'label': filled.label,
+            if (filled.address != null && filled.address!.isNotEmpty) 'address': filled.address,
+          },
+          profile: profile,
+          location: location,
+        );
+    if (turn.updatedProfile != null) {
+      await ref.read(profileServiceProvider).saveProfile(turn.updatedProfile!);
+      state = state.copyWith(clearPlaceSave: true);
+    } else {
+      // Still not enough — keep the conversation open rather than dropping
+      // it, but count the attempt so it cannot run forever.
+      state = state.copyWith(pendingPlaceSave: turn.placeSave ?? filled);
+    }
+    await _appendAssistantReply(turn.responseText, profile);
+    return true;
   }
 
   Future<bool> _continueClarification(
@@ -504,6 +580,16 @@ class ChatController extends Notifier<ChatState> {
     // perfectly good answer to "which area is it in?" — falls through to
     // the intent matcher, matches nothing, and goes to Gemini as though
     // the assistant had never asked anything, losing the thread entirely.
+    // A save waiting on a name owns the next message, for the same reason a
+    // pending destination question does: "the clinic" is an answer, and
+    // letting the destination matcher see it first is exactly how the save
+    // turned into a route on device.
+    final pendingSave = state.pendingPlaceSave;
+    if (pendingSave != null) {
+      final handled = await _continuePlaceSave(pendingSave, trimmed, profile, location, d);
+      if (handled) return;
+    }
+
     final pending = state.pendingClarification;
     if (pending != null) {
       final handled = await _continueClarification(pending, trimmed, profile, location, d);
@@ -584,6 +670,9 @@ class ChatController extends Notifier<ChatState> {
       }
       if (turn.clarification != null) {
         state = state.copyWith(pendingClarification: turn.clarification);
+      }
+      if (turn.placeSave != null) {
+        state = state.copyWith(pendingPlaceSave: turn.placeSave);
       }
       if (localIntent.name == 'update_setting') {
         state = state.copyWith(lastSettingChanged: args['setting'] as String?);
@@ -676,6 +765,9 @@ class ChatController extends Notifier<ChatState> {
           routeAlternatives: turn.routeAlternatives,
         );
         _startNavigation(turn.route!, profile);
+      }
+      if (turn.placeSave != null) {
+        state = state.copyWith(pendingPlaceSave: turn.placeSave);
       }
     } catch (e, st) {
       state = state.copyWith(isAssistantTyping: false);

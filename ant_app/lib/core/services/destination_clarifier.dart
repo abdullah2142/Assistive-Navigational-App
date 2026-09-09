@@ -115,6 +115,10 @@ class DestinationClarifier {
   /// Ways of abandoning the question. Recognized in both languages, and
   /// deliberately generous: a user who wants out must always be able to get
   /// out, and there is no cost to over-recognizing this one.
+  /// Shared with the place-save conversation, which needs the same "stop
+  /// asking me" vocabulary and should not drift from this one.
+  static bool isCancellation(String reply) => containsAny(voiceWords(reply), _cancelWords);
+
   static const _cancelWords = [
     'cancel', 'never mind', 'nevermind', 'forget it', 'forget about it', 'stop',
     'leave it', 'no thanks', 'no thank you', 'skip', 'drop it',

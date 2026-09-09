@@ -378,6 +378,17 @@ class Dashboard {
 
   /// Asked when the "name" that came back was the request restated —
   /// "a new place I go to frequently" is not what anyone calls anywhere.
+  /// Said when the save conversation has asked as much as it usefully can.
+  ///
+  /// Ends with something the user can act on, not an apology — the same rule
+  /// `clarifyGaveUp` follows.
+  String get savedPlaceGaveUp => _t(
+        "I could not get that saved. When you are standing at the place, say "
+            '"save this place" and give it a short name — that is the way that always works.',
+        'জায়গাটা সেভ করতে পারলাম না। ওখানে পৌঁছে "এই জায়গাটা সেভ করো" বলে একটা ছোট নাম দিন — '
+            'এভাবে সব সময় কাজ হয়।',
+      );
+
   String get savedPlaceNeedsName => _t(
         'What should I call that place? Give me a short name — "work", "the clinic" — '
             'and tell me the address if you are not standing there now.',

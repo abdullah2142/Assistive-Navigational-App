@@ -601,7 +601,7 @@ See items 12 and 13, which are how wrong entries get in there.
 
 ---
 
-## 12. The assistant cannot actually add a place — HALF FIXED
+## 12. The assistant cannot actually add a place — FIXED
 
 **Reported, two separate failures.**
 
@@ -630,10 +630,25 @@ at a location nobody confirmed, is worse than no saved place at all: it is
 found by being walked somewhere wrong, and in the meantime it matches
 unrelated destinations.
 
-**Still open: the multi-turn fill.** `save_place` wants the same slot filling
-`DestinationClarification` already gives `request_route`, so answering "the
-clinic" to "what should I call it?" completes the save instead of being read
-as a fresh destination.
+**Fixed: the multi-turn fill.** `PendingPlaceSave` is the same shape
+`DestinationClarification` already gave `request_route` — the executor returns
+it when a save is missing a slot, `ChatState` holds it, and `ChatController`
+reads the *next* message as the answer before the destination matcher ever
+sees it. Answering "the clinic" now completes the save instead of routing
+there.
+
+Kept separate from `DestinationClarification` rather than generalised: the two
+ask different kinds of question. A *name* is whatever the user wants to call
+it and cannot be wrong; an address can be. Sharing one type would have meant
+one of them inheriting the other's retry budget and wording.
+
+It has the same escape hatches: an unmistakable command (a route request, an
+emergency, an overlay) abandons the save rather than swallowing it, "never
+mind" cancels it — through the same vocabulary the destination conversation
+uses, now shared so the two cannot drift — and it gives up after three
+questions with a sentence saying what does work.
+
+(`test/place_save_conversation_test.dart`)
 
 ---
 
@@ -764,23 +779,77 @@ Each is fixed, with the test that pins it.
 
 ## Still needs a device
 
-Nothing here can be settled off-device, and none of it should be assumed to
-work because the tests pass.
+Nothing below has been confirmed on a phone. Ordered by what breaks worst if
+it is wrong. Items marked **regression risk** touch code that was working.
 
-1. **The wake-word fix.** The tests prove the ownership state machine, not
-   that Android hands the microphone over cleanly on a Redmi 10C. Test it the
-   way it broke: both toggles on, say "Hey ANT", ask for a hazard report,
-   answer the hub by voice, close it, then say "Hey ANT" again.
-2. **Warm restarts (item 2).** Watch for a *double* trigger — the failure mode
-   the poisoned-buffer rule guards against. If "Hey ANT" ever fires twice off
-   one utterance, the detection path is keeping buffers it should not.
-3. **Street names on the Google backend.** The extractor is asserted against
-   the documented response shape, which is the same standing caveat
-   `test/google_routes_backend_test.dart` opens with: the Google path has
-   never been run. Listen for "turn left onto" actually naming roads.
-4. **The banner at 40% height, outdoors, in sunlight.** It was checked at the
-   real split-view size in a widget render; it has not been looked at on
-   glass.
+### Voice stack
+
+1. **Wake word survives a whole exchange** (items 1, 6). Both toggles on: say
+   "Hey ANT", give a command, let it answer, say "Hey ANT" again. Watch for a
+   *double* fire off one utterance — that is what the poisoned-buffer rule in
+   item 2 guards against, and a regression there looks like eagerness rather
+   than failure.
+2. **The red mic button closes the mic** (item 7). Tap it mid-session. It has
+   never worked, so any behaviour at all is new.
+3. **Onboarding narration does not bleed into the next screen** (item 8).
+   Answer role selection *fast*, before its narration finishes — that is the
+   window the fix closes. The caretaker code should also now be spoken aloud,
+   digit by digit.
+4. **The "repeats" half of item 8 is unreproduced.** If narration still
+   repeats, it needs a log; the guard to look at is
+   `OnboardingScaffold._speakThenListen`'s `stepGeneration` check.
+5. **The app no longer transcribes itself** (item 23). Open Show Screen and
+   say nothing. The old build committed "What you need?" — the tail of its own
+   prompt — as the message.
+6. **Show Screen end to end** (item 9). Dictate, say "show it", let the cancel
+   window run out. Then try "show it" with nothing dictated: it should say
+   what is missing rather than looping.
+7. **Narration stops when a screen closes** (item 21). Close Show Screen or
+   the hazard hub mid-sentence; the voice should stop with it.
+
+### Navigation and the map
+
+8. **Turn-by-turn actually speaks** (item 16, **not fixed, needs diagnosis**).
+   Three causes look identical from outside — the route came back with no
+   `steps`, no GPS fix was accurate enough to act on, or nothing is being
+   spoken at all. Reproduce with a log before anyone changes code:
+   `navigateNoStepsFallback` being spoken points at the first.
+9. **The map follows and reorients** (item 14, **regression risk**, and the
+   only change here with no test at all — it needs a real `Geolocator` stream
+   and a Maps platform view). Walk a route: the camera should fit the whole
+   route first, then close in and turn with you. Panning should release it and
+   show a recentre button. Watch for the map spinning while you stand still —
+   that means the heading gate is too low.
+10. **Route replies say which way** (item 4). "Take me to Labaid" should end
+    with "via <road> — 1.2 km, about 15 minutes". On the Google backend, check
+    turns actually name roads (item 3) — that path has never been run.
+11. **"Give me a different route" and "re-route"** (item 4). The second is the
+    one `navigateOffRoute` has always told users to say while nothing
+    implemented it.
+12. **Turn-by-turn appears in the chat** (item 21 write-up). The only channel
+    a Deaf user has for it.
+13. **Arrival retires the route.** The map should stop drawing a walked line.
+
+### Onboarding and settings
+
+14. **Auto-listen** (item 10, **regression risk** — it changes what a fresh
+    profile gets). A blind user should never see the question and should have
+    it on; everyone else should be asked once, after the hearing question.
+15. **Saving a place is a conversation** (item 12). "Add a new place" → it
+    should ask what to call it → answer with a name → it saves, rather than
+    routing you there. Also check the junk `"frequent place"` entry can be
+    deleted from settings (item 11).
+16. **The chat input grows, the map toggle sits by the mic, the split drags**
+    (items 17, 18, 15). With the map full-screen the toggle is offstage by
+    design — the collapse button is the way back.
+
+### Known-unverifiable here
+
+17. **Anything on the Google routing backend.** `test/google_routes_backend_test.dart`
+    opens by saying the path has never been run; every claim about its wire
+    format is an assertion from documentation.
+18. **Release builds emit no Dart logs** (item 19). Use a profile build for
+    any voice-stack investigation.
 
 ## Fixed earlier, still awaiting tester confirmation
 

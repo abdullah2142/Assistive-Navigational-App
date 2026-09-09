@@ -15,6 +15,7 @@ import 'destination_clarifier.dart';
 import 'route_planning_service.dart';
 import 'route_safety_service.dart';
 import 'routing_service.dart' show RouteCandidate;
+import 'pending_place_save.dart';
 import 'saved_place_matcher.dart';
 
 class _AppliedCall {
@@ -26,6 +27,7 @@ class _AppliedCall {
     this.routeAlternatives,
     this.hazardPrefill,
     this.clarification,
+    this.placeSave,
     this.triggersEmergency = false,
   });
   final UserProfile profile;
@@ -42,6 +44,9 @@ class _AppliedCall {
   /// Set when the destination could not be pinned down and the assistant is
   /// now waiting on an answer — see [DestinationClarification].
   final DestinationClarification? clarification;
+
+  /// Set when a save is waiting on a missing slot.
+  final PendingPlaceSave? placeSave;
 
   /// Set when the model called `trigger_emergency`.
   final bool triggersEmergency;
@@ -103,6 +108,7 @@ class FunctionCallExecutor {
       routeAlternatives: applied.routeAlternatives,
       hazardPrefill: applied.hazardPrefill,
       clarification: applied.clarification,
+      placeSave: applied.placeSave,
       triggersEmergency: applied.triggersEmergency,
     );
   }
@@ -553,7 +559,14 @@ class FunctionCallExecutor {
       return _AppliedCall(profile, const {'ok': false, 'error': 'no_label'}, null);
     }
     if (_looksLikeTheRequest(label)) {
-      return _AppliedCall(profile, const {'ok': false, 'error': 'label_is_the_request'}, null);
+      // The question is now live: whatever the user says next is the answer
+      // to it, not a fresh command. See [PendingPlaceSave].
+      return _AppliedCall(
+        profile,
+        const {'ok': false, 'error': 'label_is_the_request'},
+        null,
+        placeSave: PendingPlaceSave(address: (args['address'] as String?)?.trim()).asked(),
+      );
     }
     final address = (args['address'] as String?)?.trim() ?? '';
     final useHere = address.isEmpty;

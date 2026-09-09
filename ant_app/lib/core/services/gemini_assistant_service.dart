@@ -10,6 +10,7 @@ import '../config/gemini_config.dart';
 import '../localization/app_language.dart';
 import 'destination_clarifier.dart';
 import 'function_call_executor.dart';
+import 'pending_place_save.dart';
 import 'route_planning_service.dart';
 import 'routing_service.dart' show RouteCandidate;
 
@@ -25,6 +26,7 @@ class AssistantTurn {
     this.routeAlternatives,
     this.hazardPrefill,
     this.clarification,
+    this.placeSave,
     this.triggersEmergency = false,
   });
 
@@ -67,6 +69,10 @@ class AssistantTurn {
   /// Non-null when the assistant just asked the user where a destination
   /// actually is, and is waiting for the answer.
   final DestinationClarification? clarification;
+
+  /// Non-null when a save is missing a slot and the assistant has just asked
+  /// for it — see [PendingPlaceSave].
+  final PendingPlaceSave? placeSave;
 }
 
 /// The central brain (AI Assistant module plan, Step 2): builds a per-turn
@@ -161,6 +167,7 @@ class GeminiAssistantService {
     List<RouteCandidate>? alternatives;
     HazardReportPrefill? hazardPrefill;
     DestinationClarification? clarification;
+    PendingPlaceSave? placeSave;
     final confirmations = <String>[];
     for (final call in calls) {
       final applied = await _executor.execute(
@@ -180,6 +187,7 @@ class GeminiAssistantService {
       if (applied.routeAlternatives != null) alternatives = applied.routeAlternatives;
       hazardPrefill ??= applied.hazardPrefill;
       clarification ??= applied.clarification;
+      placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
     }
 
@@ -204,6 +212,7 @@ class GeminiAssistantService {
       routeAlternatives: alternatives,
       hazardPrefill: hazardPrefill,
       clarification: clarification,
+      placeSave: placeSave,
     );
   }
 

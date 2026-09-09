@@ -6,6 +6,7 @@ import '../providers/onboarding_providers.dart';
 import 'caretaker_pairing_screen.dart';
 import 'cognitive_anxiety_screen.dart';
 import 'frequent_places_screen.dart';
+import 'auto_listen_screen.dart';
 import 'deaf_hearing_screen.dart';
 import 'language_selection_screen.dart';
 import 'command_tour_screen.dart';
@@ -47,6 +48,7 @@ class OnboardingFlowScreen extends ConsumerWidget {
       OnboardingStep.mobilityQuestion => const MobilityQuestionScreen(),
       OnboardingStep.cognitiveAnxietyQuestion => const CognitiveAnxietyScreen(),
       OnboardingStep.deafHearingQuestion => const DeafHearingScreen(),
+      OnboardingStep.autoListenQuestion => const AutoListenScreen(),
       OnboardingStep.verbosityAndVoice => const VerbosityVoiceScreen(),
       OnboardingStep.magicButtonContacts => const MagicButtonContactsScreen(),
       OnboardingStep.passerbyMessages => const PasserbyMessagesScreen(),

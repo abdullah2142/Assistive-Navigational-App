@@ -152,6 +152,26 @@ class Onboarding {
   String get themeLightLabel => _t('Light', 'হালকা');
   String get themeLightDescription => _t('Soft cream background, dark text.', 'হালকা ক্রিম রঙের পটভূমি, গাঢ় লেখা।');
   List<String> get themeLightSynonyms => _bn ? const ['সাদা', 'উজ্জ্বল', 'দিনের মোড'] : const ['bright', 'white', 'day mode'];
+  // Auto-listen. Asked of everyone who is not blind — a blind user gets it
+  // without being asked, because they cannot find a mic button on a screen
+  // they cannot see.
+  String get autoListenTitle => _t('Should the microphone open on its own?', 'মাইক কি নিজে থেকেই চালু হবে?');
+  String get autoListenSubtitle => _t(
+        'When ANT asks you something, it can start listening straight away so you do not have to '
+            'find and tap the mic button.',
+        'ANT কিছু জিজ্ঞেস করলে সে সঙ্গে সঙ্গে শুনতে শুরু করতে পারে, যাতে আপনাকে মাইক বোতাম খুঁজে চাপতে না হয়।',
+      );
+  String get autoListenYesLabel => _t('Yes, open it for me', 'হ্যাঁ, নিজেই চালু হোক');
+  String get autoListenYesDescription =>
+      _t('Best if tapping a small button is hard.', 'ছোট বোতামে চাপ দেওয়া কঠিন হলে এটাই ভালো।');
+  List<String> get autoListenYesSynonyms =>
+      _bn ? const ['হ্যাঁ', 'চালু', 'নিজেই'] : const ['yes', 'open it', 'automatic', 'on'];
+  String get autoListenNoLabel => _t('No, I will tap the mic', 'না, আমি মাইকে চাপব');
+  String get autoListenNoDescription =>
+      _t('The microphone only opens when you ask.', 'আপনি না চাইলে মাইক চালু হবে না।');
+  List<String> get autoListenNoSynonyms =>
+      _bn ? const ['না', 'আমি চাপব', 'বন্ধ'] : const ['no', 'i will tap', 'manual', 'off'];
+
   String get themeDarkLabel => _t('Dark', 'গাঢ়');
   String get themeDarkDescription => _t('Deep charcoal background, soft white text.', 'গাঢ় কালচে পটভূমি, নরম সাদা লেখা।');
   List<String> get themeDarkSynonyms => _bn ? const ['কালো', 'রাতের মোড', 'গাঢ় রং'] : const ['black', 'night mode', 'night'];

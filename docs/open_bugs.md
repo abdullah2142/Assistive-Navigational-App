@@ -552,7 +552,7 @@ fixed.
 
 ---
 
-## 10. Auto-listen should follow from blindness, not from a separate toggle
+## 10. Auto-listen should follow from blindness, not from a separate toggle — FIXED
 
 **Reported:** "mic auto open should be default if blind, and should be a
 question in onboarding if otherwise." And separately: "auto listen is a weird
@@ -565,11 +565,28 @@ switch, with no explanation of how the two relate. The reporter could not tell
 what it meant — which is a strong signal that a user with no vision, arriving
 at it through a screen reader, cannot either.
 
-Worth deciding rather than patching: is auto-listen a *derived* property of
-"cannot see the screen", an explicit onboarding question for everyone else, or
-a consequence of the wake word being on? The three answers give three
-different settings screens. `05_module_plan` and the "No Settings Menus for
-Users" guardrail both bear on this.
+**Decided by the reporter:** on by default for blind users, an onboarding
+question for everyone else.
+
+`autoListenDefaultFor` is now simply `visionLevel == none`. A blind user
+cannot find a mic button on a screen they cannot see, so a microphone that
+does not open itself is a microphone they do not have — that one does not
+need asking. Everyone else reaches a new `OnboardingStep.autoListenQuestion`,
+which a blind user skips entirely: a question with one sensible answer is
+worse than no question.
+
+What made it "weird" was that nobody ever chose it. It was inferred from
+vision level *and* "finds complex instructions hard", so it turned up in
+settings beside the wake word, already on, with nothing saying what it was or
+how the two related. It stays editable in settings; it is just no longer set
+behind the user's back.
+
+Note it is deliberately **not** tied to the wake word. They answer different
+questions — "can you reach the button" versus "do you want the phrase" — and
+a user who turns the wake word on has said nothing about whether the mic
+should open itself when the assistant asks them something.
+
+(`test/auto_listen_rule_test.dart`)
 
 ---
 

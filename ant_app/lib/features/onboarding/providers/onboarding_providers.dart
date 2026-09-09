@@ -397,6 +397,20 @@ class OnboardingController extends Notifier<OnboardingState> {
       ref.read(ttsServiceProvider).stop();
       ref.read(ttsEnabledProvider.notifier).state = false;
     }
+    // Blind users are not asked about auto-listen — it is already on for
+    // them, because a microphone that does not open itself is one they
+    // cannot reach. See `autoListenDefaultFor`.
+    _goTo(shouldAskAboutAutoListen(profile.visionLevel)
+        ? OnboardingStep.autoListenQuestion
+        : OnboardingStep.verbosityAndVoice);
+  }
+
+  /// The answer to `OnboardingStep.autoListenQuestion`.
+  Future<void> setAutoListen(bool enabled) async {
+    final profile = state.profile;
+    if (profile == null) return;
+    _stopCurrentScreenVoice();
+    if (!await _persist(profile.copyWith(voiceAutoListen: enabled))) return;
     _goTo(OnboardingStep.verbosityAndVoice);
   }
 

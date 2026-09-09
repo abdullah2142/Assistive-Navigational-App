@@ -261,11 +261,25 @@ class UserProfile {
 /// went through onboarding again — or whose profile started from the dev skip,
 /// which writes false explicitly — ended up with auto-listen off despite
 /// answering in a way that should have turned it on. Seen on device.
+/// Whether auto-listen should be on without asking.
+///
+/// On for a blind user, full stop: they cannot find a mic button on a screen
+/// they cannot see, so a microphone that does not open itself is a
+/// microphone they do not have. Everyone else is asked during onboarding
+/// (`OnboardingStep.autoListenQuestion`) rather than having it derived for
+/// them — the old rule inferred it from vision level and "finds complex
+/// instructions hard", which produced a setting nobody chose, sitting in
+/// settings next to the wake word with no explanation of how the two
+/// related. Reported as exactly that confusion: "auto listen is a weird
+/// option".
 bool autoListenDefaultFor({
   required VisionLevel visionLevel,
   required bool complexInstructionsHard,
 }) =>
-    visionLevel != VisionLevel.full || complexInstructionsHard;
+    visionLevel == VisionLevel.none;
+
+/// Whether onboarding should put the question to this user at all.
+bool shouldAskAboutAutoListen(VisionLevel visionLevel) => visionLevel != VisionLevel.none;
 
 String voiceIdFor(AppLanguage language, {required bool female}) {
   final locale = language == AppLanguage.bangla ? 'bn-BD' : 'en-US';

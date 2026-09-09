@@ -10,6 +10,7 @@ enum OnboardingStep {
   mobilityQuestion,
   cognitiveAnxietyQuestion,
   deafHearingQuestion,
+  autoListenQuestion,
   verbosityAndVoice,
   magicButtonContacts,
   passerbyMessages,

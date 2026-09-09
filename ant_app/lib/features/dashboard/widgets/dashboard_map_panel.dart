@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -93,12 +94,93 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
   gmaps.GoogleMapController? _mapController;
   final MapController _osmController = MapController();
 
+  /// Live position updates while a route is being walked.
+  ///
+  /// The panel used to take a single `getCurrentPosition` fix and never move
+  /// again: the camera was fitted to the route once and then sat there while
+  /// the user walked off the edge of it. Reported directly — the map should
+  /// "automatically zoom in on me reorient on my direction, just like google
+  /// maps does in drive mode".
+  StreamSubscription<Position>? _positionSub;
+
+  /// Whether the camera is tracking the user.
+  ///
+  /// Turned off the moment they pan or zoom by hand — a map that keeps
+  /// yanking itself back is unusable for the sighted companion this view
+  /// exists for — and turned back on by the recentre button.
+  bool _following = false;
+
+  /// Last heading used to orient the map, so a jittery compass does not
+  /// spin it. GPS heading is only meaningful while actually moving.
+  double _bearing = 0;
+
+  /// Below this the reported heading is noise rather than a direction.
+  static const double _minSpeedForBearing = 0.6;
+
+  /// Close in, because the question this view answers while walking is
+  /// "which turn is this", not "where is Dhaka".
+  static const double _followZoom = 18.5;
+
   @override
   void initState() {
     super.initState();
     if (MapsConfig.useOsmTiles || MapsConfig.isConfigured) {
       _resolveLocation();
     }
+  }
+
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    super.dispose();
+  }
+
+  /// Starts following once a route exists, stops when it is retired.
+  void _syncFollowing(RouteChoice? route) {
+    if (route != null && _positionSub == null) {
+      _following = true;
+      _positionSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: 3,
+        ),
+      ).listen(_onPosition, onError: (Object e) => debugPrint('[Map] position stream: $e'));
+    } else if (route == null && _positionSub != null) {
+      _positionSub?.cancel();
+      _positionSub = null;
+      _following = false;
+    }
+  }
+
+  void _onPosition(Position position) {
+    if (!mounted) return;
+    setState(() {
+      _myLocation = LatLng(position.latitude, position.longitude);
+      // Only trust the heading while actually moving — a stationary phone
+      // reports a heading that wanders, and a map that slowly spins while
+      // somebody stands still is worse than one that does not turn at all.
+      if (position.speed >= _minSpeedForBearing) _bearing = position.heading;
+    });
+    if (_following) _moveCameraToMe();
+  }
+
+  void _moveCameraToMe() {
+    final me = _myLocation;
+    if (me == null) return;
+    if (MapsConfig.useOsmTiles) {
+      _osmController.moveAndRotate(_toLL(me), _followZoom, -_bearing);
+    } else {
+      _mapController?.animateCamera(
+        gmaps.CameraUpdate.newCameraPosition(
+          gmaps.CameraPosition(target: me, zoom: _followZoom, bearing: _bearing, tilt: 45),
+        ),
+      );
+    }
+  }
+
+  void _recentre() {
+    setState(() => _following = true);
+    _moveCameraToMe();
   }
 
   Future<void> _resolveLocation() async {
@@ -197,9 +279,14 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
   Widget build(BuildContext context) {
     final d = Dashboard.of(widget.language);
     final route = ref.watch(chatControllerProvider.select((s) => s.pendingRoute));
-    if (route != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _fitCameraToRoute(route));
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _syncFollowing(route);
+      // The whole-route fit happens once, when the route arrives, so the
+      // user sees where they are being taken before the camera closes in on
+      // them and starts following.
+      if (route != null) _fitCameraToRoute(route);
+    });
 
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -239,6 +326,27 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
                     left: 12,
                     right: widget.onToggleFullScreen == null ? 12 : 60,
                     child: _RouteBanner(route: route, strings: d),
+                  ),
+                if (route != null && !_following)
+                  Positioned(
+                    bottom: 12,
+                    right: 12,
+                    child: Semantics(
+                      button: true,
+                      label: d.mapRecentreSemantics,
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        shape: const CircleBorder(),
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: _recentre,
+                          child: const Padding(
+                            padding: EdgeInsets.all(10),
+                            child: Icon(Icons.my_location_rounded, color: Colors.white, size: 24),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 if (widget.onToggleFullScreen != null)
                   Positioned(
@@ -283,6 +391,9 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
         options: MapOptions(
           initialCenter: _toLL(_myLocation ?? _dhakaFallback),
           initialZoom: _myLocationZoom,
+          onPointerDown: (_, _) {
+            if (_following) setState(() => _following = false);
+          },
         ),
         children: [
           TileLayer(
@@ -368,6 +479,12 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
       tiltGesturesEnabled: true,
       compassEnabled: true,
       mapToolbarEnabled: true,
+      // A hand on the map wins over following it. A camera that keeps
+      // yanking itself back is unusable for the sighted companion this view
+      // is for; the recentre button is how they hand control back.
+      onCameraMoveStarted: () {
+        if (_following) setState(() => _following = false);
+      },
       onMapCreated: (controller) {
         _mapController = controller;
         if (route != null) {

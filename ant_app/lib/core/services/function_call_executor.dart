@@ -270,9 +270,13 @@ class FunctionCallExecutor {
       }
     }
     if (name == 'save_place' && result['ok'] != true) {
-      return result['error'] == 'no_location'
-          ? Dashboard.of(language).savedPlaceNeedsLocation
-          : (bn ? 'জায়গাটার একটা নাম বলুন।' : 'Tell me what to call that place.');
+      return switch (result['error']) {
+        'no_location' => Dashboard.of(language).savedPlaceNeedsLocation,
+        // The name it was given was the request itself. Ask for a real one
+        // rather than saving a place under a name nobody chose.
+        'label_is_the_request' => Dashboard.of(language).savedPlaceNeedsName,
+        _ => bn ? 'জায়গাটার একটা নাম বলুন।' : 'Tell me what to call that place.',
+      };
     }
     if (name == 'remove_place' && result['ok'] != true) {
       return Dashboard.of(language).savedPlaceUnknown;
@@ -517,10 +521,39 @@ class FunctionCallExecutor {
   /// addressing means a great many real places have no string a geocoder
   /// can resolve, but every place has coordinates when you are standing on
   /// it.
+  /// Phrases that are the *request* rather than the name of anywhere.
+  ///
+  /// Reported from the device: "add a new place i go to frequently" was
+  /// saved as a place called **"frequent place"**, pinned to wherever the
+  /// user happened to be standing. Neither field was ever given, and both
+  /// were invented. It then went on matching unrelated destinations — "I
+  /// would like to go to my friend's place" routed to it.
+  ///
+  /// A place the user cannot see, saved under a name they did not choose, at
+  /// a location they did not confirm, is worse than no saved place: they
+  /// find out by being walked somewhere wrong. When the label looks like the
+  /// sentence that asked for it, ask for a real one instead.
+  static const _labelIsNotAName = [
+    'new place', 'a place', 'this place', 'place i', 'place that',
+    'frequent place', 'frequent', 'somewhere', 'a new one', 'save place',
+    'নতুন জায়গা', 'একটা জায়গা', 'এই জায়গা',
+  ];
+
+  static bool _looksLikeTheRequest(String label) {
+    final lower = label.toLowerCase().trim();
+    if (lower.isEmpty) return true;
+    if (_labelIsNotAName.any((p) => lower == p)) return true;
+    // "a place i go to frequently" and friends — the request restated.
+    return _labelIsNotAName.any((p) => lower.contains(p)) && lower.split(RegExp(r'\s+')).length >= 2;
+  }
+
   _AppliedCall _applySavePlace(Map<String, Object?> args, UserProfile profile, Position? location) {
     final label = (args['label'] as String?)?.trim() ?? '';
     if (label.isEmpty) {
       return _AppliedCall(profile, const {'ok': false, 'error': 'no_label'}, null);
+    }
+    if (_looksLikeTheRequest(label)) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'label_is_the_request'}, null);
     }
     final address = (args['address'] as String?)?.trim() ?? '';
     final useHere = address.isEmpty;

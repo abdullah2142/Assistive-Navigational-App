@@ -307,6 +307,45 @@ void main() {
     });
   });
 
+  group('saving a place needs a name the user actually gave', () {
+    // Reported: "add a new place i go to frequently" was saved as a place
+    // called "frequent place" at wherever they were standing — both fields
+    // invented — and it then matched unrelated destinations.
+    for (final label in [
+      'frequent place',
+      'a new place I go to frequently',
+      'new place',
+      'this place',
+    ]) {
+      test('"$label" is refused', () async {
+        final executor = FunctionCallExecutor(routePlanning: _StubPlanning(verdict: safe));
+
+        final turn = await executor.execute(
+          name: 'save_place',
+          args: {'label': label},
+          profile: profile,
+          location: _here(),
+        );
+
+        expect(turn.updatedProfile, isNull, reason: 'nothing may be saved under a name nobody chose');
+        expect(turn.responseText, contains('What should I call'));
+      });
+    }
+
+    test('a real name is still saved', () async {
+      final executor = FunctionCallExecutor(routePlanning: _StubPlanning(verdict: safe));
+
+      final turn = await executor.execute(
+        name: 'save_place',
+        args: const {'label': 'the clinic'},
+        profile: profile,
+        location: _here(),
+      );
+
+      expect(turn.updatedProfile?.savedPlaces.map((p) => p.label), contains('the clinic'));
+    });
+  });
+
   group('replan_route', () {
     // `navigateOffRoute` tells a user who has drifted to say "re-route" and
     // promises the way will be found from where they are. Nothing matched

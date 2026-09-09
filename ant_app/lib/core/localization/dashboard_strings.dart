@@ -170,6 +170,10 @@ class Dashboard {
   String get mapUnavailableSubtitle => _t('A Google Maps API key hasn\'t been configured yet.', 'মানচিত্র এখনো চালু করা হয়নি।');
   String get mapLiveViewLabel => _t('Live map view', 'সরাসরি মানচিত্র');
   /// The draggable divider between the chat and the map.
+  /// Hands the camera back to following the user after they have panned.
+  String get mapRecentreSemantics =>
+      _t('Recentre the map on me', 'মানচিত্র আমার উপর ফিরিয়ে আনুন');
+
   String get mapResizeSemantics =>
       _t('Resize the map. Swipe up or down to adjust.', 'মানচিত্রের আকার বদলান। উপরে বা নিচে সোয়াইপ করুন।');
 
@@ -371,6 +375,15 @@ class Dashboard {
     return _t('I have more than one place like that — did you mean $list?',
         'ওই রকম একাধিক জায়গা সেভ করা আছে — আপনি কি $list বোঝাচ্ছেন?');
   }
+
+  /// Asked when the "name" that came back was the request restated —
+  /// "a new place I go to frequently" is not what anyone calls anywhere.
+  String get savedPlaceNeedsName => _t(
+        'What should I call that place? Give me a short name — "work", "the clinic" — '
+            'and tell me the address if you are not standing there now.',
+        'জায়গাটাকে কী নামে ডাকব? ছোট একটা নাম বলুন — "অফিস", "ক্লিনিক" — '
+            'আর এখন সেখানে না থাকলে ঠিকানাটাও বলুন।',
+      );
 
   String get savedPlaceNeedsLocation => _t(
         "I can't tell where you are right now, so I can't save this spot. "

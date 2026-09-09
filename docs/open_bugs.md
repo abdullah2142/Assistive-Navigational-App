@@ -531,7 +531,7 @@ item 9).
 
 ---
 
-## 22. Gemini answers a half-heard command with an invented status
+## 22. Gemini answers a half-heard command with an invented status — FIXED
 
 **Observed 10 September, not yet fixed.** A bare "Screen." — the recognizer's
 truncation of "show screen" — came back as *"Your screen is currently active
@@ -539,12 +539,16 @@ and ready."* with `overlay=null`. Nothing opened, and the reply describes a
 state the app does not have and cannot report.
 
 A confident non-answer is worse for a blind user than an admission: it sounds
-like the command worked. The prompt should push the model toward asking which
-of the two or three plausible commands was meant, rather than narrating
-something plausible-sounding.
+like the command worked.
+
+**Fix:** a prompt rule, first in the list — never describe the state of
+anything the assistant cannot actually read (a screen, the camera, the
+microphone, a connection), and treat a half-heard command as a request to
+clarify rather than a cue to invent a status.
 
 Related, same session: "I would like to go to my friend's place" resolved to
-the junk saved place `"frequent place"` from item 12 and routed there.
+the junk saved place `"frequent place"` — see item 12, whose first half is now
+fixed.
 
 ---
 
@@ -580,7 +584,7 @@ See items 12 and 13, which are how wrong entries get in there.
 
 ---
 
-## 12. The assistant cannot actually add a place
+## 12. The assistant cannot actually add a place — HALF FIXED
 
 **Reported, two separate failures.**
 
@@ -599,9 +603,20 @@ asks me to tell the name of the place id like to add, i say it, and it goes
 back to routing me straight to that place on the map."
 
 So the conversation can be entered but not completed, and it silently
-degrades into `request_route`. `save_place` needs the same multi-turn slot
-filling `DestinationClarification` already gives `request_route`, plus a
-refusal to save with a name it inferred from the request itself.
+degrades into `request_route`.
+
+**Fixed: the invented name.** `save_place` now refuses a label that is the
+request restated — "a new place I go to frequently", "frequent place", "this
+place" — and asks what to call it instead, mentioning the address for the case
+where the user is not standing there. A place saved under a name nobody chose,
+at a location nobody confirmed, is worse than no saved place at all: it is
+found by being walked somewhere wrong, and in the meantime it matches
+unrelated destinations.
+
+**Still open: the multi-turn fill.** `save_place` wants the same slot filling
+`DestinationClarification` already gives `request_route`, so answering "the
+clinic" to "what should I call it?" completes the save instead of being read
+as a fresh destination.
 
 ---
 
@@ -615,19 +630,30 @@ no GPS fix at all.
 
 ---
 
-## 14. The map does not follow the user
+## 14. The map does not follow the user — FIXED
 
 **Reported:** "google maps when showing location should automatically zoom in
 on me reorient on my direction, just like google maps does in drive mode."
 
-The camera is fitted to the route bounds once (`_fitCameraToRoute`) and then
-never moves. There is no follow mode, no bearing-up orientation, and no
-recentre as the user walks. `Position.heading` is already on every fix the
-navigation controller receives.
+The panel took a single `getCurrentPosition` fix and never moved again: the
+camera was fitted to the route once and then sat there while the user walked
+off the edge of it.
 
-Note this is the *sighted* half of the feature — a companion or a low-vision
-user reading over a shoulder — so it trades off against battery in a way the
-spoken half does not.
+**Fix:** a position stream while a route is active. The whole-route fit still
+happens first — the user should see where they are being taken before the
+camera closes in — then it follows at zoom 18.5, oriented to travel direction.
+Heading is only trusted above 0.6 m/s, because a stationary phone reports a
+heading that wanders and a map that slowly spins while somebody stands still
+is worse than one that never turns.
+
+Touching the map releases the follow, because a camera that keeps yanking
+itself back is unusable for the sighted companion this view exists for; a
+recentre button appears to hand control back. The stream is torn down when the
+route is retired, so it costs nothing when nobody is walking.
+
+**Not covered by a test.** It needs a real `Geolocator` stream and a Google
+Maps platform view, neither of which a widget test has. Verified by reading;
+wants a look on the device.
 
 ---
 

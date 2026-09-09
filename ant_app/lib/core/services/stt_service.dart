@@ -327,7 +327,17 @@ class SttService {
     ceilingTimer?.cancel();
     // Null when the session ended via `SttService.stop()` rather than
     // `finish()` — that path stops the recorder itself, and awaits it.
-    await stopping;
+    //
+    // Bounded, because awaiting it at all is a deliberate risk: if the
+    // recorder's platform side ever wedges, an unbounded await here never
+    // returns, `listenOnce` never returns, the wake-word suspension is never
+    // released, and "Hey ANT" is dead until the app is relaunched — with the
+    // mic stuck on. A late teardown costs an overlapping recorder for a
+    // moment; a hung one costs the whole voice interface.
+    await stopping?.timeout(
+      const Duration(seconds: 2),
+      onTimeout: () => debugPrint('[Stt] cloud recorder did not stop within 2s — releasing the mic anyway'),
+    );
     if (streamFailed) {
       // Nothing usable was transcribed, so returning true here would leave
       // the caller believing the user simply said nothing. The most likely

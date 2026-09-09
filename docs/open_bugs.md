@@ -3,13 +3,21 @@
 Carried over from the device session on 9 September 2026. Everything in the
 "Reported" lines below was observed on the Redmi 10C, not inferred from code.
 
-Items 1-5 were worked on 9 September 2026 and are **fixed but not yet
-confirmed on a device** — see "Still needs a device" at the bottom for the
-specific claims that only a phone can settle.
+Items 1-5 were worked on 9 September 2026. **A device session on 10 September
+found that item 1 is not fixed** — see item 6, which supersedes it — and
+turned up thirteen further problems, items 6-19 below. Items 2-5 have still
+not been confirmed on a phone.
+
+Numbering is append-only. An item keeps its number even once it is fixed, so
+a build report can name one without ambiguity.
 
 ---
 
-## 1. "Hey ANT" and auto-listen do not work together — REGRESSION — FIXED
+## 1. "Hey ANT" and auto-listen do not work together — REGRESSION — PARTLY FIXED
+
+> **Superseded in part by item 6.** The ordering defects below were real and
+> are fixed, but the device session on 10 September found "Hey ANT" still dies
+> after a single exchange. Read item 6 first.
 
 **Reported:** with both toggles on, neither works properly. With one on at a
 time, that one works — either the wake word fires, or voice option selection
@@ -182,6 +190,256 @@ call, and cannot resolve "the hospital" to a different hospital.
 reveal, the fact that hiding the map again is not overruled by a rebuild, and
 the banner's contents in all four states (pre-fix, walking, off route,
 unsafe).
+
+---
+
+# Device session, 10 September 2026
+
+Observed on the Redmi 10C running the release build of `e1f00f8` — the build
+carrying every fix in items 1-5. Nothing here is inferred from code except
+where it says so.
+
+**Read this first: the release build emits no Dart logs.** Flutter strips
+`print`/`debugPrint` from logcat in release mode, so every `[WakeWord] peak=`,
+`[Stt]` and `[Chat]` line the diagnosis of items 1, 2 and 6 depends on is
+simply absent. Debug the voice stack on a **profile** build
+(`flutter build apk --profile` with the same `--dart-define`s) — AOT-compiled
+like release, so the TFLite audio pipeline runs at real speed, but the logs
+survive. A debug build is not a substitute: JIT changes the timing of a
+pipeline that does three inferences every 80 ms.
+
+---
+
+## 6. "Hey ANT" answers once, then never again until relaunch — NOT FIXED
+
+**Reported:** "hey jarvis works the first time, opens mic and takes input,
+answers and right after it doesnt respond to hey jarvis anymore. works again
+when i relaunch app cleanly."
+
+This is item 1 surviving its own fix. The ordering defects in item 1 were
+real, and the tests that pin them fail against the old code — but they were
+not the whole story.
+
+**Two candidate causes found by reading, one of them introduced on 9
+September. Both fixed; neither confirmed to be *the* cause.**
+
+1. **An unbounded await in the Cloud STT teardown.** `SttService` was changed
+   on 9 September from `unawaited(cloud.stop())` to awaiting it, so the
+   microphone is provably free before the wake-word suspension is released.
+   If the recorder's platform side ever wedges, that await never returns —
+   and then `listenOnce` never returns, `pauseAround` never releases, and the
+   wake word is dead until the process restarts, with the mic stuck on. That
+   is exactly the reported symptom, and exactly the reported *shape* (only a
+   relaunch clears it). Now bounded to 2 s with a log line.
+2. **The reentrancy guard covering the whole session** — see item 7. Any
+   session that fails to complete strands `_startingListen`, which wedges the
+   button *and* the wake word together.
+
+**What the log would settle, once there is one.** After the first exchange,
+look for `[WakeWord] listening started`:
+
+- **absent** → the restart path is not running. Suspect the teardown hang.
+- **present, but no `[WakeWord] peak=` lines follow** → the recorder came up
+  but delivers nothing. Suspect Android revoking mic access, or the TTS reply
+  taking the audio session.
+- **present, `peak=` lines at real values, no detection** → the model is
+  hearing and not matching; a threshold or poisoned-buffer problem.
+
+Note logcat from the device *did* show `WakeWordForegroundService` starting
+three times during the session, so the app was backgrounded and refocused
+while this was being tested. The service is inert (it holds a wake lock and a
+notification, no audio) and the manifest declares
+`foregroundServiceType="microphone"` correctly, but background audio capture
+on Android 11+ is a plausible fourth candidate and has not been ruled out.
+
+---
+
+## 7. The red mic button cannot be turned off — FIXED
+
+**Reported:** "clicking on the red mic button after its been activated doesnt
+deactivate it."
+
+It never could. One method served both the mic button and wake-word
+detection, and its reentrancy guard — there to stop a second detection
+cancelling the session the first one started — was held for the whole of
+`listenOnce` rather than just the start. Every tap on the red mic hit
+`if (_startingListen) return`, and the `if (_listening)` branch beneath it was
+unreachable dead code.
+
+For a user who cannot see that the microphone is open, a mic that will not
+close is worse than a button that does nothing visible.
+
+The two callers want opposite things from a session already running, so they
+are two methods now: a tap stops it, a wake word leaves it alone.
+(`test/chat_mic_button_test.dart`, two of whose three cases fail against the
+old guard.)
+
+---
+
+## 8. Onboarding narration repeats and overlaps into the caretaker code step
+
+**Reported:** "the hey ant dialogue repeats and overlaps into the caretaker
+code section."
+
+Two separate faults in one sentence, and they need separating before either
+is fixed: a step narrating itself more than once, and a step's narration
+still playing while the next screen is up. The second is the dangerous one —
+overlapping speech is unusable for a blind user, and the caretaker pairing
+code is six digits that have to be heard exactly once, clearly.
+
+Suspect `TtsService` not being stopped on step transition, and
+`OnboardingScaffold`'s narrate-then-listen loop re-entering. Related to
+`onboarding_stale_listener_test.dart`, which covers the tap-during-save case
+but not this one.
+
+---
+
+## 9. Show Screen opens the microphone before saying what it is for
+
+**Reported:** "show screen option should first narrate what user can/should do
+here before opening mic."
+
+`PasserbyMessagePicker` starts `_autoListenLoop()` from a post-frame callback
+the instant the sheet opens. The user hears a listening buzz with no idea
+what they are meant to say. Narrate the purpose and the options first, then
+open the microphone — which is the order `CrowdsourceReportingHub` already
+uses (`_narrateAndListenForStep`).
+
+---
+
+## 10. Auto-listen should follow from blindness, not from a separate toggle
+
+**Reported:** "mic auto open should be default if blind, and should be a
+question in onboarding if otherwise." And separately: "auto listen is a weird
+option, cos if hey jarvis is on, it should also be on by default right? maybe
+not?"
+
+Today `voiceAutoListen` defaults to `visionLevel != full || complexInstructionsHard`
+and is then editable as its own switch in settings, next to the wake-word
+switch, with no explanation of how the two relate. The reporter could not tell
+what it meant — which is a strong signal that a user with no vision, arriving
+at it through a screen reader, cannot either.
+
+Worth deciding rather than patching: is auto-listen a *derived* property of
+"cannot see the screen", an explicit onboarding question for everyone else, or
+a consequence of the wake word being on? The three answers give three
+different settings screens. `05_module_plan` and the "No Settings Menus for
+Users" guardrail both bear on this.
+
+---
+
+## 11. No list of saved places in settings
+
+**Reported:** "(there should be a proper places list in settings)."
+
+`UserProfile.savedPlaces` is only reachable by voice — "take me to X",
+"forget X". There is no way to see what is saved, which means no way to notice
+that "hospital" was saved as the wrong hospital until you are walked to it.
+See items 12 and 13, which are how wrong entries get in there.
+
+---
+
+## 12. The assistant cannot actually add a place
+
+**Reported, two separate failures.**
+
+First: "i say add a new place, it asks where and what to call it, i only say
+hospital, expecting to be asked about address of it, it then gives me list of
+places with hospital keyword in it." The follow-up turn is being read as a
+*destination* rather than as an answer to the question just asked, so it goes
+to the geocoder instead of filling the empty slot.
+
+Second, worse: "i just asked 'add a new place i go to frequently' it replied
+'Saved where you are now as frequent place'." It took the phrasing of the
+request as the place's *name* and the current GPS fix as its location — so a
+sentence that named neither produced a saved place that is wrong in both
+fields. Then: "upon me explaining im not talking about current location, it
+asks me to tell the name of the place id like to add, i say it, and it goes
+back to routing me straight to that place on the map."
+
+So the conversation can be entered but not completed, and it silently
+degrades into `request_route`. `save_place` needs the same multi-turn slot
+filling `DestinationClarification` already gives `request_route`, plus a
+refusal to save with a name it inferred from the request itself.
+
+---
+
+## 13. Saving needs an address path, not just "where you are now"
+
+Implied by item 12 and worth stating on its own: `save_place` supports the
+current location and a spoken address, but nothing asks for the address when
+the current location is plainly not what was meant. `savedPlaceNeedsLocation`
+is the only prompt that mentions an address, and it only fires when there is
+no GPS fix at all.
+
+---
+
+## 14. The map does not follow the user
+
+**Reported:** "google maps when showing location should automatically zoom in
+on me reorient on my direction, just like google maps does in drive mode."
+
+The camera is fitted to the route bounds once (`_fitCameraToRoute`) and then
+never moves. There is no follow mode, no bearing-up orientation, and no
+recentre as the user walks. `Position.heading` is already on every fix the
+navigation controller receives.
+
+Note this is the *sighted* half of the feature — a companion or a low-vision
+user reading over a shoulder — so it trades off against battery in a way the
+spoken half does not.
+
+---
+
+## 15. The map's share of the screen should be draggable
+
+**Reported:** "the space the map takes up should be adjustable or draggable."
+
+Fixed at 60/40 (`_chatFlex`) with a full-screen toggle and nothing in between.
+
+---
+
+## 16. Nothing is dictated as the route starts
+
+**Reported:** "when routing me somewhere, it should start dictating which
+direction i should go next and for how far."
+
+This is the one item here that the code says should already work, which makes
+it the most important to reproduce with logs. `NavigationController.start`
+speaks `navigateStartedBrief`, then `NavigationNarrator` announces each
+manoeuvre at 200 m, 50 m and 25 m. Candidates: the route had no `steps`
+(`navigateNoStepsFallback` would have been spoken — did it?), the GPS stream
+never delivered a fix accurate enough to act on, or nothing is being spoken at
+all because of item 8's suspected TTS problem.
+
+Determine which before changing anything: all three look identical from
+outside and only one is a navigation bug.
+
+---
+
+## 17. The chat input does not grow with the text
+
+**Reported:** "keyboard text box should expand like that of any messaging apps
+when filled up."
+
+Single-line `TextField` in `ChatStreamPanel`. Wants `maxLines: null` with a
+cap, the way every messaging app does it.
+
+---
+
+## 18. The map toggle is in the wrong corner
+
+**Reported:** "maps icon should be near the keyboard not on the top corner."
+
+It is an `AppBar` action, which is the furthest point on the screen from the
+thumb that is already on the input bar.
+
+---
+
+## 19. Release builds cannot be debugged
+
+Not a user-facing bug, but it cost this session its evidence. See the note
+under the 10 September heading: build **profile** for any voice-stack
+investigation.
 
 ---
 

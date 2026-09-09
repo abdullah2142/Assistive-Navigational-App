@@ -144,7 +144,7 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
       onDetected: () {
         if (!mounted) return;
         HapticFeedback.mediumImpact();
-        _toggleListening(Dashboard.of(widget.profile.language));
+        _listenFromWakeWord(Dashboard.of(widget.profile.language));
       },
     );
   }
@@ -193,20 +193,44 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
   /// is handled centrally inside `SttService.listenOnce` now (see its doc
   /// comment) — every mic entry point in the app gets that coordination
   /// automatically, so this doesn't need its own copy of that logic.
+  /// The mic button. A tap while a session is running ends it.
+  ///
+  /// It used to do nothing at all. One method served both the button and
+  /// wake-word detection, and its reentrancy guard — there to stop a second
+  /// detection cancelling the session the first one started — was held for
+  /// the whole of `listenOnce`, not just the start. So every tap on the red
+  /// mic hit `if (_startingListen) return`, and the `if (_listening)` branch
+  /// under it was unreachable. A user who opened the microphone by accident
+  /// had no way to close it, which for someone who cannot see that it is
+  /// open is worse than a stuck button.
+  ///
+  /// The two callers want opposite things from a session that is already
+  /// running, so they are two methods now: a tap stops it, a wake word
+  /// leaves it alone.
   Future<void> _toggleListening(Dashboard d) async {
-    // Reentrancy guard. A wake-word detection calls this without awaiting,
-    // and the 2-second detection cooldown is shorter than a listen session,
-    // so a second detection could arrive while one was already starting. It
-    // took the `_listening` branch and *stopped* the session instead —
-    // which is what "Hey ANT works once, then stops working while the mic
-    // icon stays on" actually was: alternating start/stop, with the icon
-    // left showing whenever the pair ended on a start.
-    if (_startingListen) return;
-    if (_listening) {
+    if (_listening || _startingListen) {
+      // `SttService.stop()` completes the pending session's completer, so
+      // the `listenOnce` below returns and its `finally` clears both flags.
       await _stt.stop();
-      if (mounted) setState(() => _listening = false);
       return;
     }
+    await _beginListening(d);
+  }
+
+  /// Wake-word detection. Never cancels a session already in progress: the
+  /// phrase was almost certainly the user starting to talk into a
+  /// microphone that is already open, and stopping it there is how "Hey ANT
+  /// works once, then stops working while the mic icon stays on" happened —
+  /// alternating start/stop, the icon left showing whenever the pair ended
+  /// on a start.
+  Future<void> _listenFromWakeWord(Dashboard d) async {
+    if (_listening || _startingListen) return;
+    await _beginListening(d);
+  }
+
+  Future<void> _beginListening(Dashboard d) async {
+    // Set synchronously, before the first await, so two calls in the same
+    // turn cannot both get past the guards above.
     _startingListen = true;
     try {
       if (!await _stt.ensureAvailable()) {

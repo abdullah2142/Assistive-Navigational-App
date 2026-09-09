@@ -189,6 +189,10 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
 
   @override
   void dispose() {
+    // A screen's narration belongs to that screen — closing the hub has to
+    // take its voice with it, or it carries on reading hazard options over
+    // whatever the user went back to.
+    _tts.stop();
     _stt.stop();
     _wakeWord.resume();
     _descriptionController.dispose();

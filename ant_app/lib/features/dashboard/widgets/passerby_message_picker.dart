@@ -68,6 +68,10 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
   // stumble.
   String _committed = '';
 
+  /// Set when this sheet is popping in order to show the message, rather
+  /// than being abandoned. See [dispose].
+  bool _handedOff = false;
+
   static const _submitPhrasesEn = ['submit', 'send it', 'send this', 'show this', 'show it'];
   static const _submitPhrasesBn = ['পাঠাও', 'পাঠান', 'সাবমিট', 'দেখাও'];
   static const _submitRootsEn = ['submit', 'send', 'show'];
@@ -125,6 +129,13 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
 
   @override
   void dispose() {
+    // Same rule as everywhere else: a screen's narration stops when the
+    // screen does. The exception is the hand-off — when this sheet pops in
+    // order to *show* the message, the overlay it is handing to has already
+    // started its own announcement, and Flutter runs this `dispose` after
+    // that push. Stopping unconditionally would clip the first words off the
+    // screen the user actually asked for.
+    if (!_handedOff) _tts.stop();
     _wakeWord.resume();
     _stt.stop();
     _composeController.dispose();
@@ -355,6 +366,7 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
       if (!mounted) return;
     }
     if (!context.mounted) return;
+    _handedOff = true;
     Navigator.of(context).pop(text);
   }
 

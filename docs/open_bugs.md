@@ -5,7 +5,8 @@ Carried over from the device session on 9 September 2026. Everything in the
 
 Items 1-5 were worked on 9 September 2026. **A device session on 10 September
 found that item 1 is not fixed** — see item 6, which supersedes it — and
-turned up thirteen further problems, items 6-19 below. Items 2-5 have still
+turned up thirteen further problems, items 6-19 below, and a second session
+that night added items 20-22. Items 2-5 have still
 not been confirmed on a phone.
 
 Numbering is append-only. An item keeps its number even once it is fixed, so
@@ -410,6 +411,86 @@ decision, not a defect.
 narrates and then listens: the microphone must be closed for the whole of the
 narration and opened only after it finishes. Any overlap ducks our own
 recorder, and `record` cannot tell our voice from an interruption.
+
+---
+
+## 20. Show Screen closed itself the moment it opened — FIXED
+
+**Reported:** "after the voice commands in show screen it doesn't actually
+open the screen but it does when its clicked", then, watching it happen: "it
+closed in 1 sec without me doing anything while its narration kept on playing
+on the dashboard."
+
+Not a voice bug at all — the overlay *was* opening every time. The device log
+shows a two-finger, 15 ms touch delivered to the activity in the same frame
+the overlay pushed:
+
+```
+ACTION_DOWN             pointerCount=1
+ACTION_POINTER_DOWN(1)  pointerCount=2
+  ...15ms...
+ACTION_POINTER_UP(0) / ACTION_UP
+```
+
+`PasserbyHelperOverlay`'s entire body is a tap-to-dismiss target with no
+grace period, so that closed it instantly — before `initState`'s
+`await speak(...)` had even returned, which is why not one `[PasserbyOverlay]`
+line appears in the log despite the overlay having been built and spoken
+from. Tapping "Show This" worked because by then the touch stream had already
+been consumed by the button.
+
+A full-screen surface whose whole body dismisses will always be exposed to
+whatever touch stream was in progress when it arrived — a rotation
+re-dispatch (this one forces landscape on entry), a lingering finger, an
+accessibility gesture. **Fix:** a 900 ms grace window on tap-anywhere. The
+explicit back button is deliberately not gated: a press on a specific control
+is an intention, a touch anywhere on a yellow rectangle is not.
+
+(`test/passerby_overlay_dismiss_test.dart`)
+
+---
+
+## 21. Narration outlived the screen that started it — FIXED
+
+**Reported as a rule, not a bug:** "narration of a certain screen or function
+or option should stop the moment that window is closed."
+
+None of the three voice surfaces stopped text-to-speech on dispose. They all
+stopped the *recognizer* and left the *voice* running, so the Show Screen
+announcement — six seconds long, on an overlay that could be gone in one —
+carried on explaining a screen that was no longer in front of the user.
+
+`PasserbyHelperOverlay`, `CrowdsourceReportingHub` and `PasserbyMessagePicker`
+now stop the TTS in `dispose()`.
+
+One deliberate exception, in the picker: when it pops in order to *show* the
+message, the overlay it is handing to has already begun its own announcement
+and Flutter runs the picker's `dispose` after that push. Stopping
+unconditionally there clips the first words off the screen the user actually
+asked for, so the picker tracks the hand-off and stays quiet only when it is
+being abandoned.
+
+**The general rule, now applied in three places and worth applying in the
+rest:** a screen owns its voice. Opening it starts the narration, closing it
+ends the narration, and the microphone stays shut for the whole of it (see
+item 9).
+
+---
+
+## 22. Gemini answers a half-heard command with an invented status
+
+**Observed 10 September, not yet fixed.** A bare "Screen." — the recognizer's
+truncation of "show screen" — came back as *"Your screen is currently active
+and ready."* with `overlay=null`. Nothing opened, and the reply describes a
+state the app does not have and cannot report.
+
+A confident non-answer is worse for a blind user than an admission: it sounds
+like the command worked. The prompt should push the model toward asking which
+of the two or three plausible commands was meant, rather than narrating
+something plausible-sounding.
+
+Related, same session: "I would like to go to my friend's place" resolved to
+the junk saved place `"frequent place"` from item 12 and routed there.
 
 ---
 

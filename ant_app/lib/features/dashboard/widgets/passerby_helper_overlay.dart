@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +10,7 @@ import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/cloud_stt_service.dart';
 import '../../../core/services/stt_service.dart';
+import '../../../core/services/tts_service.dart';
 import '../../../core/theme/app_colors.dart';
 
 /// Full-screen route for the "Show Screen" Passerby Helper overlay: forces
@@ -25,6 +28,29 @@ class PasserbyHelperOverlay extends ConsumerStatefulWidget {
   final Dashboard strings;
   final AppLanguage language;
 
+  /// How long tap-anywhere stays inert.
+  ///
+  /// Reported as "it closed in 1 sec without me doing anything while its
+  /// narration kept on playing on the dashboard", and the device log shows
+  /// exactly what closed it — a two-finger, 15 ms touch delivered to the
+  /// activity in the same frame the overlay pushed:
+  ///
+  ///   ACTION_DOWN             pointerCount=1
+  ///   ACTION_POINTER_DOWN(1)  pointerCount=2
+  ///   ...15ms...
+  ///   ACTION_POINTER_UP(0) / ACTION_UP
+  ///
+  /// A full-screen surface whose entire body is a dismiss target will always
+  /// be vulnerable to whatever touch stream was in progress when it arrived —
+  /// a rotation re-dispatch, a lingering finger, an accessibility gesture.
+  /// The grace window is the standard guard, and it costs nothing: nobody
+  /// opens this and then dismisses it inside a second on purpose.
+  ///
+  /// The explicit back button is deliberately *not* gated. A press on a
+  /// specific control is an intention; a touch anywhere on a yellow rectangle
+  /// is not.
+  static const Duration tapGrace = Duration(milliseconds: 900);
+
   static Future<void> show(BuildContext context, String message, Dashboard strings, AppLanguage language) {
     return Navigator.of(context).push(
       PageRouteBuilder(
@@ -40,6 +66,16 @@ class PasserbyHelperOverlay extends ConsumerStatefulWidget {
 
 class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
   bool _dismissed = false;
+
+  /// False until [PasserbyHelperOverlay.tapGrace] has elapsed, so
+  /// tap-anywhere ignores a touch that was already in flight when this
+  /// appeared. A timer rather than a wall-clock comparison: the behaviour is
+  /// then drivable from a widget test, which a `DateTime.now()` check is not.
+  bool _tapsArmed = false;
+  Timer? _armTimer;
+
+
+  late final TtsService _tts = ref.read(ttsServiceProvider);
 
   // Captured once, here, rather than `ref.read` inside `dispose()` — `ref`
   // is unsafe to use once a widget is unmounting.
@@ -78,6 +114,10 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
     // pattern elsewhere in this app for the crash this avoids).
     _stt;
     _cloudStt;
+    _tts;
+    _armTimer = Timer(PasserbyHelperOverlay.tapGrace, () {
+      if (mounted) _tapsArmed = true;
+    });
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -155,6 +195,12 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
   @override
   void dispose() {
     _dismissed = true;
+    _armTimer?.cancel();
+    // A screen's narration belongs to that screen. This one kept talking on
+    // the dashboard after the overlay closed — the announcement is six
+    // seconds long and the overlay can be gone in one, so the user was left
+    // being told how to use something that was no longer in front of them.
+    _tts.stop();
     _stt.stop();
     _cloudStt.stop();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
@@ -164,6 +210,15 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
   void _dismiss() {
     _dismissed = true;
     Navigator.of(context).maybePop();
+  }
+
+  /// Tap-anywhere, guarded by [tapGrace]. See its doc comment.
+  void _dismissByTap() {
+    if (!_tapsArmed) {
+      debugPrint('[PasserbyOverlay] ignoring a tap inside the grace window');
+      return;
+    }
+    _dismiss();
   }
 
   @override
@@ -176,7 +231,7 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
             label: '${widget.message}. ${widget.strings.passerbyOverlayTapToClose}',
             liveRegion: true,
             child: GestureDetector(
-              onTap: _dismiss,
+              onTap: _dismissByTap,
               behavior: HitTestBehavior.opaque,
               child: Center(
                 child: Padding(

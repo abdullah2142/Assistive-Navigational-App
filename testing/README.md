@@ -21,6 +21,7 @@ it.
 | [B](pack_b_voice_commands.md) | Saying things the app didn't expect | 3 — commands, assistant, wake word | ~4 h | |
 | [C](pack_c_navigation.md) | Actually walking somewhere | 4, 7 — routing, map, safety, haptics | ~4 h, outdoors | |
 | [D](pack_d_reporting.md) | Asking for help, flagging trouble | 2, 5 — reporting, passer-by, caretaker | ~3.5 h | |
+| [E](pack_e_emergency.md) | The Magic Button | 9 — emergency escalation | ~3 h | |
 
 Fill in the owner column before the round starts. Each pack file is
 self-contained — send a person their file and nothing else.
@@ -39,6 +40,7 @@ Agree these times at the start of the round, or they quietly never happen.
 | Three-reporter hazard escalation | D, with A and C filing |
 | Hazard warning received while walking | D files, C walks |
 | Remote setting change from caretaker | D + A |
+| Emergency alert reaching the caretaker | E + D |
 
 ## Recording coverage
 
@@ -172,6 +174,20 @@ this, because three different causes look identical from outside and guessing
 would risk breaking the parts that work. Pack C Part 11 explains what to
 listen for — the opening sentence tells us which of the three it is, and that
 one detail is worth more than any amount of description.
+
+### New this round: Pack E, the Magic Button
+
+Module 9 was in no pack in round 1 — it landed the day *after* the packs were
+written, and the only thing testers were told was what to do if it went off by
+accident. It has since been fired on real hardware, so it now gets a pack of
+its own rather than a section inside someone else's: it needs its own safety
+briefing, and that briefing does not belong halfway down a page about
+reporting potholes.
+
+**It is still in rehearsal mode** — the sequence runs and speaks, nothing is
+sent to anyone. That is what makes it testable. Pack E opens with what that
+does and does not protect, and testers should read it before touching the
+volume keys.
 
 ### Two changes most likely to have broken something
 

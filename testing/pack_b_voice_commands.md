@@ -82,17 +82,39 @@ most likely to break and least likely to have been thought about.
 
 ## Part 5 — The wake word
 
-18. Say `Hey Jarvis` **ten times over ten minutes**, doing other things in
-    between. Count how many worked. This is a regression check for a bug
-    where it fired once and never again.
+**This is the highest-value section in round 2.** The cause of "it works once
+and then never again" was found and fixed: the assistant's own spoken reply
+was taking permanent audio focus, which stopped its own microphone. Every one
+of these is a check on that fix.
+
+18. **The one that matters.** Say `Hey Jarvis`, give a command, **let it
+    finish answering out loud**, then say `Hey Jarvis` again. Repeat five
+    times without relaunching. Before the fix, the second wake word never
+    worked. If it fails, note whether the reply was long or short.
+19. Say `Hey Jarvis` **ten times over ten minutes**, doing other things in
+    between. Count how many worked.
 19. From **across a room**, from **a pocket**, with a **TV or music
     playing**, and **outdoors**.
 20. Say it **twice in quick succession**.
+20b. **Watch for it firing twice off one "Hey Jarvis".** The fix retains some
+    audio across the pause, and a double trigger is what a mistake there looks
+    like. It would show as the mic opening, closing and reopening on its own.
 21. Say something that sounds similar but isn't — "hey Jarvis" vs "hey
     Travis", "হেই জার্ভিস" — and note false triggers.
 22. Turn the wake word **off by voice**, confirm it stops responding, turn
     it back on.
 23. Lock the screen and say it.
+24. **Play music, then say a command.** The reply should duck the music and
+    let it come back, not stop it for good.
+
+## Part 5b — The mic button (new)
+
+25. Tap the mic button, then **tap it again while it is red**. It must close.
+    This has never worked in any build you have seen — the button was dead for
+    the whole session once opened.
+26. Do the same after a wake-word trigger rather than a tap.
+27. Open it and say nothing at all. Confirm it closes by itself and that the
+    button is usable afterwards.
 
 ## Part 6 — Questions that must do nothing
 
@@ -110,6 +132,17 @@ Every one of these should be answered or ignored, never acted on. Any that
 32. `আমি অফিসে যাব না` / `I'm not going to work today`
 33. `is it going to rain before I get there?`
 
+**New in round 2 — it must not invent a status.** Say a single word that is
+only half a command:
+
+34. Just `Screen.` — nothing else.
+35. Just `Route.` — nothing else.
+
+    It used to answer "Your screen is currently active and ready", which is a
+    state the app cannot read and does not have. It should now **ask which
+    command you meant**. A confident answer to a half-heard command is a
+    **BLOCKS**: you cannot see that nothing happened.
+
 ## Part 7 — Saved places
 
 34. Route to each saved kind using **every synonym** in the phrasebook —
@@ -118,6 +151,22 @@ Every one of these should be answered or ignored, never acted on. Any that
 35. Add a saved place by voice, then route to it.
 36. Set up **two saved places with similar names** and confirm it asks
     rather than guessing.
+
+**New in round 2 — saving is now a conversation.** These are the reported
+failures, so run all of them:
+
+37. Say `add a new place`. It should **ask what to call it**. Answer with a
+    short name. It must **save**, not route you there. Routing on the answer
+    was the bug.
+38. Say `add a new place I go to frequently`. It must **not** create a place
+    called "frequent place" at wherever you are standing. It should ask for a
+    real name.
+39. Start the same conversation and say `never mind`. It should stop cleanly.
+40. Start it and then say `take me to Gulshan` instead. The route should win
+    and the save should be dropped, not queued.
+41. Open **My Settings** and confirm your saved places are listed, each with a
+    delete. Delete one and confirm it is gone. If an old junk entry like
+    "frequent place" is on your device, this is how to clear it.
 
 ## Part 8 — Failure and fallback
 

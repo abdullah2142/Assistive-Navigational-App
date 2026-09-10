@@ -740,12 +740,108 @@
     <div class="cards">
       <article class="cmd">
         <div class="what">
+          <h3>Save a place</h3>
+          <p>So you can later just say "take me to <i>the clinic</i>".</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>save this place</li>
+            <li>remember this place</li>
+            <li>save this as work</li>
+            <li>add a new place</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says bn">
+            <li>এই জায়গাটা সেভ করো</li>
+            <li>এই জায়গা মনে রাখো</li>
+            <li>নতুন জায়গা যোগ করো</li>
+          </ul>
+        </div>
+        <div class="note">
+          <b>It will ask what to call it if you have not said.</b> Answer with a short name —
+          "work", "the clinic" — and that answer completes the save; it is not read as a new
+          destination. Saying "never mind" stops it. It <b>will not</b> invent a name from your
+          request: "add a new place I go to frequently" gets a question, not a place called
+          "frequent place". Saved places are listed in My Settings, with a delete on each.
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Ask for a different route</h3>
+          <p>Switches to another of the walking routes it already found, without re-planning.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>give me a different route</li>
+            <li>another route</li>
+            <li>another way</li>
+            <li>any other way</li>
+            <li>a different path</li>
+            <li>change the route</li>
+            <li>I don't like this route</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says">
+            <li>অন্য পথ</li>
+            <li>আরেকটা পথ</li>
+            <li>অন্য রাস্তা</li>
+            <li>আরেকটা রাস্তা</li>
+            <li>পথ পাল্টাও</li>
+          </ul>
+        </div>
+        <div class="note">
+          It says which way the new one goes and how many others it still has. <b>Naming a
+          destination in the same breath</b> — "another way to Gulshan" — is a different request
+          and goes to the assistant instead.
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
+          <h3>Re-route from where you are</h3>
+          <p>Same destination, new starting point. This is what to say after going the wrong way.</p>
+        </div>
+        <div class="lang en">
+          <div class="lang-tag">English</div>
+          <ul class="says">
+            <li>re-route</li>
+            <li>reroute</li>
+            <li>route again</li>
+            <li>find the way again</li>
+            <li>where do I go from here</li>
+          </ul>
+        </div>
+        <div class="lang">
+          <div class="lang-tag">বাংলা</div>
+          <ul class="says">
+            <li>নতুন পথ</li>
+            <li>আবার পথ</li>
+            <li>পথ খুঁজে দাও</li>
+            <li>এখান থেকে পথ</li>
+          </ul>
+        </div>
+        <div class="note">
+          The off-route announcement tells you to say this. It keeps the destination and plans
+          again from your current position, so you never have to walk back.
+        </div>
+      </article>
+
+      <article class="cmd">
+        <div class="what">
           <h3>What it tells you</h3>
           <p>Spoken, and backed by vibration you can feel through a pocket.</p>
         </div>
         <div class="lang en">
           <div class="lang-tag">You'll hear</div>
           <ul class="says">
+            <li>Which way it is taking you and how far — "via Satmasjid Road, 1.2 km, about 15 minutes"</li>
             <li>The turn 200 metres ahead</li>
             <li>Again at 50 metres</li>
             <li>Again at 25 metres</li>
@@ -766,9 +862,15 @@
           </ul>
         </div>
         <div class="note">
-          <b>If you drift off the route it re-plans from where you actually are</b> — you don't
-          need to walk back. Routes avoid areas scored as higher risk for the time of day, so a
-          night route may differ from the same trip in daylight.
+          <b>Every spoken direction also appears as text in the chat</b>, so a Deaf or hard-of-hearing
+          user gets the whole walk in writing. The map shows the next turn, the distance to it and
+          the road it is onto, and follows you as you walk — touching the map stops it following,
+          and the recentre button hands it back.
+        </div>
+        <div class="note">
+          <b>If you drift off the route, say "re-route"</b> and it plans again from where you
+          actually are — you don't need to walk back. Routes avoid areas scored as higher risk for
+          the time of day, so a night route may differ from the same trip in daylight.
         </div>
       </article>
     </div>
@@ -1288,6 +1390,12 @@
             <li>অটো লিসেন বন্ধ করো</li>
             <li>নিজে থেকে শোনা বন্ধ করো</li>
           </ul>
+        </div>
+        <div class="note">
+          <b>On from the start for a user who answered "no vision"</b> — they cannot find a mic
+          button on a screen they cannot see. Everyone else is asked once during setup, and can
+          change it here or in My Settings. It is independent of the wake word: one is about
+          reaching the button, the other about the phrase.
         </div>
       </article>
 

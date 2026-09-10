@@ -103,6 +103,21 @@ After you submit, it reads the report back and waits five seconds.
 
 28. Open it by voice and pick a **prepared message**.
 29. **Dictate a new message** and show that.
+
+**New in round 2 — the order changed.** It now tells you what the screen is
+for *before* opening the mic, because it used to open the mic underneath its
+own announcement and stop hearing you.
+
+29a. Open it and **listen without speaking**. It should say what the screen
+    does and what to say, and only then open the mic. If the mic opens while
+    it is still talking, that is the bug returning.
+29b. Open it, say nothing at all, and see what ends up in the message box. It
+    must be **empty** — it used to transcribe the tail of its own prompt
+    ("What you need?") and show that to the passer-by.
+29c. Say `show it` **with nothing dictated**. It should say it has no message
+    yet and ask you for one. It used to repeat the same prompt forever.
+29d. Dictate, say `show it`, and let the cancel window run out. Confirm the
+    screen actually appears.
 30. **Actually show it to someone who doesn't know the app.** Watch whether
     they understand what to do — **their reaction is the result**, not your
     opinion of the screen. Do this with at least **three different people**,
@@ -111,6 +126,23 @@ After you submit, it reads the report back and waits five seconds.
     you something? Write down their first reaction verbatim.
 32. Check it is **readable at arm's length** in daylight, and at night.
 33. Dictate a message and use the cancel window on it too.
+
+## Part 5b — Narration stops with the screen (new)
+
+A screen's voice now belongs to that screen.
+
+33a. Open the passer-by helper and **close it while it is still talking**. The
+    voice must stop with it, not carry on over the dashboard.
+33b. Do the same with the hazard reporting hub, mid-sentence.
+33c. Confirm the message you were shown is not left half-spoken when you go
+    back.
+
+## Part 5c — Saved places in settings (new)
+
+34a. Open **My Settings** and find the saved-places list. It is new — before
+    this, saved places could only be reached by voice, so a wrong one could
+    not be seen or removed.
+34b. Delete one and confirm it is gone, and that routing to it no longer works.
 
 ## Part 6 — The caretaker side
 
@@ -148,6 +180,13 @@ no explanation, and a remote setting change from a caretaker phone reached
 the other device.
 
 ## Coverage — tick what you actually did
+
+- [ ] Show Screen narrated before opening the mic
+- [ ] Said nothing — message box stayed empty
+- [ ] "show it" with nothing dictated said what was missing, did not loop
+- [ ] Dictated, said "show it", screen actually appeared
+- [ ] Closed a screen mid-sentence, voice stopped with it
+- [ ] Saved places list found in settings, delete worked
 
 - [ ] Report by voice, English, no touching
 - [ ] Report by voice, Bangla

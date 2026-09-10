@@ -1,4 +1,14 @@
-# Test round 1 — four packs, one owner each
+# Test round 2 — four packs, one owner each
+
+**What changed since round 1** is listed at the bottom of this file. The short
+version: the wake word dying after one command is fixed and is the single most
+valuable thing to confirm, the giant map arrow is gone, and saving a place is
+now a conversation. Every pack has new sections marked "new in round 2" —
+those are where the findings will be, because none of it has been used by
+anyone but the developer.
+
+Everything else in your pack still applies. A fix in one area routinely breaks
+another, and the round-1 sections are what catch that.
 
 One person owns one area end to end. That is deliberate: this app has too
 many interacting parts for everyone to poke at everything, and four shallow
@@ -72,11 +82,19 @@ Only Pack A tests onboarding. Everyone else should use the **⏩ button in
 the top-right of the first onboarding screen**, which fills in a dummy
 profile and goes straight to the dashboard.
 
-It leaves the **wake word** and **automatic listening** switched off on
-purpose. Turn them on by voice if your pack needs them:
+It leaves the **wake word** switched off on purpose. Turn it on by voice if
+your pack needs it:
 
 ```
 turn on hey jarvis
+```
+
+**Automatic listening now depends on the profile.** A user who answered "no
+vision" gets it on without being asked; everyone else is asked once during
+setup. The dummy profile the ⏩ button creates is sighted, so it will be
+**off** — turn it on by voice if your pack needs it:
+
+```
 turn on auto listen
 ```
 
@@ -122,3 +140,42 @@ NOTES:     Worked when I said just "মোহাম্মদপুর"
 existed only on one GPU family and would have been dismissed as "works on
 mine" without the model written down. A bug that happens once and a bug that
 happens every time are different bugs.
+
+
+## What changed since round 1
+
+Ordered by how much it should change your testing. Everything here is fixed in
+the build you have been sent, and **only two of them have been confirmed on a
+phone** — the rest are verified by test and by reading, which is not the same
+thing.
+
+| # | What | Pack | Confirmed on a device? |
+| --- | --- | --- | --- |
+| 6 | "Hey ANT" no longer dies after one command. The assistant's own reply was taking permanent audio focus and stopping its own microphone. | B | Yes |
+| 9 | Show Screen says what it is for before opening the mic, and "show it" with nothing dictated no longer loops. | D | Yes |
+| 7 | The red mic button can be turned off. It never could. | B | No |
+| 8 | Onboarding narration no longer bleeds into the next screen, and the caretaker code is now spoken. | A | No |
+| 23 | The app no longer transcribes its own prompts into your message. | D, B | No |
+| 3 | The map shows the next turn, its distance and the road name instead of a giant arrow. | C | No |
+| 14 | The map follows you and turns with your direction. **No automated test covers this at all** — it needs a real GPS stream. | C | No |
+| 4 | Route replies say which way and how far. "Give me a different route" and "re-route" work. | C | No |
+| 21 | Turn-by-turn also appears as text in the chat — the only channel a Deaf user has for it. Narration now stops when its screen closes. | C, D | No |
+| 12 | Saving a place is a conversation it can finish, and it will not invent a name from your request. | B | No |
+| 10 | Auto-listen is on for blind users and asked once of everyone else, instead of being inferred. | A | No |
+| 11, 15, 17, 18 | Saved places listed in settings; draggable chat/map split; chat input grows; map toggle moved beside the mic. | B, C | No |
+| 22 | It no longer answers a half-heard command by inventing a status. | B | No |
+
+### Still broken, and we want your help pinning it down
+
+**Directions sometimes are not spoken when a route starts.** We have not fixed
+this, because three different causes look identical from outside and guessing
+would risk breaking the parts that work. Pack C Part 11 explains what to
+listen for — the opening sentence tells us which of the three it is, and that
+one detail is worth more than any amount of description.
+
+### Two changes most likely to have broken something
+
+- **The map following you** (item 14) is the only change shipped with no test
+  behind it.
+- **Auto-listen** (item 10) changes what a newly created profile gets, so it
+  affects every fresh install, not just the setting screen.

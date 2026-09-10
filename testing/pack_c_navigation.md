@@ -125,17 +125,78 @@ This is the part most likely to be wrong in a way that matters.
 
 ## Part 8 — The map
 
+**Rewritten for round 2 — the giant arrow is gone.** In its place is a banner
+across the top of the map showing the next turn, the distance to it, the road
+it is onto, and the distance remaining. The map now follows you as well.
+
 35. Confirm the map **shows streets, not a blank panel** — on your phone
     specifically. Say what model it is either way.
-36. Confirm it is **centred on you** and follows as you walk.
-37. Confirm you can read the street names at your normal text size.
-38. Open the full-screen map and come back.
+36. Confirm the banner shows **the next turn and a distance**, and that both
+    change as you walk. Read it out loud at a corner and check it matches
+    what you are about to do.
+37. Confirm you can read the street names and the banner at your normal text
+    size.
+38. **Following.** When a route starts, the map should fit the whole route
+    first, then close in on you and turn so your direction of travel is up.
+    Walk 100 m and confirm it keeps up.
+39. **Standing still.** Stop for a minute and watch the map. It must **not
+    slowly spin**. If it does, say so — the heading gate is wrong.
+40. **Panning.** Drag the map away from yourself. Following should stop and a
+    recentre button should appear. Press it and confirm following resumes.
+41. Open the full-screen map and come back.
+42. **The split.** Drag the bar between the chat and the map. Confirm neither
+    can be dragged away entirely. With the map full-screen, the map toggle is
+    deliberately hidden — the collapse button is the way back.
+
+## Part 9 — What it says about the route (new)
+
+43. Ask for a route and write down **the whole first sentence**. It should now
+    name the road and the distance — "via Satmasjid Road, 1.2 km, about 15
+    minutes". Before, it said only whether the area was risky.
+44. Say `give me a different route`. Confirm it switches, says which way the
+    new one goes, and says how many others it has left.
+45. Keep asking until it runs out. It should say so plainly rather than
+    repeating itself.
+46. If it ever offers a route it calls risky, note whether it **said so** when
+    switching to it.
+47. **`re-route`.** Walk off the route until it tells you you have left it —
+    it will tell you to say this — then say it. It should plan again from
+    where you are standing, to the same destination. This command has never
+    worked before, despite being the one the app tells you to use.
+48. Say `নতুন পথ` for the same thing in Bangla.
+
+## Part 10 — Directions in writing (new)
+
+The only channel a Deaf or hard-of-hearing user has for turn-by-turn.
+
+49. Walk a route and confirm **every spoken direction also appears as a
+    message in the chat**, in order.
+50. Confirm nothing is spoken twice as a result.
+51. On arrival, confirm the route is **retired** — the map should stop drawing
+    a line you have already walked.
+
+## Part 11 — If nothing is spoken at all (diagnosis, not a fix)
+
+**We do not know why this happens yet, and the three causes look identical
+from outside.** If a route starts and you hear no directions, the single most
+useful thing you can tell us is which of these you heard *at the start*:
+
+- **"I have the route to X, ... but no turn-by-turn directions for it. Follow
+  the arrow"** — the route came back with no turns in it. A routing problem.
+- **"I will tell you each turn as it comes"** and then silence — it had turns
+  and never announced them. A navigation problem.
+- **Nothing at all, not even that** — the voice is not playing. A sound
+  problem.
+
+52. Note which one, word for word, and how long you walked before giving up.
 
 ---
 
 ## Hunt for
 
 - A turn announced **too late to act on**.
+- The map **spinning while you stand still**.
+- The banner disagreeing with what the voice just said.
 - "Arrived" while you are visibly not there.
 - The map blank, not centred, or not following.
 - Vibration patterns you **cannot tell apart** through a pocket.
@@ -176,6 +237,19 @@ arrived in time for you to take it.
 - [ ] Night vs day route compared
 - [ ] Hazard warning received on route (with Pack D)
 - [ ] Map renders on my phone: model ____________
+- [ ] Banner showed the next turn and distance, and updated
+- [ ] Map followed me and turned with my direction
+- [ ] Map did NOT spin while standing still
+- [ ] Panned away, recentre button appeared and worked
+- [ ] Split dragged
+- [ ] Route reply named the road and the distance
+- [ ] "give me a different route" switched routes
+- [ ] Asked until it ran out of alternatives
+- [ ] "re-route" worked after leaving the route
+- [ ] "নতুন পথ" worked
+- [ ] Every spoken direction also appeared in the chat
+- [ ] Route retired on arrival
+- [ ] If nothing was spoken: wrote down which opening sentence I heard
 
 ## Before you start
 

@@ -67,10 +67,44 @@ Needs a second phone. Borrow one from Pack C or D and agree a time.
 
 15. Pair with a caretaker, **reading the six-digit code aloud** rather than
     typing it.
+15b. **New in round 2 — the code is now spoken.** On the caretaker's phone,
+    confirm the six digits are read out **one at a time**, not as a single
+    number, and that they are said once rather than repeatedly while it waits.
+    Before this the code was displayed and never spoken at all, which is
+    useless to a caretaker who cannot see it.
 16. Try a **wrong code** and confirm the error is spoken, not just shown.
 17. Try an **already-used code** and confirm you're told that specifically.
 18. Have the caretaker generate a code and leave it for **over an hour**,
     then try it.
+
+## Part 4b — Narration must not run into the next screen (new)
+
+This was reported as the "Hey ANT" dialogue overlapping into the caretaker
+code section. The cause was speech still being fetched over the network when
+the screen changed.
+
+19. **Answer fast.** On every screen with options, choose *before its
+    narration finishes*. The old narration must stop the instant the screen
+    changes — you should never hear the previous screen talking over the new
+    one.
+20. Do this **five screens in a row**, as fast as you can answer.
+21. Do it specifically on **role selection → caretaker code**, which is the
+    exact place it was reported.
+22. Note if any screen **repeats its own narration**. That half of the report
+    was never reproduced, so if you see it, write down exactly which screen and
+    what you did immediately before.
+
+## Part 4c — Auto-listen (new)
+
+The microphone-opens-by-itself setting is no longer guessed from your answers.
+
+23. Answer the vision question as **"no vision"**. You should **never be asked**
+    about automatic listening, and it should be **on** when you reach My
+    Settings.
+24. Start again and answer as **"partial"** or **"full vision"**. You **should**
+    be asked, once, after the hearing question. Answer no, and confirm it is
+    off in My Settings.
+25. Confirm the question can be answered **by voice** as well as by tapping.
 
 ## Part 5 — Interruptions and failure
 
@@ -122,6 +156,13 @@ before it was stored, and every phrase the command tour taught you actually
 worked on the dashboard.
 
 ## Coverage — tick what you actually did
+
+- [ ] Caretaker code spoken digit by digit, once
+- [ ] Answered before narration finished, five screens running
+- [ ] Role selection → caretaker code, answered fast
+- [ ] Any screen repeated its own narration: yes / no
+- [ ] "No vision" → never asked about auto-listen, and it was on
+- [ ] Sighted → asked once, answer respected
 
 - [ ] English, eyes closed, indoors
 - [ ] Bangla, eyes closed, indoors

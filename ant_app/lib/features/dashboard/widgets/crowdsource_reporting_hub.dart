@@ -530,33 +530,43 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
     }
 
     setState(() => _submitting = true);
-    double? lat;
-    double? lng;
+    final position = await _bestEffortPosition();
+    final lat = position?.latitude;
+    final lng = position?.longitude;
     try {
-      final position = await Geolocator.getCurrentPosition();
-      lat = position.latitude;
-      lng = position.longitude;
-    } catch (_) {
-      // Location is best-effort — a report without coordinates is still useful.
-    }
-    try {
-      await ref.read(hazardReportServiceProvider).submitReport(HazardReport(
+      // Bounded, because this future does not resolve offline.
+      //
+      // Firestore acknowledges a write when the *server* has it. With offline
+      // persistence on — the default — the document is applied to the local
+      // cache immediately and synced later, but the future stays pending the
+      // whole time. Awaiting it bare meant a report filed on a bad connection
+      // left the button spinning forever: no success, no error, nothing
+      // spoken. "Hazard report kothao save hocche na" is what that looks like
+      // from the outside, even though the report is sitting in the cache and
+      // will arrive.
+      //
+      // A timeout here is therefore not a failure and must not be reported as
+      // one. The report is filed either way; only the confirmation is late.
+      var acknowledged = true;
+      await ref
+          .read(hazardReportServiceProvider)
+          .submitReport(HazardReport(
             reporterUid: widget.reporterUid,
             category: _category!,
             subCategory: _subCategoryKey!,
             description: _isOther ? summarizeText(rawDescription) : rawDescription,
             lat: lat,
             lng: lng,
-          ));
+          ))
+          .timeout(_submitAckBudget, onTimeout: () => acknowledged = false);
       if (!mounted) return;
+      final message = acknowledged ? _d.crowdsourceSubmitSuccess : _d.crowdsourceSubmitQueued;
       // Spoken before popping, not just shown in a SnackBar afterward — a
       // blind user relying on this whole flow being voice-first can't see
       // that SnackBar at all (see the class doc comment).
-      unawaited(_speak(_d.crowdsourceSubmitSuccess));
+      unawaited(_speak(message));
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_d.crowdsourceSubmitSuccess)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
@@ -564,6 +574,61 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_d.crowdsourceSubmitError('$e'))),
       );
+    }
+  }
+
+  /// How long to wait for a location fix before filing the report without
+  /// one, and how long to wait for Firestore to acknowledge the write.
+  ///
+  /// Both exist because the unbounded versions leave the user staring at a
+  /// spinner with no way to tell whether anything happened.
+  static const Duration _locationBudget = Duration(seconds: 8);
+  static const Duration _submitAckBudget = Duration(seconds: 6);
+
+  /// A fix, or null — never a hang.
+  ///
+  /// `Geolocator.getCurrentPosition()` with no `timeLimit` waits indefinitely
+  /// for a fix that may never come: location services off, indoors with no
+  /// GPS, a permission dialog nobody answered. The `catch` around it only ever
+  /// covered a *thrown* error, so a hang stalled the whole submit before the
+  /// write was even attempted, with `_submitting` left true.
+  ///
+  /// Same shape as `EmergencyService._position`, which already learned this:
+  /// bound the wait, then fall back to a stale fix, because a report with a
+  /// rough position beats one that never gets filed.
+  ///
+  /// Bounded *twice*, and both are needed. `LocationSettings.timeLimit` is
+  /// enforced by the platform plugin, so it only helps while the platform is
+  /// answering at all — if the channel itself never replies, nothing in Dart
+  /// is watching the clock and the future simply never completes. The
+  /// `.timeout` is that second guard, set slightly longer so the platform's
+  /// own limit gets first refusal and can clean up its listeners properly.
+  Future<Position?> _bestEffortPosition() async {
+    try {
+      // One bound around the whole thing, not one per call. Chaining two
+      // timeouts makes the worst case their *sum* — a fix that never arrives
+      // followed by a cache read that never answers — and the user is sitting
+      // in silence for all of it having already said "submit".
+      return await _freshOrLastKnownPosition().timeout(_locationBudget);
+    } catch (e) {
+      // A report without coordinates is still worth filing.
+      debugPrint('[Crowdsource] filing without a position: $e');
+      return null;
+    }
+  }
+
+  Future<Position?> _freshOrLastKnownPosition() async {
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: _locationBudget,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[Crowdsource] no fresh position: $e');
+      // A stale fix still puts the hazard on roughly the right street.
+      return Geolocator.getLastKnownPosition();
     }
   }
 

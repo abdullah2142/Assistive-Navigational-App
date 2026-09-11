@@ -435,7 +435,7 @@ and it is safe to re-ask now that it no longer destroys anything.
 **Covered by:** `test/onboarding_resume_test.dart`, 13 tests. Four of them fail
 against the old `chooseRole`.
 
-## 27. Hazard reports are not saved, and no alert reaches the caretaker — CRITICAL
+## 27. Hazard reports are not saved, and no alert reaches the caretaker — SAVING FIXED
 
 **Tester D, twice** — under General and again at Part 4 step 27: "hazard report
 kothao save hocche na probably. Caretaker er kacheo kono alert jacche na."
@@ -444,6 +444,54 @@ Module 5 end to end. The report is composed, the flow completes, and nothing
 lands. Needs checking in this order: whether the Firestore write is attempted
 at all, whether it is rejected by rules, and whether the caretaker query is
 looking in the right place.
+
+**Checked in that order. The write was never attempted.**
+
+Two unbounded waits sat in front of it, and either one produces the same thing
+from the outside — the button spins and nothing else ever happens:
+
+1. **`Geolocator.getCurrentPosition()` with no bound.** It waits indefinitely
+   for a fix that may never arrive: indoors, location services off, a
+   permission dialog nobody answered. The `catch` around it only ever covered a
+   *thrown* error, so a hang stalled the submit with `_submitting` left true and
+   the write never reached. `EmergencyService._position` already knew to bound
+   this; the hub did not.
+
+   **`LocationSettings.timeLimit` is not enough on its own**, which is worth
+   recording because it looks like it should be: it is enforced by the platform
+   plugin, so it only helps while the platform is answering. If the channel
+   itself never replies, nothing in Dart is watching the clock. Demonstrated by
+   the new test — against the version with only the plugin-side limit, the
+   submit never completes even after thirty seconds of pumped time. There is
+   now a Dart-side `.timeout` as well, one bound around both the fresh fix and
+   the last-known fallback (chaining one each makes the worst case their sum,
+   and the user has already said "submit" and is waiting in silence).
+
+   **The same defect was in `EmergencyService._position`** and is fixed with it.
+   That path holds up an emergency rather than a hazard report.
+
+2. **Firestore acknowledges a write when the *server* has it.** With offline
+   persistence on — the default — the document is applied to the local cache
+   immediately and synced later, but the returned future stays pending the whole
+   time. A report filed on a bad connection was therefore genuinely saved and
+   the user told nothing, forever. That wait is now bounded too, and a timeout
+   there is deliberately **not** reported as a failure: the report is filed
+   either way, only the confirmation is late, so it says so
+   (`crowdsourceSubmitQueued`). A rules rejection still surfaces as the error it
+   is.
+
+**Rules were checked and are fine.** `hazardReports` allows create when
+`request.auth.uid == request.resource.data.reporterUid`, and the hub is handed
+`profile.uid`, which is that uid.
+
+**On the caretaker half:** no alert reaches the caretaker because nothing sends
+one — `05_module_plan_crowdsourcing.md` does not specify a caretaker alert for
+hazard reports, and no code writes one. That is a missing feature rather than a
+broken one, and it should be a decision before it is a patch. The caretaker
+channel itself is item 28, which is the thing to fix first regardless.
+
+**Covered by:** `test/hazard_report_submit_test.dart`, 3 tests. All three fail
+against the unbounded version.
 
 ## 28. Caretaker communication does not work at all — CRITICAL
 

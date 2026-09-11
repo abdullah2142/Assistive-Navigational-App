@@ -729,6 +729,15 @@ class Dashboard {
   String get crowdsourceSubmitButton => _t('Submit Report', 'পাঠান');
   String get crowdsourceSubmitSuccess => _t('Thanks — your report was pinned to the map.', 'ধন্যবাদ — এটি মানচিত্রে যোগ হয়েছে।');
   String crowdsourceSubmitError(String error) => _t('Couldn\'t submit the report: $error', 'পাঠানো যায়নি: $error');
+
+  /// The report is written and will reach the map — the *confirmation* is
+  /// what has not arrived. Deliberately not phrased as a failure: Firestore
+  /// has already applied the write locally and will sync it, so telling the
+  /// user it did not work would be false, and telling them nothing at all is
+  /// what the hub used to do.
+  String get crowdsourceSubmitQueued =>
+      _t('Saved — it will reach the map as soon as you are back online.',
+          'সংরক্ষণ হয়েছে — ইন্টারনেট এলে মানচিত্রে যোগ হবে।');
   String get crowdsourceVoiceUnavailable => chatVoiceUnavailable;
   String crowdsourceCategoryPrompt(String optionsList) =>
       _t('Report a hazard. Choose a category: $optionsList. Say one, or tap it.',

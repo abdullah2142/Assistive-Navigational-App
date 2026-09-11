@@ -412,22 +412,40 @@ class EmergencyService {
   /// A fix, or null. Bounded, because an emergency cannot wait for a good
   /// one — a message with a rough position beats a better one that arrives
   /// after the phone is gone.
+  static const Duration _positionBudget = Duration(seconds: 8);
+
   Future<Position?> _position() async {
+    try {
+      // Bounded in Dart as well as in the plugin, and both are needed.
+      // `LocationSettings.timeLimit` is enforced by the platform side, so it
+      // only helps while the platform is answering — if the channel itself
+      // never replies, nothing is watching the clock and this never completes.
+      // Found while fixing the hazard hub, where the same shape stalled a
+      // report before the write was ever attempted; here it would hold up an
+      // emergency, which is worse.
+      //
+      // One bound around both attempts, not one each: chained timeouts make
+      // the worst case their sum, and this is the path where somebody is
+      // waiting for a message to go out.
+      return await _freshOrLastKnownPosition().timeout(_positionBudget);
+    } catch (e) {
+      debugPrint('[Emergency] no position: $e');
+      return null;
+    }
+  }
+
+  Future<Position?> _freshOrLastKnownPosition() async {
     try {
       return await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 8),
+          timeLimit: _positionBudget,
         ),
       );
     } catch (e) {
-      debugPrint('[Emergency] no position: $e');
-      try {
-        // A stale fix is still a place to start looking.
-        return await Geolocator.getLastKnownPosition();
-      } catch (_) {
-        return null;
-      }
+      debugPrint('[Emergency] no fresh fix: $e');
+      // A stale fix is still a place to start looking.
+      return Geolocator.getLastKnownPosition();
     }
   }
 }

@@ -35,10 +35,14 @@ void main() {
     // The real 500 ms is an Android audio-teardown allowance, not a
     // behavioural constant — see its doc comment.
     WakeWordService.restartHandoff = const Duration(milliseconds: 10);
+    WakeWordService.recorderRetryBase = const Duration(milliseconds: 10);
+    WakeWordService.recorderRetryMax = const Duration(milliseconds: 80);
   });
 
   tearDown(() {
     WakeWordService.restartHandoff = const Duration(milliseconds: 500);
+    WakeWordService.recorderRetryBase = const Duration(seconds: 2);
+    WakeWordService.recorderRetryMax = const Duration(seconds: 60);
   });
 
   /// Waits past the restart handoff so an assertion sees the settled state.
@@ -258,6 +262,100 @@ void main() {
       expect(service.debugMelFrames, isEmpty);
     });
   });
+
+  // Item 32 — "মাইক অন হচ্ছে না। অফ থাকে": the microphone does not turn on, it
+  // stays off, after airplane mode. Plus, from the same session, the mic
+  // indicator reading "off" at startup when it was not.
+  //
+  // Both are the same shape. The audio subscription was created with neither
+  // `onError` nor `onDone`, so a recorder stream that ended by itself — the
+  // radio cycling, a call taking the microphone, the session dying — was
+  // silent. And worse than silent: `isListening` is `_audioSub != null`, and a
+  // subscription whose stream has finished stays non-null, so the service went
+  // on reporting that it was listening with the microphone dead, and nothing
+  // ever reopened it.
+  group('a recorder that dies on its own', () {
+    test('is noticed, rather than reported as still listening', () async {
+      final source = _FakeAudioSource();
+      final service = serviceWith(source);
+      await service.start(onDetected: () {});
+      expect(service.isListening, isTrue);
+
+      source.killStream();
+      await settle();
+
+      // The point is not that it is false here — it is that the service and
+      // the microphone agree, instead of one of them lying.
+      expect(source.openStreams, 2, reason: 'the recorder is reopened');
+      expect(service.isListening, isTrue, reason: 'and listening again for real');
+    });
+
+    test('recovers from an error as well as a clean close', () async {
+      final source = _FakeAudioSource();
+      final service = serviceWith(source);
+      await service.start(onDetected: () {});
+
+      source.killStream(error: StateError('recorder died'));
+      await settle();
+
+      expect(source.openStreams, 2);
+      expect(service.isListening, isTrue);
+    });
+
+    test('keeps recovering, so a long outage still ends in a live mic', () async {
+      // Airplane mode is not one event. The stack can drop repeatedly on the
+      // way back up, and giving up after the first attempt leaves the user
+      // exactly where they were.
+      final source = _FakeAudioSource();
+      final service = serviceWith(source);
+      await service.start(onDetected: () {});
+
+      for (var i = 0; i < 3; i++) {
+        source.killStream();
+        await settle();
+      }
+
+      expect(source.openStreams, 4);
+      expect(service.isListening, isTrue);
+    });
+
+    test('stays off once it has been turned off', () async {
+      // The restart must not resurrect a wake word the user disabled, which
+      // is the bug `stop()` already had to be taught about once.
+      final source = _FakeAudioSource();
+      final service = serviceWith(source);
+      await service.start(onDetected: () {});
+
+      await service.stop();
+      source.killStream();
+      await settle();
+
+      expect(service.isListening, isFalse);
+      expect(source.openStreams, 1, reason: 'no reopen after an explicit stop');
+    });
+
+    test('does not take the microphone back during a suspension', () async {
+      // Somebody else is using it. `_releaseSuspend` is what restarts us, and
+      // a reopen here is the exact ownership bug item 1 was about.
+      final source = _FakeAudioSource();
+      final service = serviceWith(source);
+      await service.start(onDetected: () {});
+
+      service.suspend();
+      await settle();
+      final openedBeforeKill = source.openStreams;
+
+      source.killStream();
+      await settle();
+
+      expect(source.openStreams, openedBeforeKill,
+          reason: 'the suspension owns the microphone, not this');
+
+      service.resume();
+      await settle();
+      expect(service.isListening, isTrue, reason: 'and it comes back on release');
+    });
+  });
 }
 
 /// A recorder that never touches a microphone, and whose handshake can be
@@ -276,6 +374,23 @@ class _FakeAudioSource implements WakeWordAudioSource {
   @override
   Future<bool> hasPermission() async => true;
 
+  /// The stream handed out by the most recent [startStream], so a test can
+  /// end it the way a real recorder does when the audio stack is disrupted.
+  StreamController<Uint8List>? _current;
+
+  /// Ends the live stream without anyone having asked it to — airplane mode,
+  /// a phone call, another app taking the microphone.
+  void killStream({Object? error}) {
+    final controller = _current;
+    if (controller == null) return;
+    _current = null;
+    if (error != null) {
+      controller.addError(error);
+    } else {
+      controller.close();
+    }
+  }
+
   @override
   Future<Stream<Uint8List>> startStream() async {
     if (blockNextStream) {
@@ -284,14 +399,33 @@ class _FakeAudioSource implements WakeWordAudioSource {
       await _gate!.future;
     }
     openStreams++;
-    // Never emits — the detection pipeline needs the real TFLite models, and
-    // everything under test here is the ownership state machine around it.
-    return const Stream<Uint8List>.empty();
+    // Open but silent, rather than `Stream.empty()`.
+    //
+    // An empty stream is *done* the moment it is listened to, which is not a
+    // recorder that is running — it is a recorder that died on arrival. That
+    // distinction did not matter while nothing watched for the stream ending;
+    // now that `WakeWordService` treats an unasked-for ending as a dead
+    // microphone and reopens it (open_bugs item 32), a fixture that ends
+    // immediately would have every test restarting in a loop. It never emits,
+    // because the detection pipeline needs the real TFLite models and what is
+    // under test here is the ownership state machine around them.
+    final controller = StreamController<Uint8List>();
+    _current = controller;
+    return controller.stream;
   }
 
   @override
-  Future<void> stop() async => stops++;
+  Future<void> stop() async {
+    stops++;
+    // A deliberate stop cancels the subscription before it gets here, so this
+    // close is never seen as the stream dying by itself.
+    _current?.close();
+    _current = null;
+  }
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    _current?.close();
+    _current = null;
+  }
 }

@@ -289,7 +289,15 @@ class WakeWordService {
         await _recorder.stop();
         return true;
       }
-      _audioSub = stream.listen((bytes) => _onAudioBytes(bytes, onDetected));
+      _audioSub = stream.listen(
+        (bytes) => _onAudioBytes(bytes, onDetected),
+        // A recorder stream that dies on its own used to be silence in both
+        // directions: nothing restarted it, and nothing even knew. See
+        // [_onRecorderStreamEnded].
+        onError: (Object e) => _onRecorderStreamEnded('error: $e'),
+        onDone: () => _onRecorderStreamEnded('stream closed'),
+        cancelOnError: true,
+      );
       debugPrint('[WakeWord] listening started '
           '(${_warmRestart ? 'warm — feature buffers kept' : 'cold — buffers cleared'})');
       _warmRestart = false;
@@ -361,6 +369,10 @@ class WakeWordService {
   /// back until a caller asks for it again with [start].
   Future<void> stop() async {
     _enabled = false;
+    // Before `_stopRecorder`, so a reopen already queued cannot land after it.
+    _restartTimer?.cancel();
+    _restartTimer = null;
+    _restartAttempts = 0;
     await _stopRecorder();
   }
 
@@ -379,7 +391,77 @@ class WakeWordService {
     }
   }
 
+  /// How long to wait before reopening a recorder whose stream ended by
+  /// itself, and the ceiling that wait backs off to.
+  ///
+  /// Long enough not to fight a recorder that cannot come up at all, short
+  /// enough that a user who has just turned airplane mode off is not left
+  /// pressing a dead wake word.
+  /// Not `const`, for the same reason as [restartHandoff] — a test that has
+  /// to wait out a real backoff per assertion is a test nobody runs.
+  @visibleForTesting
+  static Duration recorderRetryBase = const Duration(seconds: 2);
+  @visibleForTesting
+  static Duration recorderRetryMax = const Duration(seconds: 60);
+
+  Timer? _restartTimer;
+  int _restartAttempts = 0;
+
+  /// The recorder's stream ended without anyone asking it to.
+  ///
+  /// This is what a disrupted audio stack looks like from Dart: airplane mode
+  /// toggling the radio, a phone call taking the microphone, another app
+  /// grabbing it, or the recorder session simply dying. The subscription was
+  /// created with neither `onError` nor `onDone`, so all of that was silent —
+  /// and worse than silent, because [isListening] is `_audioSub != null` and a
+  /// subscription whose stream is finished stays non-null. The service went on
+  /// reporting that it was listening, with the microphone dead, and nothing
+  /// ever brought it back. "মাইক অন হচ্ছে না। অফ থাকে" — the mic does not turn
+  /// on, it stays off (open_bugs item 32).
+  ///
+  /// Cancelling a subscription does not fire `onDone`, so a deliberate
+  /// [_stopRecorder] never lands here — only an ending nobody asked for.
+  void _onRecorderStreamEnded(String reason) {
+    _audioSub = null;
+    if (!_enabled) return;
+    if (_suspendDepth > 0) {
+      // Somebody else owns the microphone; `_releaseSuspend` restarts us.
+      debugPrint('[WakeWord] recorder ended during a suspension ($reason)');
+      return;
+    }
+    final onDetected = _lastOnDetected;
+    if (onDetected == null) return;
+
+    // Backed off, because the common reason a reopen fails is the same reason
+    // the stream ended, and retrying flat out would hold the CPU awake behind
+    // a wake lock for as long as the condition lasts.
+    final delay = _backoffDelay(_restartAttempts);
+    _restartAttempts++;
+    debugPrint('[WakeWord] recorder ended on its own ($reason) — '
+        'reopening in ${delay.inMilliseconds}ms (attempt $_restartAttempts)');
+    _restartTimer?.cancel();
+    _restartTimer = Timer(delay, () {
+      if (!_enabled || _suspendDepth > 0 || isListening) return;
+      // Warm: the feature buffers are still good, and a user who said "Hey
+      // ANT" as the recorder came back should not have to wait out a cold
+      // classifier as well.
+      _warmRestart = true;
+      unawaited(start(onDetected: onDetected));
+    });
+  }
+
+  Duration _backoffDelay(int attempts) {
+    final millis = recorderRetryBase.inMilliseconds * (1 << attempts.clamp(0, 5));
+    return millis >= recorderRetryMax.inMilliseconds
+        ? recorderRetryMax
+        : Duration(milliseconds: millis);
+  }
+
   void _onAudioBytes(Uint8List bytes, void Function() onDetected) {
+    // Audio is flowing, so whatever was wrong is over. Without this the delay
+    // would keep climbing across a long session of unrelated interruptions
+    // until a real one took a minute to recover from.
+    _restartAttempts = 0;
     _pendingBytes.addAll(bytes);
     const bytesPerChunk = _chunkSamples * 2; // 16-bit samples
     while (_pendingBytes.length >= bytesPerChunk) {

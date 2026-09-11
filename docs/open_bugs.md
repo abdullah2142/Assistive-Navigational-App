@@ -645,7 +645,7 @@ wake lock, and MIUI's battery manager killing the process regardless (the test
 device is a Redmi, and the manifest comments already note MIUI kills invisible
 foreground services first).
 
-## 32. The microphone does not recover after airplane mode
+## 32. The microphone does not recover after airplane mode — FIXED
 
 **Tester A, Part 5 step 21:** "মাইক অন হচ্ছে না। অফ থাকে" — the mic does not turn
 on, it stays off.
@@ -653,6 +653,49 @@ on, it stays off.
 Related but distinct: step 20 reports "শুরুতেই মাইক অফ দেখাইলো" — it showed the
 mic as off at the very start. Both point at the mic indicator and the actual
 recorder state disagreeing.
+
+**They are the same bug, and the second line is the clue.** The audio stream
+subscription in `WakeWordService.start` was created with neither `onError` nor
+`onDone`:
+
+```dart
+_audioSub = stream.listen((bytes) => _onAudioBytes(bytes, onDetected));
+```
+
+So a recorder stream that ended *by itself* — the radio cycling through
+airplane mode, a phone call taking the microphone, another app grabbing it, the
+session simply dying — was silent in both directions. Nothing reopened it, and
+nothing knew.
+
+Worse than silent, because `isListening` is `_audioSub != null`, and a
+subscription whose stream has finished stays non-null. The service went on
+reporting that it was listening while the microphone was dead. That is exactly
+"the mic indicator and the actual recorder state disagreeing", and it is why
+the two halves of this item are one item.
+
+**Fix:** `onError`/`onDone` land in `_onRecorderStreamEnded`, which clears the
+subscription so `isListening` tells the truth, and reopens the recorder on a
+backoff (2s doubling to a 60s ceiling, reset as soon as audio flows again).
+Airplane mode is not one event — the stack can drop repeatedly on the way back
+up — so it keeps trying rather than giving up after one attempt. It restarts
+*warm*, since the feature buffers are still good and someone saying "Hey ANT"
+as the mic returns should not wait out a cold classifier too.
+
+Cancelling a subscription does not fire `onDone`, so a deliberate
+`_stopRecorder` never looks like a death. An explicit `stop()` cancels any
+queued reopen, and a suspension is left alone — `_releaseSuspend` owns that
+restart, and reopening underneath it is precisely the ownership bug item 1 was
+about.
+
+**The fixture had to be fixed first, and that is worth recording.**
+`_FakeAudioSource.startStream` returned `const Stream.empty()`, which is *done*
+the moment it is listened to — not a recorder that is running, but one that
+died on arrival. That distinction did not matter while nothing watched for the
+stream ending. It now returns an open, silent `StreamController`, which is what
+a real recorder is.
+
+**Covered by:** `test/wake_word_suspension_test.dart`, 5 new tests. Three fail
+against the unhandled version.
 
 ## 33. Missing synonyms in onboarding answers — FIXED (this one)
 

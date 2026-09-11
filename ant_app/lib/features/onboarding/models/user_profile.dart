@@ -1,5 +1,6 @@
 import '../../../core/localization/app_language.dart';
 import 'disability_profile_enums.dart';
+import 'onboarding_step.dart';
 import 'saved_place.dart';
 import 'trusted_contact.dart';
 import 'user_role.dart';
@@ -36,6 +37,7 @@ class UserProfile {
     this.snapshotConsent = SnapshotConsentPreference.askEachTime,
     this.wakeWordEnabled = false,
     this.savedPlaces = const [],
+    this.onboardingStep,
     bool? voiceAutoListen,
   }) : voiceAutoListen = voiceAutoListen ?? (visionLevel != VisionLevel.full || complexInstructionsHard);
 
@@ -79,6 +81,22 @@ class UserProfile {
 
   // Step 4 — Automation lock-in.
   final bool onboardingComplete;
+
+  /// How far through the interview this person got, so a relaunch can put
+  /// them back rather than starting over.
+  ///
+  /// Every answer was already being written to Firestore after every step —
+  /// `ProfileService.saveProfile` says so in as many words — but nothing
+  /// recorded *where* the user was, so the flow restarted at language
+  /// selection and asked all of it again. Both testers reported the same
+  /// thing independently, and one put it as "সব ডাটা নষ্ট হয়ে যায়": all the
+  /// previous data is destroyed. From the far side of the screen that is
+  /// exactly what being asked every question a second time looks like.
+  ///
+  /// Null on a profile written before this field existed. Those cannot say
+  /// where they were, only that they got past role selection — see
+  /// [OnboardingController.resumeFrom] for what is done with them.
+  final OnboardingStep? onboardingStep;
 
   // Display theme (Module 2) — irrelevant/overridden when visionLevel is
   // VisionLevel.low, which forces the high-contrast Low Vision theme.
@@ -148,6 +166,7 @@ class UserProfile {
         'wakeWordEnabled': wakeWordEnabled,
         'voiceAutoListen': voiceAutoListen,
         'savedPlaces': savedPlaces.map((p) => p.toJson()).toList(),
+        'onboardingStep': onboardingStep?.name,
       };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -185,7 +204,19 @@ class UserProfile {
         savedPlaces: (json['savedPlaces'] as List<dynamic>? ?? [])
             .map((p) => SavedPlace.fromJson(p as Map<String, dynamic>))
             .toList(),
+        onboardingStep: _stepFromName(json['onboardingStep'] as String?),
       );
+
+  /// Tolerant of a name this build does not have. A step removed or renamed
+  /// between releases must not make the whole profile unreadable — that
+  /// would lose far more than it saved.
+  static OnboardingStep? _stepFromName(String? name) {
+    if (name == null) return null;
+    for (final step in OnboardingStep.values) {
+      if (step.name == name) return step;
+    }
+    return null;
+  }
 
   UserProfile copyWith({
     UserRole? role,
@@ -211,6 +242,7 @@ class UserProfile {
     bool? wakeWordEnabled,
     bool? voiceAutoListen,
     List<SavedPlace>? savedPlaces,
+    OnboardingStep? onboardingStep,
   }) =>
       UserProfile(
         uid: uid,
@@ -242,6 +274,7 @@ class UserProfile {
         // same `copyWith` call (e.g. `visionLevel`).
         voiceAutoListen: voiceAutoListen ?? this.voiceAutoListen,
         savedPlaces: savedPlaces ?? this.savedPlaces,
+        onboardingStep: onboardingStep ?? this.onboardingStep,
       );
 }
 

@@ -384,7 +384,7 @@ mobile data versus wifi before assuming it is Google's end.
 Two testers, in Bangla and English. Numbered from 26 so they can be referenced
 individually. **Ordered by severity, not by who reported them.**
 
-## 26. Onboarding loses everything if the app is killed — CRITICAL
+## 26. Onboarding loses everything if the app is killed — FIXED
 
 **Both testers, independently.** "app data clean hoye jacche" and, against the
 kill-and-reopen step: "নষ্ট হয়ে যায় সব ডাটা আগের গুলো" — all the previous data
@@ -397,6 +397,43 @@ the app.
 
 This is the highest-priority item in the file. Everything else is a feature
 not working; this one throws away work the user already did.
+
+**Two faults, one complaint — and the second is the literal one.**
+
+1. **Nothing recorded which step the user had reached.** Every answer was
+   already written to Firestore after every step (`ProfileService.saveProfile`
+   says in its own doc comment that this is why it upserts), but
+   `OnboardingState.step` lived only in memory, so `AppRoot` sent every
+   unfinished profile back to `OnboardingFlowScreen`, which started at
+   language selection and asked all of it again.
+
+2. **`chooseRole` then overwrote the saved answers with defaults.**
+   `ensureSignedIn` returns the *existing* anonymous user on a relaunch, so the
+   uid is the same one that already owns a half-finished profile — and
+   `chooseRole` built a brand-new `UserProfile` and saved it with
+   `SetOptions(merge: true)`. Every default in a blank profile landed on top of
+   the real answers. Vision level, mobility aid, contacts, safe havens: back to
+   defaults, in Firestore. The tester's "সব ডাটা নষ্ট হয়ে যায়" was not a figure
+   of speech about being re-asked; the data really was destroyed, by the app's
+   own second screen.
+
+**Fix.** `UserProfile.onboardingStep` records how far the user got, written as
+its own single-field merge by `_goTo`/`goBack` (fire-and-forget — navigation is
+synchronous and must stay that way, and the field touches nothing `_persist`
+writes, so the two cannot clobber each other). `OnboardingController.resumeFrom`
+adopts a saved profile and puts the user back on that step;
+`OnboardingFlowScreen` takes the profile from `AppRoot` and calls it once.
+`chooseRole` now merges into whatever is already saved instead of replacing it,
+and a *failed* read is surfaced rather than treated as "no profile" — falling
+back to a blank one there is how the destructive version behaved, so a
+transient Firestore error would have wiped a finished interview.
+
+A profile written before the field existed reads back `null`, which resumes at
+role selection — all that can honestly be inferred is that they got past it,
+and it is safe to re-ask now that it no longer destroys anything.
+
+**Covered by:** `test/onboarding_resume_test.dart`, 13 tests. Four of them fail
+against the old `chooseRole`.
 
 ## 27. Hazard reports are not saved, and no alert reaches the caretaker — CRITICAL
 

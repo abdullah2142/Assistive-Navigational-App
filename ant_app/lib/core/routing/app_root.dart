@@ -48,7 +48,10 @@ class _ProfileGate extends ConsumerWidget {
     return profileAsync.when(
       data: (profile) {
         if (profile == null || !profile.onboardingComplete) {
-          return const OnboardingFlowScreen();
+          // Handed the profile, not just routed past it: everything this
+          // person has already answered is in there, and the flow needs it to
+          // put them back where they stopped instead of at question one.
+          return OnboardingFlowScreen(resumeFrom: profile);
         }
         // Theming itself is resolved reactively at the MaterialApp level
         // (see theme_resolver.dart) so it reaches every route on the

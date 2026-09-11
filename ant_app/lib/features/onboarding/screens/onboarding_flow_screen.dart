@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/onboarding_step.dart';
+import '../models/user_profile.dart';
 import '../providers/onboarding_providers.dart';
 import 'caretaker_pairing_screen.dart';
 import 'cognitive_anxiety_screen.dart';
@@ -29,11 +30,39 @@ import 'visual_calibration_screen.dart';
 /// [OnboardingController] state — keeps navigation logic in one place
 /// instead of spreading named routes across go_router for a flow that is
 /// inherently linear.
-class OnboardingFlowScreen extends ConsumerWidget {
-  const OnboardingFlowScreen({super.key});
+class OnboardingFlowScreen extends ConsumerStatefulWidget {
+  const OnboardingFlowScreen({super.key, this.resumeFrom});
+
+  /// A saved, unfinished profile for this user, if there is one — handed
+  /// down by [AppRoot], which has already read it to decide that onboarding
+  /// is where this launch belongs.
+  ///
+  /// Without this the flow always began at language selection, so someone
+  /// who had answered twenty minutes of questions and then had the app
+  /// killed was asked all of them over again. Both testers reported it
+  /// independently and it is the one bug in the file that throws away work
+  /// the user already did.
+  final UserProfile? resumeFrom;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OnboardingFlowScreen> createState() => _OnboardingFlowScreenState();
+}
+
+class _OnboardingFlowScreenState extends ConsumerState<OnboardingFlowScreen> {
+  @override
+  void initState() {
+    super.initState();
+    final profile = widget.resumeFrom;
+    if (profile == null) return;
+    // Not in `build` — this writes provider state, and the controller's own
+    // guard makes it a no-op on every call after the first anyway.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(onboardingControllerProvider.notifier).resumeFrom(profile);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final step = ref.watch(onboardingControllerProvider.select((s) => s.step));
 
     final screen = switch (step) {

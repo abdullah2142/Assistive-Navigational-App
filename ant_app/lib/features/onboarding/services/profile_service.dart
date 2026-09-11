@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../models/onboarding_step.dart';
 import '../models/user_profile.dart';
 
 /// Reads/writes the `users/{uid}` profile document.
@@ -29,5 +30,14 @@ class ProfileService {
   /// restart mid-interview, not just at final lock-in.
   Future<void> saveProfile(UserProfile profile) {
     return _doc(profile.uid).set(profile.toJson(), SetOptions(merge: true));
+  }
+
+  /// Records how far through onboarding this user has got, and nothing else.
+  ///
+  /// Its own single-field write rather than a whole-profile [saveProfile]:
+  /// step changes are synchronous and frequent, and touching only this field
+  /// means it can never race a profile write into overwriting an answer.
+  Future<void> saveOnboardingStep({required String uid, required OnboardingStep step}) {
+    return _doc(uid).set({'onboardingStep': step.name}, SetOptions(merge: true));
   }
 }

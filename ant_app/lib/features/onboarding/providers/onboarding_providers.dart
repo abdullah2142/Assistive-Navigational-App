@@ -111,10 +111,50 @@ class OnboardingState {
 class OnboardingController extends Notifier<OnboardingState> {
   StreamSubscription<String?>? _pairingSub;
 
+  /// Whether a saved profile has already been adopted this session, so a
+  /// rebuild of the flow screen cannot throw the user back to where they
+  /// launched from after they have moved on from it.
+  bool _resumed = false;
+
   @override
   OnboardingState build() {
     ref.onDispose(() => _pairingSub?.cancel());
     return const OnboardingState();
+  }
+
+  /// Puts someone who left mid-interview back where they were.
+  ///
+  /// Called by [OnboardingFlowScreen] when the app launches onto a profile
+  /// that exists but is not finished. Everything the user answered is
+  /// already in that profile — it was written after every step — so this
+  /// only has to restore *position*, which is the one thing nothing was
+  /// recording. See [UserProfile.onboardingStep].
+  void resumeFrom(UserProfile profile) {
+    if (_resumed || profile.onboardingComplete) return;
+    _resumed = true;
+
+    // A profile written before the step was recorded can say only that this
+    // person got past role selection, so that is where they go back to.
+    // Cheap now, and no longer destructive: `chooseRole` merges into what is
+    // already saved rather than overwriting it.
+    final step = profile.onboardingStep ?? OnboardingStep.roleSelection;
+    debugPrint('[Onboarding] resuming ${profile.uid} at $step '
+        '(recorded: ${profile.onboardingStep})');
+
+    state = OnboardingState(
+      step: step,
+      language: profile.language,
+      profile: profile,
+    );
+
+    // The pairing screen shows a code that only ever existed in memory, and
+    // the claim it waits on is a live subscription. Resuming onto it with
+    // neither would be a screen displaying nothing, waiting for nothing, so
+    // the pairing is started again from scratch — which also re-enters the
+    // step through `_goTo` and gets the history and generation right.
+    if (step == OnboardingStep.caretakerPairing) {
+      unawaited(_startCaretakerPairing(profile.uid));
+    }
   }
 
   void _goTo(OnboardingStep next) {
@@ -137,6 +177,32 @@ class OnboardingController extends Notifier<OnboardingState> {
       history: [...state.history, state.step],
       clearError: true,
       stepGeneration: state.stepGeneration + 1,
+      profile: state.profile?.copyWith(onboardingStep: next),
+    );
+    _rememberStep(next);
+  }
+
+  /// Writes just the step the user has reached, so a kill between here and
+  /// their next answer resumes on the right screen instead of at the start.
+  ///
+  /// Deliberately not awaited and deliberately its own single-field write.
+  /// Navigation is synchronous and must stay that way — making every step
+  /// change wait on Firestore would put a network round trip between a tap
+  /// and the screen it opens. And because it touches no field [_persist]
+  /// writes, the two cannot clobber each other whichever order they land
+  /// in; every caller persists the answer first and navigates second, so
+  /// the step is always the later write anyway.
+  ///
+  /// A failure here is not worth surfacing: the cost is resuming a step
+  /// earlier than the user actually got to, which is the behaviour they
+  /// have today for every step.
+  void _rememberStep(OnboardingStep step) {
+    final profile = state.profile;
+    if (profile == null) return;
+    unawaited(
+      ref.read(profileServiceProvider).saveOnboardingStep(uid: profile.uid, step: step).catchError(
+            (Object e) => debugPrint('[Onboarding] could not record step $step: $e'),
+          ),
     );
   }
 
@@ -151,7 +217,9 @@ class OnboardingController extends Notifier<OnboardingState> {
       history: previous,
       clearError: true,
       stepGeneration: state.stepGeneration + 1,
+      profile: state.profile?.copyWith(onboardingStep: last),
     );
+    _rememberStep(last);
   }
 
   void setLanguage(AppLanguage language) {
@@ -213,7 +281,25 @@ class OnboardingController extends Notifier<OnboardingState> {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final user = await ref.read(authServiceProvider).ensureSignedIn();
-      final profile = UserProfile(uid: user.uid, role: role, language: state.language);
+      // Whatever this uid already answered, if anything.
+      //
+      // `ensureSignedIn` returns the *existing* anonymous user on a relaunch,
+      // so this uid can already own a half-finished profile — and building a
+      // fresh `UserProfile` here wrote every default it has straight over it
+      // through `SetOptions(merge: true)`. Vision level, mobility aid,
+      // contacts, safe havens: all of it back to defaults, in Firestore, not
+      // merely re-asked. That is the literal half of "সব ডাটা নষ্ট হয়ে যায়" —
+      // the data really was destroyed, and by the app's own second screen.
+      //
+      // A failed read must not take the same path. Falling back to a blank
+      // profile on an error is how the destructive version behaved, so a
+      // transient Firestore hiccup would quietly wipe a finished interview.
+      // Let it throw to [_failCurrentStep] instead: the user is told, and
+      // their answers are still there to come back to.
+      final existing = await ref.read(profileServiceProvider).fetchProfile(user.uid);
+      final profile = existing == null
+          ? UserProfile(uid: user.uid, role: role, language: state.language)
+          : existing.copyWith(role: role, language: state.language);
       await ref.read(profileServiceProvider).saveProfile(profile);
       state = state.copyWith(profile: profile, isLoading: false);
 

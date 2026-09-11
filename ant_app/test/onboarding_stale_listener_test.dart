@@ -95,6 +95,16 @@ class _SlowProfileService implements ProfileService {
   @override
   Future<UserProfile?> fetchProfile(String uid) async => null;
 
+  /// Recorded rather than ignored — step writes are fire-and-forget, so a
+  /// test that cared about ordering would have nothing else to look at.
+  final List<OnboardingStep> stepsRecorded = [];
+
+  @override
+  Future<void> saveOnboardingStep({required String uid, required OnboardingStep step}) async {
+    stepsRecorded.add(step);
+    if (fails) throw StateError('network unreachable');
+  }
+
   @override
   Stream<UserProfile?> watchProfile(String uid) => const Stream.empty();
 }

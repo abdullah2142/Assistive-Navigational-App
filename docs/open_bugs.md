@@ -379,6 +379,146 @@ mobile data versus wifi before assuming it is Google's end.
 
 ---
 
+# Tester round, 12 September 2026
+
+Two testers, in Bangla and English. Numbered from 26 so they can be referenced
+individually. **Ordered by severity, not by who reported them.**
+
+## 26. Onboarding loses everything if the app is killed — CRITICAL
+
+**Both testers, independently.** "app data clean hoye jacche" and, against the
+kill-and-reopen step: "নষ্ট হয়ে যায় সব ডাটা আগের গুলো" — all the previous data
+is destroyed.
+
+Pack A step 19 says it should resume where it left off. It starts again from
+nothing. For a user who has just spent twenty minutes answering an interview
+by voice, being sent back to the start is the point at which they stop using
+the app.
+
+This is the highest-priority item in the file. Everything else is a feature
+not working; this one throws away work the user already did.
+
+## 27. Hazard reports are not saved, and no alert reaches the caretaker — CRITICAL
+
+**Tester D, twice** — under General and again at Part 4 step 27: "hazard report
+kothao save hocche na probably. Caretaker er kacheo kono alert jacche na."
+
+Module 5 end to end. The report is composed, the flow completes, and nothing
+lands. Needs checking in this order: whether the Firestore write is attempted
+at all, whether it is rejected by rules, and whether the caretaker query is
+looking in the right place.
+
+## 28. Caretaker communication does not work at all — CRITICAL
+
+**Tester D:** "caretaker er snapshot request user er kache ashtese na. Not only
+that, communication er kono part e kaaj korche na."
+
+Module 8, whole. Snapshot requests do not arrive; no part of the
+communication hub functions. Note Pack D's caretaker section was the only
+coverage Module 8 had, and it has now been exercised for the first time.
+
+## 29. "Cancel" is not recognised in a Bangla session — FIXED
+
+**Tester D, Part 3 step 14:** "Cancel bolar poreo cancel hocche na. Tobe বাতিল,
+দাঁড়াও catch koreche banglay."
+
+The recognizer runs in one locale for the whole session, so a user in Bangla
+who says the English word "cancel" never gets Latin text back — it arrives as
+`ক্যান্সেল`, which was missing from the dictation cancel vocabulary.
+`emergencyCancelWords` already had it; this list never got the same treatment.
+
+Fixed by adding the phonetic Bangla spellings, the same way
+`PasserbyHelperOverlay` already carries "গো ব্যাক".
+(`test/voice_cancel_window_test.dart`)
+
+## 30. Onboarding repeats the previous screen's instructions — supersedes item 8's second half
+
+**Tester D, with a repro at last:** "2nd page e 1st page er instructions repeat
+hocche" and, specifically: "Report a hazard er por crime jodi manually select
+kora hoy, tarpor toh 2nd page ashe. Ei page eo 1st page er instructions repeat
+hocche."
+
+So it is **the hazard hub**, not onboarding, and the trigger is **selecting a
+category by tap** rather than by voice. Item 8's overlap fix addressed speech
+still in flight over the network; this is a different thing — the step
+narration being issued twice.
+
+`CrowdsourceReportingHub._narrateAndListenForStep` is called from
+`_goToCategory`, and `_stepGeneration` is meant to retire the previous step's
+narration. Worth checking whether a tap fires it while the previous
+`_speak` is still awaiting.
+
+## 31. The wake word does not work with the screen off
+
+**Both testers.** Tester D Part 1 step 8: "Screen off thakle kaaj korche na."
+Tester A: "Screen off doesn't work. Eyes closed works."
+
+`WakeWordForegroundService` holds a partial wake lock precisely so the CPU
+keeps running with the screen off, so either it is not being started, the lock
+is not held, or Android is suspending the microphone anyway. The second tester
+adds that there is **no vibration** either, which suggests the whole detection
+path is asleep rather than just the audio.
+
+This matters more than it sounds: a phone in a pocket has its screen off, and
+that is the primary way this app is meant to be used.
+
+## 32. The microphone does not recover after airplane mode
+
+**Tester A, Part 5 step 21:** "মাইক অন হচ্ছে না। অফ থাকে" — the mic does not turn
+on, it stays off.
+
+Related but distinct: step 20 reports "শুরুতেই মাইক অফ দেখাইলো" — it showed the
+mic as off at the very start. Both point at the mic indicator and the actual
+recorder state disagreeing.
+
+## 33. Missing synonyms in onboarding answers
+
+**Tester A, Part 2.** "আমার চোখে কান সমস্যা নেই" was accepted. "আমি একাই হাঁটি" (I
+walk alone) was **not** — for the mobility question.
+
+The phrasebook is meant to be the list of what works; this is a gap in it.
+Testers answering in their own words is exactly what Pack A is for, so more of
+these are expected and each one is a cheap fix.
+
+## 34. Narration cannot be interrupted
+
+**Tester A, Part 2:** "সম্পূর্ণ বলা শেষ হলেই তখন সে শুনতে পারে" — it can only hear
+you once it has finished speaking.
+
+This is currently **by design** — narrate with the mic shut, then listen (see
+item 9, where overlapping the two broke the recorder outright). But a user who
+already knows the answer has to sit through the whole option list, and that is
+a real cost on every screen.
+
+Worth deciding rather than patching: barge-in needs the recorder open during
+narration, which is what caused item 9. A wake-word-style "I'm ready" detector
+running during narration would be a way to have both, at the cost of another
+model.
+
+## 35. Caretaker gaps
+
+**Tester D, Part 6.**
+
+- step 37: the caretaker end cannot change language. Known — the caretaker
+  screens are English-only, which round 1's notes already flagged as a known
+  issue, but it is worth closing now that it is being reported.
+- step 38: not implemented.
+- step 39: **no way to unpair a caretaker.** A pairing that cannot be undone
+  is a privacy problem, not only a missing feature — the caretaker sees live
+  location.
+
+## 36. What the testers confirmed working
+
+Worth recording, because "nobody tested it" and "tested and fine" look
+identical otherwise.
+
+- Tester D, Part 5: the passer-by helper works fully.
+- Tester A, Part 3: spoken phone-number read-back is correct, including
+  Bengali numerals and digit-by-digit grouping rather than one huge number.
+- Tester A, Part 2: saying nothing re-prompts and re-reads the options.
+
+---
+
 ## 7. The red mic button could not be turned off — FIXED
 
 **Reported:** "clicking on the red mic button after its been activated doesnt

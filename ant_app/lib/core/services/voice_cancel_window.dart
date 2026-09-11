@@ -75,9 +75,22 @@ class VoiceCancelWindow {
   /// perfectly ordinary way to begin a sentence. Cancelling on it would
   /// mean losing a report the user had just finished dictating because they
   /// muttered while the window was open.
+  /// Includes the **Bangla phonetic spellings of the English words**, which
+  /// is not redundancy. The recognizer runs in one locale for the whole
+  /// session, so a user in a Bangla session who says the English word
+  /// "cancel" gets it back as `ক্যান্সেল` — it is never transcribed as Latin
+  /// text at all. Reported from the device exactly that way: "cancel bolar
+  /// poreo cancel hocche na, tobe বাতিল, দাঁড়াও catch koreche banglay".
+  ///
+  /// English is the language people reach for under pressure here even when
+  /// the app is set to Bangla, and `emergencyCancelWords` below already had
+  /// `ক্যান্সেল` for this reason — this list simply never got the same
+  /// treatment. `PasserbyHelperOverlay._dismissPhrasesPhoneticBn` is the
+  /// same fix for the same cause.
   static const cancelWords = [
     'cancel', 'stop', 'wait', 'dont send', "don't send", 'do not send', 'no dont',
     'বাতিল', 'থামো', 'দাঁড়াও', 'পাঠিও না', 'পাঠাবে না',
+    'ক্যান্সেল', 'ক্যানসেল', 'স্টপ', 'ওয়েট',
   ];
 
   /// Stops the action *and* asks for it to be dictated again.
@@ -85,6 +98,9 @@ class VoiceCancelWindow {
     'change it', 'change that', 'edit', 'redo', 'again', 'say again', 'let me redo',
     'not right', 'wrong', 'thats wrong', "that's wrong",
     'বদলাও', 'ঠিক নয়', 'ভুল', 'আবার বলব', 'আবার',
+    // Same reason as `cancelWords` — English said in a Bangla session comes
+    // back in Bangla script.
+    'রং', 'এডিট',
   ];
 
   /// The far narrower vocabulary used when the pending action is an SOS.

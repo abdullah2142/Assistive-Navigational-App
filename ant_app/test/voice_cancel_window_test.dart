@@ -10,6 +10,7 @@ import 'package:ant_app/core/localization/dashboard_strings.dart';
 import 'package:ant_app/core/services/voice_cancel_window.dart';
 
 void main() {
+  group("English heard in a Bangla session", _phoneticBanglaTests);
   group('what stops a send', () {
     for (final phrase in ['cancel', 'Cancel!', 'stop', 'wait', "don't send that", 'বাতিল', 'থামো']) {
       test('"$phrase" cancels', () {
@@ -84,5 +85,32 @@ void main() {
       final prompt = Dashboard.of(AppLanguage.bangla).cancelWindowPrompt(5);
       expect(RegExp(r'[ঀ-৿]').hasMatch(prompt), isTrue);
     });
+  });
+}
+
+/// English said inside a Bangla session.
+///
+/// The recognizer runs in one locale for the whole session, so a user who
+/// says the English word "cancel" while the app is in Bangla never gets Latin
+/// text back — it arrives as `ক্যান্সেল`. Reported from the device: "cancel
+/// bolar poreo cancel hocche na, tobe বাতিল, দাঁড়াও catch koreche banglay".
+void _phoneticBanglaTests() {
+  test('English "cancel" heard in a Bangla session still cancels', () {
+    expect(VoiceCancelWindow.classify('ক্যান্সেল'), CancelWindowOutcome.cancelled);
+    expect(VoiceCancelWindow.classify('ক্যানসেল'), CancelWindowOutcome.cancelled);
+  });
+
+  test('the Bangla words that already worked still do', () {
+    // The tester confirmed these were fine; they must not regress.
+    expect(VoiceCancelWindow.classify('বাতিল'), CancelWindowOutcome.cancelled);
+    expect(VoiceCancelWindow.classify('দাঁড়াও'), CancelWindowOutcome.cancelled);
+  });
+
+  test('and so does plain English in an English session', () {
+    expect(VoiceCancelWindow.classify('cancel'), CancelWindowOutcome.cancelled);
+  });
+
+  test('the emergency vocabulary already had this and keeps it', () {
+    expect(VoiceCancelWindow.cancelsEmergency('ক্যান্সেল'), isTrue);
   });
 }

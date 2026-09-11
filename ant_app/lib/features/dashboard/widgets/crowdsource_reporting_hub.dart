@@ -250,6 +250,25 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
   Future<void> _narrateAndListenForStep() async {
     final generation = ++_stepGeneration;
     if (widget.voiceAutoListen) await _stt.stop(); // cut off any previous step's listener first
+    // And the previous step's *narration*, which stopping the recognizer does
+    // nothing about.
+    //
+    // `TtsService` queues utterances rather than dropping them — deliberately,
+    // because every one of them is a question or an option list the user needs
+    // in full. So an interrupted prompt kept its place at the head of the
+    // queue, played to the end, and the next step's prompt came out behind it.
+    // Reported as the second page reading the first page's instructions, and
+    // reproducible only by *tapping* an option: answering by voice means
+    // having waited for the prompt to finish, so there is nothing left playing
+    // when the step changes. `_stepGeneration` could not help — it gates what
+    // this method does next, not what the narrator has already accepted.
+    //
+    // Not on the first narration, though. The hub is usually opened by a voice
+    // command whose own reply ("Opening the hazard report") is still being
+    // spoken, and queueing behind that is right — the same reason
+    // `PasserbyMessagePicker._autoListenLoop` awaits rather than interrupts.
+    // Only a step *change* has a previous prompt of its own to cut.
+    if (generation > 1) await _tts.stop();
 
     if (_category == null) {
       final labels = HazardCategory.values.map(_d.hazardCategoryLabel).toList();

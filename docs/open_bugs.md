@@ -468,7 +468,7 @@ Fixed by adding the phonetic Bangla spellings, the same way
 `PasserbyHelperOverlay` already carries "গো ব্যাক".
 (`test/voice_cancel_window_test.dart`)
 
-## 30. Onboarding repeats the previous screen's instructions — supersedes item 8's second half
+## 30. Onboarding repeats the previous screen's instructions — FIXED — supersedes item 8's second half
 
 **Tester D, with a repro at last:** "2nd page e 1st page er instructions repeat
 hocche" and, specifically: "Report a hazard er por crime jodi manually select
@@ -484,6 +484,33 @@ narration being issued twice.
 `_goToCategory`, and `_stepGeneration` is meant to retire the previous step's
 narration. Worth checking whether a tap fires it while the previous
 `_speak` is still awaiting.
+
+**Confirmed, and that is exactly it.** `_narrateAndListenForStep` bumped
+`_stepGeneration` and stopped the *recognizer* — it never stopped the
+*narrator*. `TtsService` queues utterances rather than dropping them, on
+purpose, because each one is a question or an option list the user needs in
+full. So the interrupted category prompt kept its place at the head of the
+queue, played all the way to the end, and the sub-category prompt came out
+behind it.
+
+`_stepGeneration` could never have helped: it gates what the step logic does
+next, not what the narrator has already accepted.
+
+Why only by tap, as reported: answering by *voice* means the prompt had
+finished — the hub narrates, then listens — so there is nothing left playing
+when the step changes. A tap can land in the middle of it.
+
+**Fix:** `_narrateAndListenForStep` now stops TTS when the step changes.
+Deliberately not on the *first* narration: the hub is usually opened by a voice
+command whose own reply ("Opening the hazard report") is still being spoken,
+and queueing behind that is right — the same reason
+`PasserbyMessagePicker._autoListenLoop` awaits rather than interrupts.
+
+**Covered by:** `test/hazard_hub_step_narration_test.dart`, the hub's first
+widget coverage. Its fake TTS models the real queue (chained utterances, a
+generation that `stop()` bumps) so the test measures what reaches the speaker,
+not what was requested — a fake that only recorded `speak` calls would show
+nothing wrong, because the hub always asked for the right text.
 
 ## 31. The wake word does not work with the screen off
 
@@ -508,7 +535,7 @@ Related but distinct: step 20 reports "শুরুতেই মাইক অফ
 mic as off at the very start. Both point at the mic indicator and the actual
 recorder state disagreeing.
 
-## 33. Missing synonyms in onboarding answers
+## 33. Missing synonyms in onboarding answers — FIXED (this one)
 
 **Tester A, Part 2.** "আমার চোখে কান সমস্যা নেই" was accepted. "আমি একাই হাঁটি" (I
 walk alone) was **not** — for the mobility question.
@@ -516,6 +543,34 @@ walk alone) was **not** — for the mobility question.
 The phrasebook is meant to be the list of what works; this is a gap in it.
 Testers answering in their own words is exactly what Pack A is for, so more of
 these are expected and each one is a cheap fix.
+
+**Measured before changing anything.** `আমি একাই হাঁটি` does score against the
+unassisted label, at 0.5, with both other options at 0 — so the phrase as
+written is accepted by the current build. But it only scores at all by
+*accident*: on the single word `হাঁটি` it happens to share with the label
+"আমি সাহায্য ছাড়াই হাঁটি". Nothing in the vocabulary knew the word for *alone*,
+so the whole answer rested on that one verb, and every ordinary variation of it
+scored zero against all three options:
+
+| Heard | Before | After |
+| --- | --- | --- |
+| `আমি একাই হাঁটি` | unassisted 0.5 | unassisted 1.0 |
+| `আমি একাই হাটি` (no chandrabindu) | **no match** | unassisted 1.0 |
+| `একা হাটি` | **no match** | unassisted 1.0 |
+| `আমি একা চলি` | **no match** | unassisted 1.0 |
+| `একাই চলি` | **no match** | unassisted 1.0 |
+| `আমি একা` | **no match** | unassisted 1.0 |
+
+**Fix:** synonyms for the *concept* rather than the phrasing — `একা`, `একাই`,
+`একা চলি`, `একাই চলি`, `নিজে চলি`, `নিজেই`, and `alone` / `walk alone` /
+`by myself` in English. An answer should not depend on which verb the user
+reaches for.
+
+The risk of a one-word synonym is that it outranks a better answer, so that is
+tested directly: `আমি ছড়ি নিয়ে হাঁটি` ("I walk with a cane") still resolves to
+white cane, not unassisted.
+
+**Covered by:** `test/onboarding_voice_matching_test.dart`, four new tests.
 
 ## 34. Narration cannot be interrupted
 

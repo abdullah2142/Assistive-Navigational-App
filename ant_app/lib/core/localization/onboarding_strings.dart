@@ -184,9 +184,28 @@ class Onboarding {
   String get mobilityWheelchairLabel => _t('Wheelchair', 'হুইলচেয়ার');
   List<String> get mobilityWheelchairSynonyms => _bn ? const ['চেয়ার', 'হুইল চেয়ার'] : const ['chair', 'wheel chair'];
   String get mobilityUnassistedLabel => _t('I walk unassisted', 'আমি সাহায্য ছাড়াই হাঁটি');
+  /// "Alone" carries this answer on its own, in both languages.
+  ///
+  /// Item 33: a tester answered `আমি একাই হাঁটি` ("I walk alone") and it was
+  /// not accepted. The phrase does score against the label — but only by
+  /// accident, on the one word `হাঁটি` it happens to share with it. Nothing
+  /// here knew the word for *alone* at all, so the whole answer rested on
+  /// that single verb: `আমি একাই হাটি` (the same word without its
+  /// chandrabindu, which is how it is often transcribed), `আমি একা চলি`
+  /// ("I get about alone"), and a bare `আমি একা` all scored zero against
+  /// every option on the screen.
+  ///
+  /// A synonym per *concept*, not per phrasing, is what makes this hold up:
+  /// the answer should not depend on which verb the user reaches for.
   List<String> get mobilityUnassistedSynonyms => _bn
-      ? const ['নিজে হাঁটি', 'সাহায্য ছাড়া', 'সাহায্য লাগে না']
-      : const ['walk myself', 'no aid', 'on my own', 'unassisted', 'nothing', 'none'];
+      ? const [
+          'নিজে হাঁটি', 'সাহায্য ছাড়া', 'সাহায্য লাগে না',
+          'একা', 'একাই', 'একা চলি', 'একাই চলি', 'নিজে চলি', 'নিজেই',
+        ]
+      : const [
+          'walk myself', 'no aid', 'on my own', 'unassisted', 'nothing', 'none',
+          'alone', 'walk alone', 'by myself',
+        ];
 
   // Cognitive & anxiety
   String get cognitiveTitle => _t('A couple more questions', 'আরও কয়েকটি প্রশ্ন');

@@ -207,4 +207,76 @@ void main() {
       expect(crowded('a little bit'), isNull);
     });
   });
+
+  // Item 33 — a tester answered the mobility question `আমি একাই হাঁটি` ("I walk
+  // alone") and it was not accepted.
+  //
+  // The phrase does score against the label, but only by accident: on the one
+  // word `হাঁটি` it happens to share with it. Nothing in the vocabulary knew
+  // the word for *alone*, so the entire answer rested on that single verb, and
+  // every ordinary variation of it fell off a cliff.
+  group('the mobility question understands "alone"', () {
+    final bn = Onboarding.of(AppLanguage.bangla);
+
+    OnboardingVoiceChoice choiceFor(Onboarding s, String label, List<String> synonyms) =>
+        OnboardingVoiceChoice(label: label, synonyms: synonyms, onSelect: () {});
+
+    /// Which of the three mobility options an utterance actually lands on —
+    /// best score wins, exactly as `listenForVoiceChoice` does it.
+    String? pick(Onboarding s, String heard) {
+      final choices = {
+        'whiteCane': choiceFor(s, s.mobilityWhiteCaneLabel, s.mobilityWhiteCaneSynonyms),
+        'wheelchair': choiceFor(s, s.mobilityWheelchairLabel, s.mobilityWheelchairSynonyms),
+        'unassisted': choiceFor(s, s.mobilityUnassistedLabel, s.mobilityUnassistedSynonyms),
+      };
+      String? best;
+      var bestScore = 0.0;
+      choices.forEach((key, choice) {
+        final score = choice.matchScore(heard);
+        if (score > bestScore) {
+          bestScore = score;
+          best = key;
+        }
+      });
+      return best;
+    }
+
+    test('the exact phrase the tester used', () {
+      expect(pick(bn, 'আমি একাই হাঁটি'), 'unassisted');
+    });
+
+    test('and the same answer said any other way', () {
+      // `হাটি` without its chandrabindu is how the verb is commonly
+      // transcribed; `চলি` ("I get about") is as natural as `হাঁটি` here; and
+      // a bare `আমি একা` is a complete answer to the question asked.
+      for (final heard in [
+        'আমি একাই হাটি',
+        'একা হাঁটি',
+        'একা হাটি',
+        'আমি একা চলি',
+        'একাই চলি',
+        'আমি একা',
+        'নিজেই হাঁটি',
+      ]) {
+        expect(pick(bn, heard), 'unassisted', reason: '"$heard" is the same answer');
+      }
+    });
+
+    test('in English too', () {
+      for (final heard in ['i walk alone', 'alone', 'by myself', 'walk on my own']) {
+        expect(pick(en, heard), 'unassisted', reason: '"$heard" is the same answer');
+      }
+    });
+
+    test('without stealing answers that name an aid', () {
+      // The risk of a one-word synonym: `একা` must not outrank a sentence
+      // that actually says which aid is used.
+      expect(pick(bn, 'আমি ছড়ি নিয়ে হাঁটি'), 'whiteCane',
+          reason: 'walking *with a cane* is not walking unassisted');
+      expect(pick(bn, 'সাদা ছড়ি'), 'whiteCane');
+      expect(pick(bn, 'আমি হুইলচেয়ার ব্যবহার করি'), 'wheelchair');
+      expect(pick(en, 'i use a white cane'), 'whiteCane');
+      expect(pick(en, 'wheelchair'), 'wheelchair');
+    });
+  });
 }

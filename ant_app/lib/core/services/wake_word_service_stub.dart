@@ -48,6 +48,11 @@ class WakeWordService {
 
   static Duration restartHandoff = const Duration(milliseconds: 500);
 
+  /// How the native side backs off when reopening a recorder whose stream
+  /// ended by itself. Nothing on web has a recorder to lose.
+  static Duration recorderRetryBase = const Duration(seconds: 2);
+  static Duration recorderRetryMax = const Duration(seconds: 60);
+
   List<List<double>> get debugMelFrames => const [];
 
   List<List<double>> get debugEmbeddings => const [];

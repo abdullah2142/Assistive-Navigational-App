@@ -150,8 +150,32 @@ class MainActivity : FlutterActivity() {
                 "start" -> {
                     ensureNotificationPermission()
                     val intent = Intent(this, WakeWordForegroundService::class.java)
-                    ContextCompat.startForegroundService(this, intent)
-                    result.success(null)
+                    // Reported as an error rather than thrown past Flutter.
+                    //
+                    // Android 12 (API 31) forbids starting a foreground service
+                    // from the background, and this is called from Dart on
+                    // `AppLifecycleState.paused` — the moment the screen locks,
+                    // which is exactly the boundary that restriction polices. If
+                    // it is refused, the process is never kept alive, the
+                    // wake-word recorder is frozen with it, and nothing says so:
+                    // `BackgroundListeningService.start()` swallowed the failure
+                    // into a debugPrint. "Screen off doesn't work, eyes closed
+                    // works" and "no vibration either" are both what that looks
+                    // like from the outside (open_bugs item 31).
+                    //
+                    // Naming the exception is the point. It turns a silent
+                    // nothing into one line of logcat that says which of the
+                    // candidate causes it actually is.
+                    try {
+                        ContextCompat.startForegroundService(this, intent)
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.error(
+                            "foreground_service_start_failed",
+                            "${e.javaClass.simpleName}: ${e.message}",
+                            null,
+                        )
+                    }
                 }
                 "stop" -> {
                     stopService(Intent(this, WakeWordForegroundService::class.java))

@@ -493,7 +493,7 @@ channel itself is item 28, which is the thing to fix first regardless.
 **Covered by:** `test/hazard_report_submit_test.dart`, 3 tests. All three fail
 against the unbounded version.
 
-## 28. Caretaker communication does not work at all — CRITICAL
+## 28. Caretaker communication does not work at all — DIAGNOSED, UNBUILT
 
 **Tester D:** "caretaker er snapshot request user er kache ashtese na. Not only
 that, communication er kono part e kaaj korche na."
@@ -501,6 +501,40 @@ that, communication er kono part e kaaj korche na."
 Module 8, whole. Snapshot requests do not arrive; no part of the
 communication hub functions. Note Pack D's caretaker section was the only
 coverage Module 8 had, and it has now been exercised for the first time.
+
+**Diagnosed, not fixed — because there is nothing here to fix.** The receiving
+half of Module 8 does not exist.
+
+`CommunicationService` is correct and complete: it writes memos, voice memos
+and snapshot requests to `communications/{disabledUserUid}/messages`, and the
+Firestore rules for that path allow both parties. Pairing is fine too —
+`PairingService.redeemCode` sets `pairedUserId` on *both* profiles in one
+transaction, and both writes satisfy the `users/{uid}` rules. All of that was
+checked before concluding anything.
+
+The gap is that **`communicationsStreamProvider` and
+`communicationServiceProvider` are referenced only from inside
+`lib/features/guardian/`** — the caretaker's own UI. Nothing on the Disabled
+User's device ever subscribes to that collection. The caretaker's messages are
+written, and the caretaker can see them in their own hub, which is why this
+reads as "the caretaker's side sort of works and nothing arrives". Nothing
+arrives because nothing is listening.
+
+Snapshot requests additionally have nothing that could answer them: there is no
+`camera` dependency in `pubspec.yaml` at all, so Module 6 (Snapshot Vision) is
+unbuilt. Even a perfect listener could only announce that a snapshot was asked
+for.
+
+So this is a feature build across two unbuilt modules, not a bug fix, and it
+was deliberately left rather than half-started. What it needs, in order:
+
+1. A listener on the Disabled User's dashboard for
+   `communications/{myUid}/messages`, filtered to `toUid == myUid`.
+2. Incoming memos announced aloud, and voice memos played — this alone turns
+   "no part of it works" into a working one-way channel, and needs no camera.
+3. Snapshot requests gated on `UserProfile.snapshotConsent`, which onboarding
+   already collects and nothing yet reads.
+4. Module 6, for the capture itself.
 
 ## 29. "Cancel" is not recognised in a Bangla session — FIXED
 
@@ -560,7 +594,7 @@ generation that `stop()` bumps) so the test measures what reaches the speaker,
 not what was requested — a fake that only recorded `speak` calls would show
 nothing wrong, because the hub always asked for the right text.
 
-## 31. The wake word does not work with the screen off
+## 31. The wake word does not work with the screen off — NARROWED
 
 **Both testers.** Tester D Part 1 step 8: "Screen off thakle kaaj korche na."
 Tester A: "Screen off doesn't work. Eyes closed works."
@@ -573,6 +607,43 @@ path is asleep rather than just the audio.
 
 This matters more than it sounds: a phone in a pocket has its screen off, and
 that is the primary way this app is meant to be used.
+
+**Checked what could be checked off-device; not fixed, because the fix is a
+decision that needs a device to confirm.**
+
+Ruled out: the manifest is correct — `FOREGROUND_SERVICE_MICROPHONE` is
+declared and the service carries `android:foregroundServiceType="microphone"`,
+which is what Android 10+ requires for a backgrounded app to keep the mic. The
+wake lock is acquired properly, and `POST_NOTIFICATIONS` is requested at
+runtime.
+
+**The strongest remaining suspect is *when* the service is started.** Android
+12 (API 31) forbids starting a foreground service from the background, and
+`ChatStreamPanel.didChangeAppLifecycleState` starts it on
+`AppLifecycleState.paused` — the moment the screen locks, which is the exact
+boundary that restriction polices. If the start is refused, the process is
+frozen with the recorder inside it, and the whole detection path is asleep,
+which is what the second tester's "no vibration either" describes.
+
+It was impossible to tell, because the failure was silent:
+`BackgroundListeningService.start()` caught the exception into a `debugPrint`
+that said only "start failed". **That much is fixed now** —
+`MainActivity`'s handler names the exception class and returns it as a method
+channel error, and the Dart side logs it loudly. One device session with logcat
+now distinguishes this cause from the others in a single line.
+
+Deliberately *not* changed: moving the start earlier (to `inactive`, or to
+whenever wake word is enabled) would satisfy the API 31 rule but puts an
+ongoing "listening in the background" notification in front of a user who has
+not backgrounded anything — which `didChangeAppLifecycleState`'s own comment
+records as a previous regression, with the service flapping on every
+notification-shade pull. That is a trade to make deliberately, once the log
+says it is actually the cause.
+
+The other candidates, if the log clears the above: Doze deferring the partial
+wake lock, and MIUI's battery manager killing the process regardless (the test
+device is a Redmi, and the manifest comments already note MIUI kills invisible
+foreground services first).
 
 ## 32. The microphone does not recover after airplane mode
 

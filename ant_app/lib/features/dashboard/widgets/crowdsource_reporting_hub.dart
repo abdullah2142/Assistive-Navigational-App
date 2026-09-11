@@ -472,9 +472,8 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
       final readBack = rawDescription.isEmpty
           ? _d.cancelWindowReadBack(hazard)
           : _d.cancelWindowReadBack('$hazard. $rawDescription');
-      final outcome = await VoiceCancelWindow.run(
+      final outcome = await VoiceCancelWindow.readBackOnly(
         tts: _tts,
-        stt: _stt,
         language: widget.language,
         readBack: readBack,
         isCancelled: () => !mounted,

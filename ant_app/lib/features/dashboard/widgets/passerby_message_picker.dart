@@ -351,9 +351,8 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
     if (text.isEmpty) return;
 
     if (fromVoice) {
-      final outcome = await VoiceCancelWindow.run(
+      final outcome = await VoiceCancelWindow.readBackOnly(
         tts: _tts,
-        stt: _stt,
         language: widget.language,
         readBack: strings.cancelWindowReadBack(text),
         isCancelled: () => !mounted,

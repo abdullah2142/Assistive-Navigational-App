@@ -450,6 +450,14 @@ User's message: "$userText"
       null,
     ),
     FunctionDeclaration(
+      'cancel_route',
+      'End the walk the user is currently on and clear the route from the map. Call this when they '
+          'say to cancel or stop the trip, or that they are no longer going. This is not '
+          'request_alternative_route (same destination, different road) and not replan_route (same '
+          'destination, new starting point) — it abandons the journey entirely.',
+      null,
+    ),
+    FunctionDeclaration(
       'replan_route',
       'Plan the same journey again from where the user is standing right now. Call this when they say '
           '"re-route", say they have gone the wrong way or come off the route, or ask which way to go from '

@@ -523,6 +523,15 @@ class Dashboard {
       );
 
   /// Said when they ask for a different route without being on one.
+  /// Said when a trip is actually cancelled.
+  String get routeCancelled =>
+      _t('Trip cancelled. Tell me where to go when you are ready.',
+          'যাত্রা বাতিল করা হলো। যেতে চাইলে বলবেন।');
+
+  /// Said when there is nothing to cancel.
+  String get routeNothingToCancel =>
+      _t('You are not on a trip right now.', 'এখন আপনি কোনো যাত্রায় নেই।');
+
   String get routeNoActiveRoute => _t(
         'You are not following a route right now. Tell me where you want to go and I will find one.',
         'এখন আপনি কোনো পথে নেই। কোথায় যেতে চান বলুন, আমি পথ খুঁজে দিচ্ছি।',

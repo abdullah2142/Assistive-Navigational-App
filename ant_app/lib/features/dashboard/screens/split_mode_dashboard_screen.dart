@@ -126,7 +126,24 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
     // Must sit directly in build(): ref.listen asserts if called from inside
     // a LayoutBuilder's builder, which is where this started.
     ref.listen(chatControllerProvider.select((s) => s.pendingRoute), (previous, next) {
-      if (next == null || _mapVisible) return;
+      // The route going away closes the map again.
+      //
+      // It used to only ever open it, on the reasoning that somebody who
+      // deliberately hid the map should not be overruled. That is right for a
+      // *rebuild*, and wrong for a cancellation: reported directly, "map
+      // should close if user says the trip is cancelled, right now it remains
+      // still". A map showing nothing is a map taking half the screen for
+      // nothing.
+      if (next == null) {
+        if (previous != null && _mapVisible) {
+          setState(() {
+            _mapVisible = false;
+            _mapFullScreen = false;
+          });
+        }
+        return;
+      }
+      if (_mapVisible) return;
       setState(() => _mapVisible = true);
     });
     return Scaffold(

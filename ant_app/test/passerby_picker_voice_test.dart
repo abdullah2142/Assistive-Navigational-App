@@ -61,14 +61,27 @@ void main() {
       ),
     );
     await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+    await tester.pump();
     // Each turn of the loop waits out `SttService.narrationSettle` before
-    // opening the microphone — a real timer, which `pumpAndSettle` does not
-    // advance on its own. Pump through enough of them for the whole script.
-    for (var i = 0; i < 8; i++) {
+    // opening the microphone. Bounded pumps rather than `pumpAndSettle`:
+    // once the script runs dry the loop keeps re-prompting on that timer
+    // forever, exactly as it would on a device with nobody talking, and
+    // `pumpAndSettle` never returns on a repeating timer.
+    for (var i = 0; i < utterances.length + 3; i++) {
       await tester.pump(SttService.narrationSettle);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 50));
     }
+    // Close whatever is still open and let the last settle timer fire, so the
+    // loop exits through its own `mounted` check. It is an infinite loop by
+    // design — on a device it keeps re-prompting for as long as the sheet is
+    // up — and a `Future.delayed` in flight at teardown fails the test with
+    // "a Timer is still pending".
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    while (navigator.canPop()) {
+      navigator.pop();
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.pump(SttService.narrationSettle + const Duration(milliseconds: 100));
     return rec;
   }
 
@@ -114,17 +127,28 @@ void main() {
   testWidgets('a dictated message followed by "show it" actually shows it', (tester) async {
     final rec = await openPicker(tester, ['I need help crossing the road', 'show it']);
 
-    // Submitting reads the message back with a cancel window before it goes
-    // full-screen — so the message appearing in what is spoken *after* the
-    // submit phrase is the evidence that it was accepted.
+    // Submitting reads the message back before it goes full-screen — so the
+    // message appearing in what is spoken *after* the submit phrase is the
+    // evidence that it was accepted.
+    //
+    // The read-back used to be followed by a five-second window inviting the
+    // user to say "cancel". That is gone for dictated prose: the read-back
+    // is the confirmation, and a garbled hazard description or passer-by
+    // message costs far less than five seconds of silence on every single
+    // one. The Magic Button keeps its window.
     final spoken = rec.events.where((e) => e.startsWith('speak: ')).toList();
     expect(
-      spoken.last,
-      allOf(contains('I need help crossing the road'), contains('cancel')),
+      spoken.any((e) => e.contains('I need help crossing the road')),
+      isTrue,
       reason: 'the dictated message has to reach the read-back, not the submit phrase',
     );
+    expect(
+      spoken.any((e) => e.toLowerCase().contains('say cancel')),
+      isFalse,
+      reason: 'the waiting window is gone for dictation',
+    );
     // And "show it" must not be part of the message itself.
-    expect(spoken.last.toLowerCase(), isNot(contains('road. show it')));
+    expect(spoken.any((e) => e.toLowerCase().contains('road. show it')), isFalse);
   });
 }
 

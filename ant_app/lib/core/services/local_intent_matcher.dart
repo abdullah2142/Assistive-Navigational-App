@@ -109,6 +109,9 @@ class LocalIntentMatcher {
         // Before `_matchRoute`: "show me a different route" contains
         // "route", and answering it by planning a fresh journey to nowhere
         // is not what was asked.
+        // Before `_matchRouteChange`: "cancel the route" contains "the
+        // route", and before `_matchRoute` for the same reason.
+        _matchCancelRoute(lower, text) ??
         _matchRouteChange(lower, text) ??
         _matchRoute(lower, text, bn);
   }
@@ -932,6 +935,27 @@ class LocalIntentMatcher {
   /// not a change to the current one — "another way to Gulshan" is for
   /// Gemini, which has both tools and the conversation to tell them apart.
   static final _namesADestination = RegExp(r'\bto\s+\S', caseSensitive: false);
+
+  /// "Cancel the trip." Ends the walk and clears the route.
+  ///
+  /// There was no intent for this at all, so it fell to Gemini — which
+  /// answered "Cancelled your trip to Dhaka" and cancelled nothing. The route
+  /// stayed active, the map kept drawing it, and the user was told otherwise.
+  /// A confident wrong answer about a state the model cannot change is the
+  /// worst of the three possible outcomes.
+  static const _cancelRoutePhrases = [
+    'cancel the trip', 'cancel trip', 'cancel the route', 'cancel the journey',
+    'cancel my trip', 'stop the trip', 'stop the route', 'stop navigation',
+    'stop navigating', 'end the trip', 'end navigation', 'forget the route',
+    'i am not going', "i'm not going", 'no longer going', 'never mind the route',
+    'ট্রিপ বাতিল', 'যাত্রা বাতিল', 'পথ বাতিল', 'যাব না', 'আর যাব না',
+    'পথ দেখানো বন্ধ', 'নেভিগেশন বন্ধ',
+  ];
+
+  static LocalIntent? _matchCancelRoute(String lower, String text) =>
+      _cancelRoutePhrases.any((p) => lower.contains(p) || text.contains(p))
+          ? const LocalIntent('cancel_route', {})
+          : null;
 
   static LocalIntent? _matchRouteChange(String lower, String text) {
     final hasDestination = _namesADestination.hasMatch(lower);

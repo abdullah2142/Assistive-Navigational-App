@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -201,7 +202,15 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
       pauseFor: const Duration(seconds: 6),
       onResult: _handleDismissResult,
     );
-    if (mounted && !_dismissed) _listenForDismissOnDeviceLoop();
+    if (!mounted || _dismissed) return;
+    // A beat between attempts. `listenOnce` normally blocks for seconds, but
+    // it returns immediately whenever the recognizer cannot start — a denied
+    // permission, no recognizer installed, a session that dies on arrival — and
+    // without this the loop re-enters with no pause at all and spins the CPU
+    // for as long as the overlay is up. The hazard hub's own listen loop has
+    // had the same guard for the same reason.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    if (mounted && !_dismissed) unawaited(_listenForDismissOnDeviceLoop());
   }
 
   @override

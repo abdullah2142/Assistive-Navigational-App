@@ -187,6 +187,34 @@ class VoiceCancelWindow {
   /// cleanly; it returns [CancelWindowOutcome.cancelled] in that case,
   /// because sending something after the user has left the screen is the
   /// one outcome that is never defensible.
+  /// Reads [readBack] and returns immediately, with no waiting window.
+  ///
+  /// For **dictated prose** — a hazard description, a passer-by message.
+  /// Requested directly: the read-back is the confirmation, and five seconds
+  /// of silence on top of it is a tax paid on every single report for a
+  /// mistake that is cheap when it happens. A garbled hazard description
+  /// still reaches a human who can interpret it and still clusters with
+  /// other reports of the same thing; a passer-by message is on screen and
+  /// can be dismissed. Neither corrupts anything.
+  ///
+  /// **Not** for the Magic Button, which keeps [run]. There the mistake is
+  /// messaging and telephoning somebody's family, and it cannot be taken
+  /// back by looking at the screen — see [run]'s own doc comment for why the
+  /// burden is inverted there rather than removed.
+  static Future<CancelWindowOutcome> readBackOnly({
+    required TtsService tts,
+    required AppLanguage language,
+    required String readBack,
+    required bool Function() isCancelled,
+  }) async {
+    try {
+      await tts.speak(readBack, language: language);
+    } catch (e) {
+      debugPrint('[CancelWindow] read-back failed: $e');
+    }
+    return isCancelled() ? CancelWindowOutcome.cancelled : CancelWindowOutcome.proceed;
+  }
+
   static Future<CancelWindowOutcome> run({
     required TtsService tts,
     required SttService stt,

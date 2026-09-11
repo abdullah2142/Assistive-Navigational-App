@@ -508,6 +508,25 @@ class ChatController extends Notifier<ChatState> {
     }
   }
 
+  /// Ends the walk: stops the narrator, clears the route, and lets the map
+  /// close.
+  ///
+  /// Reported: "Cancel the trip to Dhaka" was answered with "Cancelled your
+  /// trip to Dhaka" while the route stayed active and the map kept drawing
+  /// it. There was no intent for this at all, so it fell through to Gemini,
+  /// which described a state change it had no way to make.
+  Future<void> _cancelRoute(UserProfile profile, Dashboard d) async {
+    if (state.pendingRoute == null) {
+      await _appendAssistantReply(d.routeNothingToCancel, profile);
+      return;
+    }
+    // Silent: the reply below says it, and `navigateStopped` on top of it is
+    // the same news twice.
+    await ref.read(navigationControllerProvider).stop(silent: true);
+    state = state.copyWith(clearRoute: true);
+    await _appendAssistantReply(d.routeCancelled, profile);
+  }
+
   /// Begins spoken turn-by-turn guidance the moment a route is accepted.
   ///
   /// Not gated behind a "start navigation" tap: for a user who cannot see
@@ -636,6 +655,13 @@ class ChatController extends Notifier<ChatState> {
       // wait on anything the executor does first.
       if (localIntent.name == 'trigger_emergency') {
         await _runEmergency(profile);
+        return;
+      }
+      // Cancelling a trip is chat-state, not a function call — the executor
+      // has no route to clear and no navigator to stop. Handled here for the
+      // same reason the emergency is.
+      if (localIntent.name == 'cancel_route') {
+        await _cancelRoute(profile, d);
         return;
       }
       final args = _resolveLocalIntentArgs(localIntent, profile);

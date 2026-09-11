@@ -67,7 +67,40 @@ class WakeWordService {
   static const int _melBins = 32;
   static const int _melWindowFrames = 76;
   static const int _embeddingWindowCount = 16;
-  static const double detectionThreshold = 0.5;
+  /// Score a window must reach to count as the wake phrase.
+  ///
+  /// **0.30, not openWakeWord's default 0.5.** Measured on a Redmi 10C on
+  /// 12 September, across 56 scored windows of one real session:
+  ///
+  /// | Score        | What it was                    | Windows |
+  /// |--------------|--------------------------------|---------|
+  /// | 0.000-0.003  | silence and background          | 47      |
+  /// | 0.016-0.144  | speech that is not the phrase   | 4       |
+  /// | 0.300-0.342  | the phrase, **not detected**    | 3       |
+  /// | 0.667-0.972  | the phrase, detected            | 8       |
+  ///
+  /// The three in the middle are what "sometimes it just does not respond"
+  /// is. They are known to be real attempts rather than noise because each
+  /// is followed by a successful detection within 3-16 seconds — the
+  /// signature of somebody saying it, getting nothing, and saying it again.
+  ///
+  /// 0.30 clears the background floor by a factor of a hundred and the
+  /// loudest non-attempt speech by two. The asymmetry justifies the rest: a
+  /// false positive opens a microphone that closes itself a few seconds
+  /// later, while a false negative means the only hands-free way into this
+  /// app did not work for somebody who cannot reach the button.
+  ///
+  /// **This number belongs to `hey_jarvis_v0.1` and to the voices it has
+  /// been measured against, not to the pipeline.** It is a placeholder model
+  /// trained on synthetic English clips; a real "Hey ANT" model will need
+  /// its own measurement. Tune per build without touching code:
+  ///
+  /// ```
+  /// flutter build apk --dart-define=WAKE_WORD_THRESHOLD_PCT=40
+  /// ```
+  static const int _thresholdPercent =
+      int.fromEnvironment('WAKE_WORD_THRESHOLD_PCT', defaultValue: 30);
+  static const double detectionThreshold = _thresholdPercent / 100;
   static const Duration _cooldown = Duration(seconds: 2);
 
   /// How long to wait after the microphone is handed back before reopening

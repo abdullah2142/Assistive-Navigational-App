@@ -699,6 +699,23 @@ class ChatController extends Notifier<ChatState> {
     // stub/fallback paths, where no partial text ever arrives — see
     // `GeminiAssistantService.converse`'s doc comment).
     var streaming = false;
+    // Time to the *first* byte back, logged separately from the total.
+    // Measured on device at 20-29s end to end, against 17ms for a
+    // locally-matched command — and the two numbers answer different
+    // questions. A slow first chunk is the model thinking before it commits
+    // to anything; a fast first chunk with a slow total is it streaming a
+    // long answer. Only the first is worth taking to Google.
+    int? firstChunkMs;
+    // Nothing is spoken until the whole response lands, so a slow turn is
+    // *silence* to somebody who cannot see the typing indicator. They
+    // reasonably conclude the wake word missed them and say it again — which
+    // is very likely what "the wake word works inconsistently" actually is.
+    Timer? stillWorking;
+    if (!profile.isDeafOrHardOfHearing) {
+      stillWorking = Timer(_stillWorkingAfter, () {
+        unawaited(ref.read(ttsServiceProvider).speak(d.chatStillWorking, language: profile.language));
+      });
+    }
     try {
       debugPrint('[Chat] -> Gemini: "$trimmed"');
       state = state.copyWith(isAssistantTyping: true);
@@ -711,6 +728,7 @@ class ChatController extends Notifier<ChatState> {
         activeRoute: state.pendingRoute,
         routeAlternatives: state.routeAlternatives,
         onPartialText: (partial) {
+          firstChunkMs ??= stopwatch.elapsedMilliseconds;
           if (!streaming) {
             streaming = true;
             state = state.copyWith(
@@ -725,8 +743,10 @@ class ChatController extends Notifier<ChatState> {
           }
         },
       );
+      stillWorking?.cancel();
       debugPrint(
-          '[Chat] <- Gemini in ${stopwatch.elapsedMilliseconds}ms: "${turn.responseText}" '
+          '[Chat] <- Gemini in ${stopwatch.elapsedMilliseconds}ms '
+          '(first chunk ${firstChunkMs ?? -1}ms): "${turn.responseText}" '
           '(overlay=${turn.overlayAction}, route=${turn.route != null}, profileChanged=${turn.updatedProfile != null})');
       if (turn.updatedProfile != null) {
         await ref.read(profileServiceProvider).saveProfile(turn.updatedProfile!);
@@ -770,6 +790,7 @@ class ChatController extends Notifier<ChatState> {
         state = state.copyWith(pendingPlaceSave: turn.placeSave);
       }
     } catch (e, st) {
+      stillWorking?.cancel();
       state = state.copyWith(isAssistantTyping: false);
       // Previously a bare `catch (_)` — silently swallowed *every* Gemini
       // failure (network, quota, malformed response, anything) with zero
@@ -785,6 +806,11 @@ class ChatController extends Notifier<ChatState> {
       await _appendAssistantReply(fallback, profile);
     }
   }
+
+  /// How long the assistant may stay silent before saying it is still
+  /// working. Long enough that a normal reply never triggers it, short
+  /// enough that the user has not yet decided nothing happened.
+  static const Duration _stillWorkingAfter = Duration(seconds: 3);
 
   /// Chips that are pure chat replies. [SuggestedChipAction.showScreenToPasserby]
   /// and [SuggestedChipAction.reportHazard] open overlays instead — the

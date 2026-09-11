@@ -16,6 +16,8 @@ class WakeWordService {
   /// substitute.
   WakeWordService({WakeWordAudioSource? audioSource, Future<bool> Function()? loadModels});
 
+  static const double detectionThreshold = 0.3;
+
   bool get isListening => false;
 
   bool get isEnabled => false;

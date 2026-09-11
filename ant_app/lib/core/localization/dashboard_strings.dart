@@ -155,6 +155,15 @@ class Dashboard {
         'Got it — I\'ve noted that. Full understanding of open-ended requests like this arrives with the AI Assistant module.',
         'ঠিক আছে, লিখে রাখলাম। এই ধরনের কথা পুরোপুরি বোঝার ক্ষমতা পরে যোগ হবে।',
       );
+  /// Said when a reply is taking long enough that silence would read as
+  /// failure.
+  ///
+  /// A user who cannot see the typing indicator has no way to tell a slow
+  /// answer from a command that was never heard — so they say the wake word
+  /// again, and report it as unreliable. Measured on device at 20-29 seconds
+  /// for an assistant reply; this is what fills that.
+  String get chatStillWorking => _t('Still working on that…', 'একটু সময় লাগছে…');
+
   String get chatAskDestination => _t('Where would you like to go?', 'আপনি কোথায় যেতে চান?');
   String get chatStubBusScan =>
       _t('Bus sign scanning needs the Snapshot Vision Engine, which is Module 6.', 'বাসের সাইনবোর্ড পড়ে দেওয়ার কাজটি পরে যোগ হবে।');

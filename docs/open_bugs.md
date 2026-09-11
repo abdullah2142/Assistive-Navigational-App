@@ -303,6 +303,82 @@ a file to read afterwards.
 
 ---
 
+## 24. "Hey Jarvis" sometimes does not respond — the threshold was too high
+
+**Reported by testers as the wake word "working inconsistently after the first
+try", and measured on 12 September.** This is *not* item 6 returning — the
+audio-focus fix held for 8 detections out of 8 in the same session, every
+restart on time.
+
+Across 56 scored windows of one real session:
+
+| Score | What it was | Windows |
+| --- | --- | --- |
+| 0.000-0.003 | silence and background | 47 |
+| 0.016-0.144 | speech that is not the phrase | 4 |
+| **0.300-0.342** | **the phrase, not detected** | **3** |
+| 0.667-0.972 | the phrase, detected | 8 |
+
+The three in the middle are the complaint. They are known to be real attempts
+rather than noise because **each is followed by a successful detection within
+3-16 seconds** — which is what somebody saying it, getting nothing, and saying
+it again looks like in a log.
+
+**Fix:** the threshold drops from openWakeWord's default 0.5 to **0.30**,
+which clears the background floor by a factor of a hundred and the loudest
+non-attempt speech by two. The asymmetry justifies the rest: a false positive
+opens a microphone that closes itself seconds later, while a false negative
+means the only hands-free way into the app did not work for somebody who
+cannot reach the button.
+
+It is now tunable per build, because the right number belongs to *this
+placeholder model and the voices it has been measured against*, not to the
+pipeline:
+
+```
+flutter build apk --dart-define=WAKE_WORD_THRESHOLD_PCT=40
+```
+
+**The real fix is a real model.** `hey_jarvis_v0.1` is trained on synthetic
+English clips, and is neither the app's own wake phrase nor anything tuned for
+Bangladeshi speakers. A threshold is a patch on that.
+
+**Needs watching on device:** false positives. Nothing in this session's data
+predicts any — background never exceeded 0.003 — but the sample is one voice,
+one room, one session. If the microphone starts opening on its own, raise the
+number before anything else.
+
+(`test/wake_word_threshold_test.dart`, which pins the threshold against the
+measured distribution rather than against a guess.)
+
+---
+
+## 25. Assistant replies take 1.5-29 seconds, unpredictably
+
+**Measured in the same session.** Three Gemini round trips: **1486 ms**,
+**19883 ms**, **20204 ms**, **28867 ms** — same device, same session, same
+model (`gemini-3.5-flash-lite`). A locally-matched command in the same session
+took **17 ms**.
+
+A 20x spread with no change in conditions is variance, not configuration, so
+it is very likely the network rather than anything this app controls.
+
+**Why it matters more than it looks:** nothing is spoken until the whole
+response lands. To a user who cannot see the typing indicator, a slow turn is
+indistinguishable from a command that was never heard — so they say the wake
+word again and report *that* as unreliable. A good part of "the wake word
+works inconsistently" is probably this.
+
+**Partly fixed:** the assistant now says "Still working on that…" after three
+seconds of silence, and the log records time-to-first-chunk separately from
+the total, so a slow *start* (the model thinking) can be told apart from a
+slow *stream* (a long answer). Only the first is worth taking to Google.
+
+**Still open:** the latency itself. Worth checking whether it correlates with
+mobile data versus wifi before assuming it is Google's end.
+
+---
+
 ## 7. The red mic button could not be turned off — FIXED
 
 **Reported:** "clicking on the red mic button after its been activated doesnt

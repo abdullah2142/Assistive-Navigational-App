@@ -761,6 +761,61 @@ model.
   is a privacy problem, not only a missing feature — the caretaker sees live
   location.
 
+**Scoped, not built — it needs a Firestore rules change, and that is a security
+decision rather than a tidy-up.**
+
+The blocker is specific. **No rule in `firestore.rules` permits clearing the
+*other* party's `pairedUserId`**, so a caretaker cannot complete an unpair from
+their own device. All three `users/{uid}` update rules were checked:
+
+| Rule | What it allows | Can it clear the other side? |
+| --- | --- | --- |
+| `auth.uid == uid`, role unchanged | your own profile | only your **own** `pairedUserId` |
+| `auth.uid != uid`, `resource.pairedUserId == null`, sets it to `auth.uid` | the pairing handshake | no — it only ever *stamps on*, and only onto an unpaired profile |
+| `auth.uid != uid`, `resource.pairedUserId == auth.uid`, remote settings | the caretaker editing their user's settings | no — it explicitly requires `pairedUserId` **unchanged** |
+
+**A one-sided unpair is not enough, and it is worth knowing exactly how far it
+gets**, because it is tempting to ship. Clearing only the caretaker's own
+`pairedUserId` *does* revoke the live-tracking surface, because those rules all
+test the **caretaker's own** profile:
+
+- `liveLocations/{uid}` read — revoked
+- `alerts/{uid}/items` read — revoked
+- `communications/{uid}/messages` read and create — revoked
+
+But two paths test the **Disabled User's** profile instead, which still points
+at the caretaker, so both survive:
+
+- `users/{disabledUserUid}` **read** — the caretaker can still read the whole
+  profile
+- `users/{disabledUserUid}` **update** (the remote-management rule) — the
+  caretaker can still change their settings remotely
+
+So a half unpair leaves someone who has been told they are unpaired still able
+to read the profile and change the settings of a person who has removed them.
+That is worse than not shipping it.
+
+**What it wants** is a fourth rule, symmetric with the handshake one — either
+party may clear a pairing that points at them, and only that field:
+
+```
+allow update: if request.auth != null && request.auth.uid != uid &&
+  resource.data.pairedUserId == request.auth.uid &&
+  request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pairedUserId']) &&
+  request.resource.data.pairedUserId == null;
+```
+
+Then `PairingService.unpair` clears both sides in one transaction, mirroring
+`redeemCode`, and the UI is one section in `RemoteManagementScreen`, which
+already has the `_SectionCard`/`ListTile` scaffolding for it.
+
+Left unbuilt deliberately: this repo has no `fake_cloud_firestore` and no rules
+test harness, so neither the rule nor the transaction can be verified here, and
+an unverified security-rules change on the path that governs who can see a
+blind user's live location is not something to ship on inference. The language
+half is independent and much smaller — the caretaker's own `language` is
+already on their profile and simply has no control bound to it.
+
 ## 36. What the testers confirmed working
 
 Worth recording, because "nobody tested it" and "tested and fine" look

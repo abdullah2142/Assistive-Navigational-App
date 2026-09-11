@@ -42,6 +42,53 @@ void main() {
     });
   });
 
+  // A bare negation is a cancellation only when that is what the sentence is
+  // about. Matched as substrings — which is how they first shipped — these
+  // cancel the user's route in the middle of ordinary speech, in both
+  // languages. Two of these sentences were already covered elsewhere, as
+  // route *refusals*, and started returning `cancel_route` instead.
+  group('a bare negation inside a longer sentence is not a cancellation', () {
+    test('Bangla: stating where you are not going', () {
+      // "I am not going to the office" — `যাব না` is the last two words.
+      expect(LocalIntentMatcher.match('আমি অফিসে যাব না', AppLanguage.bangla), isNull);
+      expect(LocalIntentMatcher.match('গুলশানে যেতে চাই না', AppLanguage.bangla), isNull);
+    });
+
+    test('Bangla: the bare negation itself still cancels', () {
+      // One word more than the phrase is still the whole point of it.
+      expect(LocalIntentMatcher.match('যাব না', AppLanguage.bangla)?.name, 'cancel_route');
+      expect(LocalIntentMatcher.match('আমি যাব না', AppLanguage.bangla)?.name, 'cancel_route');
+    });
+
+    test('English: "going" as an auxiliary is not a journey', () {
+      // Nothing here is about a trip at all — "going to" is carrying the
+      // future tense, and the trip that got cancelled was the user's real one.
+      expect(LocalIntentMatcher.match("i'm not going to lie", AppLanguage.english)?.name,
+          isNot('cancel_route'));
+      expect(LocalIntentMatcher.match("i'm not going to do that", AppLanguage.english)?.name,
+          isNot('cancel_route'));
+      expect(LocalIntentMatcher.match('i am not going to bother with it', AppLanguage.english)?.name,
+          isNot('cancel_route'));
+    });
+
+    test('English: the bare statement still cancels', () {
+      expect(LocalIntentMatcher.match('i am not going', AppLanguage.english)?.name, 'cancel_route');
+      expect(LocalIntentMatcher.match("i'm not going anymore", AppLanguage.english)?.name, 'cancel_route');
+      expect(LocalIntentMatcher.match('no longer going', AppLanguage.english)?.name, 'cancel_route');
+    });
+
+    test('an explicit cancel is never subject to the length rule', () {
+      // The strong phrases say what they mean, so they hold however long the
+      // sentence around them gets.
+      expect(
+        LocalIntentMatcher.match(
+                'actually could you please cancel the trip to Dhaka for me now', AppLanguage.english)
+            ?.name,
+        'cancel_route',
+      );
+    });
+  });
+
   group('not confused with its neighbours', () {
     test('asking for a different route is not cancelling', () {
       expect(

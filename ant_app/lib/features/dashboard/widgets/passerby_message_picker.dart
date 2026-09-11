@@ -11,6 +11,7 @@ import '../../../core/services/stt_service.dart';
 import '../../../core/services/wake_word_service.dart';
 import '../../../core/services/voice_cancel_window.dart';
 import '../../../core/services/tts_service.dart';
+import '../../../core/utils/cancellable_delay.dart';
 import 'passerby_helper_overlay.dart';
 
 /// Shown before the Passerby Helper overlay itself: lets the user pick one
@@ -61,6 +62,12 @@ class _PickerSheet extends ConsumerStatefulWidget {
 
 class _PickerSheetState extends ConsumerState<_PickerSheet> {
   bool _listening = false;
+
+  /// The settle between narrating and listening, owned so `dispose` can take
+  /// it back. The sheet can be dismissed at any point — the scrim, the close
+  /// button, a suggested message tapped — including while that beat is in
+  /// flight.
+  final _delay = CancellableDelay();
   // What's been dictated so far, across possibly several separate
   // utterances with pauses in between — same reasoning as the Crowdsource
   // Reporting Hub's identical field: a pause to think isn't "done talking",
@@ -136,6 +143,7 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
     // that push. Stopping unconditionally would clip the first words off the
     // screen the user actually asked for.
     if (!_handedOff) _tts.stop();
+    _delay.cancel();
     _wakeWord.resume();
     _stt.stop();
     _composeController.dispose();
@@ -245,7 +253,7 @@ class _PickerSheetState extends ConsumerState<_PickerSheet> {
       // "What you need?" and was committed as the user's message. Twice,
       // reproducibly, on device. `CrowdsourceReportingHub` has had a shorter
       // version of this guard all along.
-      await Future<void>.delayed(SttService.narrationSettle);
+      if (!await _delay.wait(SttService.narrationSettle)) return;
       if (!mounted) return;
       if (!await _stt.ensureAvailable()) return;
       setState(() => _listening = true);

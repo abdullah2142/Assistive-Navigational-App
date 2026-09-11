@@ -11,6 +11,7 @@ import '../../../core/services/cloud_stt_service.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/services/tts_service.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/cancellable_delay.dart';
 
 /// Full-screen route for the "Show Screen" Passerby Helper overlay: forces
 /// landscape, solid bright yellow, massive black text. Tap anywhere to
@@ -43,6 +44,12 @@ class PasserbyHelperOverlay extends ConsumerStatefulWidget {
 
 class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
   bool _dismissed = false;
+
+  /// Owns both of this screen's waits so `dispose` can take them back — the
+  /// settle before the microphone opens, and the beat between listen
+  /// attempts. Either can still be armed when the overlay closes, since it
+  /// closes on a word or a tap at any moment.
+  final _delay = CancellableDelay();
 
   /// When the dismiss listener started, so a phrase heard in its first
   /// moments can be ignored.
@@ -134,7 +141,7 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
       // A beat before the microphone opens. Cloud STT reports interim
       // results about two seconds late, and on device it transcribed the
       // tail of this very announcement — see [_dismissArmedAt].
-      await Future<void>.delayed(SttService.narrationSettle);
+      if (!await _delay.wait(SttService.narrationSettle)) return;
       if (mounted) _startListeningForDismiss();
     });
   }
@@ -209,13 +216,14 @@ class _PasserbyHelperOverlayState extends ConsumerState<PasserbyHelperOverlay> {
     // without this the loop re-enters with no pause at all and spins the CPU
     // for as long as the overlay is up. The hazard hub's own listen loop has
     // had the same guard for the same reason.
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+    if (!await _delay.wait(const Duration(milliseconds: 400))) return;
     if (mounted && !_dismissed) unawaited(_listenForDismissOnDeviceLoop());
   }
 
   @override
   void dispose() {
     _dismissed = true;
+    _delay.cancel();
     // A screen's narration belongs to that screen. This one kept talking on
     // the dashboard after the overlay closed — the announcement is six
     // seconds long and the overlay can be gone in one, so the user was left

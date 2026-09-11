@@ -14,6 +14,7 @@ import '../../../core/services/wake_word_service.dart';
 import '../../../core/services/voice_cancel_window.dart';
 import '../../../core/services/tts_service.dart';
 import '../../../core/utils/ai_text_summarizer.dart';
+import '../../../core/utils/cancellable_delay.dart';
 import '../../onboarding/models/disability_profile_enums.dart';
 import '../models/hazard_report.dart';
 import '../providers/dashboard_providers.dart';
@@ -97,6 +98,13 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
   final _descriptionController = TextEditingController();
   bool _submitting = false;
   bool _listening = false;
+
+  /// Owns every wait in this hub's narrate-then-listen cycle so `dispose`
+  /// can take them back — the settle before the microphone opens on each
+  /// step, and the beat between re-listen attempts. The hub closes on a
+  /// submit, a back gesture or a tap on the scrim, any of which can land
+  /// while one of those is in flight.
+  final _delay = CancellableDelay();
 
   late final Dashboard _d = Dashboard.of(widget.language);
 
@@ -194,6 +202,7 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
     // whatever the user went back to.
     _tts.stop();
     _stt.stop();
+    _delay.cancel();
     _wakeWord.resume();
     _descriptionController.dispose();
     super.dispose();
@@ -246,7 +255,7 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
       final labels = HazardCategory.values.map(_d.hazardCategoryLabel).toList();
       final spoke = await _speak(_d.crowdsourceCategoryPrompt(labels.join(', ')));
       if (!mounted || generation != _stepGeneration || !widget.voiceAutoListen) return;
-      if (spoke) await Future<void>.delayed(SttService.narrationSettle);
+      if (spoke && !await _delay.wait(SttService.narrationSettle)) return;
       await _listenForOption(
         generation: generation,
         matchers: {for (final c in HazardCategory.values) _d.hazardCategoryLabel(c): () => _goToCategory(c)},
@@ -260,7 +269,7 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
       final spoke =
           await _speak(_d.crowdsourceSubCategoryPrompt(_d.hazardCategoryLabel(_category!), labels.join(', ')));
       if (!mounted || generation != _stepGeneration || !widget.voiceAutoListen) return;
-      if (spoke) await Future<void>.delayed(SttService.narrationSettle);
+      if (spoke && !await _delay.wait(SttService.narrationSettle)) return;
       await _listenForOption(
         generation: generation,
         matchers: {for (final k in keys) _d.hazardSubCategoryLabel(k): () => _goToSubCategory(k)},
@@ -301,7 +310,7 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
       // A brief gap before re-listening — otherwise a run of pure silence
       // (nobody speaking at all) would restart the session back-to-back
       // with no pause, which reads as the mic never actually stopping.
-      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (!await _delay.wait(const Duration(milliseconds: 400))) return;
     }
   }
 

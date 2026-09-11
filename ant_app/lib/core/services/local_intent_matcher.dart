@@ -943,19 +943,54 @@ class LocalIntentMatcher {
   /// stayed active, the map kept drawing it, and the user was told otherwise.
   /// A confident wrong answer about a state the model cannot change is the
   /// worst of the three possible outcomes.
-  static const _cancelRoutePhrases = [
+  /// Named a cancellation outright — these mean it wherever they appear.
+  static const _cancelRouteStrong = [
     'cancel the trip', 'cancel trip', 'cancel the route', 'cancel the journey',
     'cancel my trip', 'stop the trip', 'stop the route', 'stop navigation',
     'stop navigating', 'end the trip', 'end navigation', 'forget the route',
-    'i am not going', "i'm not going", 'no longer going', 'never mind the route',
-    'ট্রিপ বাতিল', 'যাত্রা বাতিল', 'পথ বাতিল', 'যাব না', 'আর যাব না',
-    'পথ দেখানো বন্ধ', 'নেভিগেশন বন্ধ',
+    'never mind the route',
+    'ট্রিপ বাতিল', 'যাত্রা বাতিল', 'পথ বাতিল', 'পথ দেখানো বন্ধ', 'নেভিগেশন বন্ধ',
   ];
 
-  static LocalIntent? _matchCancelRoute(String lower, String text) =>
-      _cancelRoutePhrases.any((p) => lower.contains(p) || text.contains(p))
-          ? const LocalIntent('cancel_route', {})
-          : null;
+  /// Bare negations — "I'm not going". A cancellation only when that is
+  /// what the sentence is *about*, which is why they cannot be matched as
+  /// substrings the way the strong phrases can.
+  ///
+  /// Both languages had the same false positive from doing exactly that.
+  /// `যাব না` ("won't go") sits at the end of `আমি অফিসে যাব না` — "I am not
+  /// going to the office", an ordinary statement — and English "i am not
+  /// going" is the opening of "I'm not going to lie" and "I'm not going to
+  /// bother", where "going" is an auxiliary and no journey is meant at all.
+  /// Both were answered by cancelling the user's route.
+  static const _cancelRouteWeak = [
+    'i am not going', "i'm not going", 'im not going', 'no longer going',
+    'যাব না', 'যাবো না',
+  ];
+
+  /// How far a weak phrase may fall short of the whole utterance.
+  ///
+  /// One word — enough for the subject or an adverb the phrase itself
+  /// leaves out ("আমি যাব না", "আর যাব না", "I'm not going anymore"), and
+  /// not enough for a destination or a following clause, which is exactly
+  /// what distinguishes a cancellation from a statement about one. Same
+  /// shape as [_maxBareCryWords], for the same reason: a phrase that is
+  /// sometimes the whole point and sometimes an aside cannot be matched on
+  /// its presence alone.
+  static const int _maxCancelExtraWords = 1;
+
+  static LocalIntent? _matchCancelRoute(String lower, String text) {
+    if (_cancelRouteStrong.any((p) => lower.contains(p) || text.contains(p))) {
+      return const LocalIntent('cancel_route', {});
+    }
+    final spokenWords = _words(text).length;
+    for (final phrase in _cancelRouteWeak) {
+      if (!lower.contains(phrase) && !text.contains(phrase)) continue;
+      if (spokenWords - _words(phrase).length <= _maxCancelExtraWords) {
+        return const LocalIntent('cancel_route', {});
+      }
+    }
+    return null;
+  }
 
   static LocalIntent? _matchRouteChange(String lower, String text) {
     final hasDestination = _namesADestination.hasMatch(lower);

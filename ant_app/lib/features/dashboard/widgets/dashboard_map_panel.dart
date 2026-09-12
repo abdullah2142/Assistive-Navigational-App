@@ -217,6 +217,9 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
     _moveCameraToMe();
   }
 
+  /// How long to wait for the map's opening fix before showing the fallback.
+  static const Duration _firstFixBudget = Duration(seconds: 10);
+
   Future<void> _resolveLocation() async {
     try {
       var permission = await Geolocator.checkPermission();
@@ -227,7 +230,17 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
         return;
       }
       if (!await Geolocator.isLocationServiceEnabled()) return;
-      final position = await Geolocator.getCurrentPosition();
+      // Bounded in Dart as well as in the plugin. `LocationSettings.timeLimit`
+      // is enforced platform-side, so it does nothing when the channel itself
+      // is the thing not answering — and then the map sits on the Dhaka
+      // fallback forever with no error to explain it. Same fix as the hazard
+      // hub's (open_bugs item 27).
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: _firstFixBudget,
+        ),
+      ).timeout(_firstFixBudget);
       if (!mounted) return;
       setState(() => _myLocation = LatLng(position.latitude, position.longitude));
       _centerOnMe();

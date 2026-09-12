@@ -9,6 +9,8 @@
 // the route lines as well like in google maps, as well as info about how far
 // to go in which direction."
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -104,6 +106,98 @@ void main() {
     harness.touch();
     await tester.pump();
     expect(find.byType(DashboardMapPanel, skipOffstage: false), findsNothing);
+  });
+
+  // "Map should close if user says the trip is cancelled, right now it remains
+  // still." The listener above only ever *opened* the map, on the reasoning
+  // that somebody who deliberately hid it should not be overruled — right for
+  // a rebuild, wrong for a cancellation. A map showing nothing is a map taking
+  // half the screen for nothing.
+  //
+  // The fix shipped without a test, like the reveal above it did.
+  group('cancelling the trip', () {
+    testWidgets('closes the map', (tester) async {
+      final harness = await pumpDashboard(tester);
+      harness.publish(routeTo('Dhaka'));
+      await tester.pump();
+      expect(find.byType(DashboardMapPanel), findsOneWidget);
+
+      harness.cancelTrip();
+      await tester.pump();
+
+      expect(find.byType(DashboardMapPanel, skipOffstage: false), findsNothing);
+    });
+
+    testWidgets('and does not leave it full-screen for the next route', (tester) async {
+      // The listener clears `_mapFullScreen` alongside `_mapVisible`. Without
+      // that, the next route to arrive reopens the map straight into
+      // full-screen, having swallowed the chat, with nothing explaining why.
+      final harness = await pumpDashboard(tester);
+      harness.publish(routeTo('Dhaka'));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.fullscreen_rounded));
+      await tester.pump();
+
+      harness.cancelTrip();
+      await tester.pump();
+      expect(find.byType(DashboardMapPanel, skipOffstage: false), findsNothing);
+
+      harness.publish(routeTo('Gulshan'));
+      await tester.pump();
+      expect(find.byIcon(Icons.fullscreen_rounded), findsOneWidget,
+          reason: 'back to split, not still expanded');
+    });
+
+    testWidgets('is harmless when the map was already hidden', (tester) async {
+      final harness = await pumpDashboard(tester);
+      harness.publish(routeTo('Dhaka'));
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.map_rounded));
+      await tester.pump();
+
+      harness.cancelTrip();
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(DashboardMapPanel, skipOffstage: false), findsNothing);
+    });
+
+    testWidgets('end to end, from the words the user actually says', (tester) async {
+      // The three links, in one test: "cancel the trip" matches `cancel_route`
+      // locally (so it never reaches Gemini), `ChatController._cancelRoute`
+      // clears the route, and the dashboard's listener closes the map. Each
+      // link was covered on its own and the chain was not, which is how a
+      // reply saying "cancelled your trip" shipped next to a map still drawing
+      // the route.
+      final harness = await pumpDashboard(tester);
+      harness.publish(routeTo('Dhaka'));
+      await tester.pump();
+      expect(find.byType(DashboardMapPanel), findsOneWidget);
+
+      unawaited(harness.say('cancel the trip to Dhaka'));
+      // Past the cached-fix budget `sendFreeText` waits out, then the 300ms
+      // `_appendAssistantReply` delay.
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+
+      expect(find.byType(DashboardMapPanel, skipOffstage: false), findsNothing);
+      expect(harness.routeInState, isNull, reason: 'the route is gone, not just hidden');
+    });
+
+    testWidgets('a later route opens it again', (tester) async {
+      // Closing on cancel must not be sticky — the next trip still reveals it.
+      final harness = await pumpDashboard(tester);
+      harness.publish(routeTo('Dhaka'));
+      await tester.pump();
+      harness.cancelTrip();
+      await tester.pump();
+
+      harness.publish(routeTo('Gulshan'));
+      await tester.pump();
+
+      expect(find.byType(DashboardMapPanel), findsOneWidget);
+    });
   });
 
   testWidgets('the map shows how far is left and which way to turn', (tester) async {
@@ -203,6 +297,18 @@ class _Harness {
 
   void publish(RouteChoice route) => _controller.publish(route);
 
+  /// What `ChatController._cancelRoute` does to the state — the route goes
+  /// away, which is the signal the dashboard listens for.
+  void cancelTrip() => _controller.cancelTrip();
+
+  /// Sends a message the way the user does, through the real pipeline.
+  Future<void> say(String text) => _controller.sendFreeText(
+        text,
+        UserProfile(uid: 'user-1', role: UserRole.disabledUser),
+      );
+
+  RouteChoice? get routeInState => container.read(chatControllerProvider).pendingRoute;
+
   /// A rebuild that changes something other than the route.
   void touch() => _controller.touch();
 
@@ -217,6 +323,8 @@ class _Harness {
 /// the thing that was never covered.
 class _TestChatController extends ChatController {
   void publish(RouteChoice route) => state = state.copyWith(pendingRoute: route);
+
+  void cancelTrip() => state = state.copyWith(clearRoute: true);
 
   void touch() => state = state.copyWith(isAssistantTyping: !state.isAssistantTyping);
 }

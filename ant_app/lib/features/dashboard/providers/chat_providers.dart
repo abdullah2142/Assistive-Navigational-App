@@ -571,6 +571,10 @@ class ChatController extends Notifier<ChatState> {
     }
   }
 
+  /// How long a chat message waits on a cached location fix before going on
+  /// without one. Short: it is context, not the answer.
+  static const Duration _lastFixBudget = Duration(seconds: 2);
+
   Future<void> sendFreeText(String text, UserProfile profile) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
@@ -588,10 +592,24 @@ class ChatController extends Notifier<ChatState> {
     // it would silently mask every real success/failure on web.
     Position? location;
     try {
-      location = await Geolocator.getLastKnownPosition();
+      // Bounded, because this future does not always complete.
+      //
+      // The try/catch alone only ever covered a *throw*. A platform channel
+      // that never answers — an unresponsive location provider, or simply no
+      // plugin behind it — leaves `getLastKnownPosition()` pending forever,
+      // and this is awaited on the way to *every* chat message. The user
+      // would type or say something and get no reply at all, with nothing
+      // logged. Confirmed off-device: with no plugin registered it neither
+      // resolves nor throws after twenty seconds.
+      //
+      // Same defect and same fix as the hazard hub's and the Magic Button's
+      // position lookups (open_bugs item 27). A cached fix is a nicety here;
+      // the reply is not.
+      location = await Geolocator.getLastKnownPosition().timeout(_lastFixBudget);
     } catch (_) {
       // No last-known fix available (denied permission, web, first launch
-      // before any GPS read) — proceed without it.
+      // before any GPS read, or the platform not answering) — proceed
+      // without it.
     }
 
     // A question we just asked takes priority over reading the next

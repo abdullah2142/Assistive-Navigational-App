@@ -885,6 +885,48 @@ class Dashboard {
   String get settingsWakeWordSection => _t('"Hey ANT" voice trigger', '"Hey ANT" ভয়েস ট্রিগার');
   String get settingsWakeWordSwitch =>
       _t('Listen for "Hey ANT" so I can talk without tapping the mic', '"Hey ANT" বললে মাইকে না চেপেই কথা বলা যাবে');
+  // ---- Wake-word sensitivity dial -----------------------------------------
+  //
+  // Testers reported that "Hey Jarvis" has to be said softly, gently, and
+  // with a pause between the two words. That is a statement about where the
+  // detection line sits for their voices and their rooms, and it could not be
+  // answered by a build-time constant — every guess cost a new APK. These
+  // strings front the dial that moves it, and the live score that makes
+  // moving it something other than guesswork.
+  String get settingsWakeWordSensitivitySection =>
+      _t('"Hey ANT" sensitivity', '"Hey ANT" সংবেদনশীলতা');
+
+  String get settingsWakeWordSensitivityHint => _t(
+        'Higher means it triggers more easily, but is likelier to fire on its own. '
+            'Say "Hey ANT" and watch the bar below — set the marker just under where your voice reaches.',
+        'বেশি মানে সহজে চালু হবে, তবে নিজে থেকেও চালু হওয়ার ঝুঁকি বাড়ে। '
+            '"Hey ANT" বলুন আর নিচের বারটি দেখুন — আপনার কণ্ঠ যতটা পৌঁছায় তার একটু নিচে দাগটি রাখুন।',
+      );
+
+  String settingsWakeWordSensitivityValue(int percent) =>
+      _t('Sensitivity $percent%', 'সংবেদনশীলতা $percent%');
+
+  /// The raw threshold, shown alongside the friendly percentage.
+  ///
+  /// Kept visible on purpose while the wake word is still being tuned: the
+  /// numbers in the device logs and in `wake_word_threshold_test.dart` are
+  /// thresholds, not percentages, and a tester reporting "mine works at 0.22"
+  /// is worth far more than one reporting "about three quarters along".
+  String settingsWakeWordThresholdValue(String threshold) =>
+      _t('Triggers at $threshold', 'চালু হয় $threshold-এ');
+
+  String settingsWakeWordLiveScore(String score) => _t('Heard just now: $score', 'এইমাত্র শোনা: $score');
+
+  String get settingsWakeWordMeterSemantics =>
+      _t('Live "Hey ANT" match strength', 'সরাসরি "Hey ANT" মিলের মাত্রা');
+
+  String get settingsWakeWordListeningOff => _t(
+        'Turn the "Hey ANT" trigger on above to test your voice against this.',
+        'কণ্ঠ পরীক্ষা করতে উপরে "Hey ANT" ট্রিগার চালু করুন।',
+      );
+
+  String get settingsWakeWordReset => _t('Reset to default', 'ডিফল্টে ফিরুন');
+
   String get settingsAutoListenSection => _t('Auto-listen', 'নিজে থেকে শোনা');
   String get settingsAutoListenSwitch =>
       _t('Start listening automatically when a voice input opens, instead of tapping the mic first',

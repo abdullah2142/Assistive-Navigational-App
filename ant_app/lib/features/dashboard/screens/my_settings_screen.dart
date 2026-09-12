@@ -14,6 +14,7 @@ import '../../onboarding/models/trusted_contact.dart';
 import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../../onboarding/services/pairing_service.dart';
+import '../widgets/wake_word_sensitivity_tile.dart';
 
 /// The two voices, named for the language the profile is actually set to.
 ///
@@ -542,6 +543,22 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
               label: d.settingsWakeWordSwitch,
               value: profile.wakeWordEnabled,
               onChanged: (v) => _save(profile.copyWith(wakeWordEnabled: v)),
+            ),
+          ),
+          _SectionCard(
+            title: d.settingsWakeWordSensitivitySection,
+            child: WakeWordSensitivityTile(
+              threshold: profile.wakeWordThreshold,
+              enabled: profile.wakeWordEnabled,
+              strings: d,
+              // Applied to the live detector immediately and saved alongside,
+              // rather than waiting for the profile stream to come back round
+              // — a tester saying the phrase again straight away should be
+              // testing the value they just set, not the one before it.
+              onChanged: (threshold) {
+                ref.read(wakeWordServiceProvider).threshold = threshold;
+                _save(profile.copyWith(wakeWordThreshold: threshold));
+              },
             ),
           ),
           _SectionCard(

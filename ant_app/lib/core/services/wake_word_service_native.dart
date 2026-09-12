@@ -98,9 +98,64 @@ class WakeWordService {
   /// ```
   /// flutter build apk --dart-define=WAKE_WORD_THRESHOLD_PCT=40
   /// ```
+  ///
+  /// This is the *default* only. [threshold] is what detection actually
+  /// compares against, and it can be moved at runtime from My Settings — see
+  /// that field for why a build-time constant was not enough.
   static const int _thresholdPercent =
       int.fromEnvironment('WAKE_WORD_THRESHOLD_PCT', defaultValue: 30);
-  static const double detectionThreshold = _thresholdPercent / 100;
+  static const double defaultDetectionThreshold = _thresholdPercent / 100;
+
+  /// The range the in-app dial may move [threshold] across.
+  ///
+  /// Not 0 to 1. At 0 every window fires, so the microphone would open
+  /// continuously and the phone would never sleep; at 1 nothing can ever
+  /// fire, which is a wake word that is silently off while claiming to be
+  /// on. Both ends are worse than any tuning problem they could solve. The
+  /// floor still sits an order of magnitude above the measured background
+  /// (0.003), so even the most sensitive setting cannot be triggered by a
+  /// quiet room.
+  static const double minThreshold = 0.05;
+  static const double maxThreshold = 0.95;
+
+  /// What a window must score to count as the wake phrase.
+  ///
+  /// Settable, because the build-time constant could not answer the thing
+  /// testers actually reported: that "Hey Jarvis" has to be said softly,
+  /// gently, and with a pause between the two words. That is a complaint
+  /// about where the line sits for *their* voices and rooms, and shipping a
+  /// new APK per guess is not a way to find out. The dial in My Settings
+  /// moves this live — no restart, since detection only ever reads it at
+  /// comparison time.
+  ///
+  /// Clamped rather than asserted: this comes from a persisted profile field
+  /// that a future build could widen or narrow, and refusing to listen at all
+  /// because a stored number is out of range would be the worst of the
+  /// available outcomes.
+  double get threshold => _threshold;
+  set threshold(double value) {
+    final clamped = value.clamp(minThreshold, maxThreshold).toDouble();
+    if (clamped == _threshold) return;
+    _threshold = clamped;
+    debugPrint('[WakeWord] detection threshold set to ${clamped.toStringAsFixed(2)}');
+  }
+
+  double _threshold = defaultDetectionThreshold;
+
+  /// The score of the most recent window the classifier rated.
+  ///
+  /// Exposed so the sensitivity dial can show what is actually happening.
+  /// Without it the dial is guesswork: the measured gap between a real
+  /// attempt that failed (0.30-0.34) and one that succeeded (0.67+) is
+  /// invisible from outside this class, so a tester moving a slider has no
+  /// way to tell whether they have moved it far enough, or too far. With it
+  /// they can say the phrase, read the number, and put the line under it.
+  ///
+  /// A `ValueNotifier` rather than a stream: the dial wants the latest value
+  /// and nothing else, and a notifier with no listeners costs nothing on the
+  /// audio path.
+  final ValueNotifier<double> lastScore = ValueNotifier<double>(0);
+
   static const Duration _cooldown = Duration(seconds: 2);
 
   /// How long to wait after the microphone is handed back before reopening
@@ -378,6 +433,7 @@ class WakeWordService {
 
   Future<void> dispose() async {
     await stop();
+    lastScore.dispose();
     _melInterpreter?.close();
     _embeddingInterpreter?.close();
     _wakeWordInterpreter?.close();
@@ -501,12 +557,13 @@ class WakeWordService {
   /// starvation needs detecting, it needs a signal that distinguishes "no
   /// audio" from "quiet audio"; the classifier score is not one.
   void _logScore(double score) {
+    lastScore.value = score;
     _peakSinceLog = score > _peakSinceLog ? score : _peakSinceLog;
     final now = DateTime.now();
     _lastScoreLog ??= now;
     if (now.difference(_lastScoreLog!) < _scoreLogInterval) return;
     debugPrint('[WakeWord] peak=${_peakSinceLog.toStringAsFixed(3)} '
-        '(threshold $detectionThreshold) over the last ${_scoreLogInterval.inSeconds}s');
+        '(threshold $_threshold) over the last ${_scoreLogInterval.inSeconds}s');
     _lastScoreLog = now;
     _peakSinceLog = 0;
   }
@@ -536,7 +593,7 @@ class WakeWordService {
 
     final now = DateTime.now();
     final offCooldown = _lastDetection == null || now.difference(_lastDetection!) > _cooldown;
-    if (score >= detectionThreshold && offCooldown) {
+    if (score >= _threshold && offCooldown) {
       _lastDetection = now;
       debugPrint('[WakeWord] DETECTED (score=${score.toStringAsFixed(3)})');
       // The suspension the callback is about to take must start cold — see

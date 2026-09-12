@@ -1491,3 +1491,51 @@ spells one out. Conjuncts hold together for the same reason — `আব্দু
 
 **Covered by:** `test/spoken_name_test.dart`, 8 tests, including that two names
 which sound alike now spell differently.
+
+## 40. "Hey Jarvis" has to be said softly, gently, with a pause — DIAL SHIPPED
+
+**Several testers:** the wake phrase only works said quietly and slowly, with
+enough of a gap between the two words.
+
+That is two complaints wearing one coat, and only one of them is a threshold.
+
+**Where the line sits** was a compile-time constant
+(`--dart-define=WAKE_WORD_THRESHOLD_PCT`, item 24), so every guess at it cost a
+new APK and another round of testing. It is now a dial in My Settings,
+persisted on the profile as `UserProfile.wakeWordThreshold` and applied live —
+detection reads the threshold at comparison time, so a change takes effect on
+the next scored window with no restart.
+
+Stored per *user*, not per device: it is a property of somebody's voice and the
+rooms they use the app in, and a tester who finds their setting should not lose
+it to a reinstall. Null means never tuned, and the build default stands.
+
+**The dial ships with a live score meter, and that is the half that matters.**
+The measured gap between a real attempt that failed (0.30-0.34) and one that
+succeeded (0.67+) is invisible from outside `WakeWordService`, so a slider on
+its own would only have moved the guessing into the app. With the score on
+screen, tuning becomes: say the phrase, read the number, put the marker under
+it, say it again. `WakeWordService.lastScore` is a `ValueNotifier` the tile
+listens to; the meter holds a peak for three seconds, because the classifier
+scores every 80 ms and the phrase spans only a handful of windows.
+
+The dial cannot travel to either extreme. At 0 every window fires and the
+microphone never closes; at 1 nothing can fire and the wake word is silently
+off while claiming to be on. The floor (0.05) still sits more than ten times
+above the loudest measured background window (0.003), so no setting on it can
+be triggered by a quiet room.
+
+**What the dial does not fix, and should not be expected to.** "A pause between
+the two words" is not a threshold at all — it is `hey_jarvis_v0.1`'s fit to
+real voices. It is a placeholder model trained on synthetic English clips, it
+is not this app's wake phrase, and it is not tuned for Bangladeshi speakers.
+The point of shipping the score alongside the slider is that testers can now
+**measure** that instead of describing it: if attempts score 0.6+ said gently
+and 0.1 said normally, the model is the problem and no threshold rescues it.
+That is the number to collect before building a real "Hey ANT" model.
+
+**Covered by:** `test/wake_word_sensitivity_test.dart`, 15 tests — including
+that the slider runs the opposite way to the threshold (dragging right must
+make it *easier* to trigger), that it saves on drag end rather than per frame,
+and that the tile fits a 360dp phone in both languages. That last one caught a
+real overflow that would have painted a striped bar across the meter.

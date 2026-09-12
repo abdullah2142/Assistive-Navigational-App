@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'wake_word_audio_source.dart';
 
 /// Web (and any other platform without `dart:io`) fallback for
@@ -16,7 +18,18 @@ class WakeWordService {
   /// substitute.
   WakeWordService({WakeWordAudioSource? audioSource, Future<bool> Function()? loadModels});
 
-  static const double detectionThreshold = 0.3;
+  static const double defaultDetectionThreshold = 0.3;
+  static const double minThreshold = 0.05;
+  static const double maxThreshold = 0.95;
+
+  /// Settable and clamped exactly like the native one, so the settings dial
+  /// compiles and behaves on web — it simply has no classifier to apply it to.
+  double get threshold => _threshold;
+  set threshold(double value) => _threshold = value.clamp(minThreshold, maxThreshold).toDouble();
+  double _threshold = defaultDetectionThreshold;
+
+  /// Never moves off zero here: nothing scores anything on web.
+  final ValueNotifier<double> lastScore = ValueNotifier<double>(0);
 
   bool get isListening => false;
 

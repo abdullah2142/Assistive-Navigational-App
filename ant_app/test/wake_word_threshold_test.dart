@@ -25,16 +25,16 @@ void main() {
     // 47 of the 56 windows were here. This is the margin that matters most:
     // a wake word that fires on silence is uninstalled the same day.
     for (final score in background) {
-      expect(score, lessThan(WakeWordService.detectionThreshold),
+      expect(score, lessThan(WakeWordService.defaultDetectionThreshold),
           reason: 'silence scored $score');
     }
-    expect(WakeWordService.detectionThreshold / 0.003, greaterThan(50),
+    expect(WakeWordService.defaultDetectionThreshold / 0.003, greaterThan(50),
         reason: 'at least a 50x margin over the loudest background window');
   });
 
   test('ordinary speech does not fire it', () {
     for (final score in otherSpeech) {
-      expect(score, lessThan(WakeWordService.detectionThreshold),
+      expect(score, lessThan(WakeWordService.defaultDetectionThreshold),
           reason: 'non-wake-word speech scored $score');
     }
   });
@@ -42,21 +42,21 @@ void main() {
   test('the attempts that used to be missed now fire', () {
     // The whole point of the change.
     for (final score in missedAttempts) {
-      expect(score, greaterThanOrEqualTo(WakeWordService.detectionThreshold),
+      expect(score, greaterThanOrEqualTo(WakeWordService.defaultDetectionThreshold),
           reason: 'a real "Hey Jarvis" scored $score and must now be heard');
     }
   });
 
   test('everything that already worked still does', () {
     for (final score in detected) {
-      expect(score, greaterThanOrEqualTo(WakeWordService.detectionThreshold));
+      expect(score, greaterThanOrEqualTo(WakeWordService.defaultDetectionThreshold));
     }
   });
 
   test('the threshold sits between the two clusters, not inside one', () {
     // A threshold inside a cluster is a coin flip for whoever is in it.
-    expect(WakeWordService.detectionThreshold, greaterThan(otherSpeech.reduce((a, b) => a > b ? a : b)));
-    expect(WakeWordService.detectionThreshold,
+    expect(WakeWordService.defaultDetectionThreshold, greaterThan(otherSpeech.reduce((a, b) => a > b ? a : b)));
+    expect(WakeWordService.defaultDetectionThreshold,
         lessThanOrEqualTo(missedAttempts.reduce((a, b) => a < b ? a : b)));
   });
 }

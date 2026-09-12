@@ -91,6 +91,7 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
       await ref.read(chatControllerProvider.notifier).triggerEmergency(widget.profile);
     });
     ref.read(ttsServiceProvider).setVoiceId(widget.profile.voiceId);
+    _applyWakeWordThreshold();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => ref.read(chatControllerProvider.notifier).ensureWelcomeMessage(Dashboard.of(widget.profile.language)),
@@ -134,6 +135,12 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     if (widget.profile.voiceId != oldWidget.profile.voiceId) {
       ref.read(ttsServiceProvider).setVoiceId(widget.profile.voiceId);
     }
+    // Before the enabled check below, which returns early. The dial can be
+    // moved without the toggle changing at all — in fact that is the normal
+    // case, since somebody tuning it has the wake word switched on already.
+    if (widget.profile.wakeWordThreshold != oldWidget.profile.wakeWordThreshold) {
+      _applyWakeWordThreshold();
+    }
     if (widget.profile.wakeWordEnabled == oldWidget.profile.wakeWordEnabled) return;
     if (widget.profile.wakeWordEnabled) {
       _startWakeWordListening();
@@ -141,6 +148,21 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
       _wakeWord.stop();
       _backgroundListening.stop();
     }
+  }
+
+  /// Pushes the user's chosen sensitivity into the detector.
+  ///
+  /// No restart needed — detection reads the threshold at comparison time,
+  /// so a change takes effect on the very next scored window. That is what
+  /// makes the dial usable at all: somebody tuning it says the phrase, reads
+  /// the score, moves the slider, and says it again, without a round trip
+  /// through a rebuild or a rebuilt APK.
+  ///
+  /// A null threshold means the profile has never been tuned, and the build's
+  /// own default stands.
+  void _applyWakeWordThreshold() {
+    final chosen = widget.profile.wakeWordThreshold;
+    _wakeWord.threshold = chosen ?? WakeWordService.defaultDetectionThreshold;
   }
 
   /// Starts (or restarts, after a command was just handled) continuous

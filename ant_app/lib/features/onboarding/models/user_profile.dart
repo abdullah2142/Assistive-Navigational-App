@@ -36,6 +36,7 @@ class UserProfile {
     this.language = AppLanguage.english,
     this.snapshotConsent = SnapshotConsentPreference.askEachTime,
     this.wakeWordEnabled = false,
+    this.wakeWordThreshold,
     this.savedPlaces = const [],
     this.onboardingStep,
     bool? voiceAutoListen,
@@ -122,6 +123,19 @@ class UserProfile {
   // push-to-talk which every user gets regardless. See `WakeWordService`.
   final bool wakeWordEnabled;
 
+  /// How hard "Hey Jarvis" has to be to say, as a classifier score between
+  /// [WakeWordService.minThreshold] and [WakeWordService.maxThreshold].
+  ///
+  /// Null means "whatever this build ships with"
+  /// ([WakeWordService.defaultDetectionThreshold]), which is what every
+  /// profile written before the dial existed says, and what a user who has
+  /// never touched it keeps saying.
+  ///
+  /// Stored per user rather than per device on purpose: it is a property of
+  /// somebody's voice and the rooms they use the app in, not of the handset.
+  /// A tester who finds their setting should not lose it to a reinstall.
+  final double? wakeWordThreshold;
+
   // Whether voice mic entry points (the passerby message composer today —
   // see `PasserbyMessagePicker`) should start listening automatically
   // instead of waiting for a manual mic tap. Defaults to on for anyone
@@ -164,6 +178,7 @@ class UserProfile {
         'language': language.name,
         'snapshotConsent': snapshotConsent.name,
         'wakeWordEnabled': wakeWordEnabled,
+        'wakeWordThreshold': wakeWordThreshold,
         'voiceAutoListen': voiceAutoListen,
         'savedPlaces': savedPlaces.map((p) => p.toJson()).toList(),
         'onboardingStep': onboardingStep?.name,
@@ -195,6 +210,7 @@ class UserProfile {
         language: AppLanguage.fromFirestore(json['language'] as String?),
         snapshotConsent: SnapshotConsentPreference.fromFirestore(json['snapshotConsent'] as String?),
         wakeWordEnabled: json['wakeWordEnabled'] as bool? ?? false,
+        wakeWordThreshold: (json['wakeWordThreshold'] as num?)?.toDouble(),
         // Not `?? false` like the others — a profile that's never had this
         // field written yet (every profile created before this field
         // existed) should still get the smart, profile-based default
@@ -240,6 +256,7 @@ class UserProfile {
     AppLanguage? language,
     SnapshotConsentPreference? snapshotConsent,
     bool? wakeWordEnabled,
+    double? wakeWordThreshold,
     bool? voiceAutoListen,
     List<SavedPlace>? savedPlaces,
     OnboardingStep? onboardingStep,
@@ -267,6 +284,7 @@ class UserProfile {
         language: language ?? this.language,
         snapshotConsent: snapshotConsent ?? this.snapshotConsent,
         wakeWordEnabled: wakeWordEnabled ?? this.wakeWordEnabled,
+        wakeWordThreshold: wakeWordThreshold ?? this.wakeWordThreshold,
         // Always resolved to a concrete value before reaching the
         // constructor (never left as a bare `null` pass-through) — this
         // preserves whatever was already persisted rather than recomputing

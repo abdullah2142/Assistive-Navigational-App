@@ -51,6 +51,7 @@ final cloudSttServiceProvider = Provider<CloudSttService>((ref) {
 final emergencyServiceProvider = Provider<EmergencyService>(
   (ref) => EmergencyService(
     tts: ref.watch(ttsServiceProvider),
+    stt: ref.watch(sttServiceProvider),
     alerts: ref.watch(alertServiceProvider),
     planner: ref.watch(routePlanningServiceProvider),
     // An escape route is handed to the same navigation controller that

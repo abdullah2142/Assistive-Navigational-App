@@ -54,17 +54,20 @@ class Dashboard {
       _t('Emergency mode. Sending alerts.', 'জরুরি অবস্থা। সাহায্যের বার্তা পাঠানো হচ্ছে।');
 
   /// The cancel window's read-back for an accidental trigger.
-  /// Said as the SOS goes out, not before a countdown.
+  /// Introduces the cancel window, and must keep naming both the time and the
+  /// word.
   ///
-  /// The five-second window this used to introduce is gone — asked for
-  /// directly, on the grounds that the read-back is already the confirmation.
-  /// So this no longer promises a way to stop it, because there isn't one:
-  /// inviting a "cancel" that nothing is listening for would be worse than
-  /// saying nothing at all. It still says exactly what is happening, which is
-  /// what the user is waiting to hear.
-  String emergencyAbout(int contacts) => _t(
-        'Messaging $contacts people and calling for help now.',
-        '$contacts জনকে বার্তা পাঠাচ্ছি এবং এখনই ফোন করছি।',
+  /// The window was briefly removed here along with dictation's, then put
+  /// back: the two cases are not alike. A dictated message has been read back
+  /// and is on its way to a human who can make sense of it anyway, so waiting
+  /// five seconds on every one is pure cost. An SOS can be raised by accident
+  /// — a volume-down hold in a pocket — and there is no undoing a message and
+  /// a phone call to somebody's family. The delay is the only thing standing
+  /// between a false trigger and that. See open_bugs item 41.
+  String emergencyAbout(int contacts, int seconds) => _t(
+        'I will message $contacts people and call for help in $seconds seconds. '
+        'Say cancel to stop.',
+        '$contacts জনকে বার্তা পাঠাব এবং $seconds সেকেন্ডে ফোন করব। থামাতে বলুন বাতিল।',
       );
 
   String get emergencyCancelled =>

@@ -1540,37 +1540,49 @@ make it *easier* to trigger), that it saves on drag end rather than per frame,
 and that the tile fits a 360dp phone in both languages. That last one caught a
 real overflow that would have painted a striped bar across the meter.
 
-## 41. The five-second window is gone from the Magic Button too — DONE
+## 41. Where the five-second window applies, and where it does not — SETTLED
 
-Asked for directly: *"remove the redundant 5 second sending delay"*.
+Asked in two passes, and the second corrected the first. Recorded in full
+because the reasoning is the point, not the outcome.
 
-Dictation lost its window earlier, on the grounds that the read-back is
-already the confirmation. The Magic Button kept its one deliberately — item
-24's note says that for the emergency the mistake is messaging and telephoning
-somebody's family, and cannot be undone by looking at the screen, so losing it
-"should be a decision, not a tidy-up". This is that decision.
+**First ask:** *"remove the redundant 5 second sending delay"*. Taken to mean
+everywhere, so the Magic Button lost its window too.
 
-`EmergencyService` now calls `VoiceCancelWindow.readBackOnly`. `emergencyAbout`
-was rewritten with it: it used to say *"...in 5 seconds. Say cancel to stop."*
-and now says what is happening in the present tense. A read-back that still
-invited a cancel nothing was listening for would be worse than saying nothing
-at all — it would have somebody in trouble talking to a microphone that was
-never opened.
+**Corrected:** *"i want no 5 sec delay for messages that are already read back
+and confirmed, for emergency sos and other things that might make false alarms,
+i want 5 sec delay there"*. That is the right line, and it is a better one than
+"remove it everywhere":
 
-**The trade, stated plainly:** a false trigger now sends immediately. That is
-the cost, and it is real — the volume-down hold has produced accidental SOSs
-before (see the `disarmHold` work in `MainActivity`). What it buys is five
-seconds on the one path in the app where five seconds is the whole point.
+| | Dictated prose | Emergency SOS |
+| --- | --- | --- |
+| How it starts | the user chose to dictate, and spoke the words | can be a volume-down hold in a pocket, or a model deciding it heard distress |
+| What the read-back proves | that this is what they said | nothing about whether they meant to trigger it at all |
+| Cost of a mistake | a garbled message a human can still make sense of | a message and a phone call to somebody's family |
+| Can it be taken back | yes, say it again | no |
+| **Window** | **none** — `readBackOnly` | **five seconds** — `run` |
 
-`VoiceCancelWindow.run` and `cancelsEmergency` — the narrow SOS vocabulary that
-deliberately refuses "stop" and "wait", because those are what people shout at
-an attacker — are left in place and still tested. Restoring the window means
-calling `run` here again and handing the service an `SttService`; the field went
-with the window rather than being left behind unused.
+The distinction is not "how important is it", it is **whether the thing can be
+raised by accident**. A read-back confirms *content*; it cannot confirm
+*intent*, and an accidental SOS has perfectly correct content.
 
-**Covered by:** three new tests in `test/voice_cancel_window_test.dart`
-(including that a TTS engine which throws cannot turn into "cancelled" on the
-emergency path) and two in `test/emergency_service_test.dart`.
+**State:** `EmergencyService` calls `VoiceCancelWindow.run` with
+`emergency: true`. The passer-by picker and the hazard hub call `readBackOnly`.
+`emergencyAbout` names both the time and the word again, because a window
+nobody is told about is not a window.
+
+**Every emergency entry point is covered**, which is worth having checked
+rather than assumed: the physical volume-down hold, the locally-matched
+distress phrase, and Gemini's `trigger_emergency` tool all converge on
+`ChatController._runEmergency`, which calls `trigger(profile: profile)` with
+`confirm` left at its default of true. The model-raised one is the most
+false-alarm-prone of the three and gets the same five seconds.
+
+**Covered by:** `test/voice_cancel_window_test.dart`, now split into the two
+cases by name. The SOS half is tested through `run` itself rather than through
+the vocabulary helpers — no test drives `EmergencyService` end to end, so this
+is where the behaviour the Magic Button depends on is actually pinned: silence
+sends but only after the full window, "cancel" stops it, *"stop it get away
+from me"* does not, and a dead microphone still sends.
 
 ## 42. Option narration is now the user's choice — DONE
 

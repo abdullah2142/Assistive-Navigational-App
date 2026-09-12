@@ -185,14 +185,34 @@ class SttService {
     // a longer message outright even mid-sentence; callers who genuinely
     // want a short ceiling can still pass one.
     Duration listenFor = const Duration(minutes: 5),
+    // How long to wait for the user to *start* speaking, when that should
+    // differ from [_initialSilenceTimeout]'s generous default.
+    //
+    // The one caller that wants it shorter is a *continuation* listen — a
+    // window opened purely to find out whether somebody who paused
+    // mid-sentence is still going. Eight seconds of silence is right when
+    // the user has just been asked a question and is gathering their
+    // thoughts; it is far too long to sit there after they have already
+    // started answering. See `listenForVoiceChoice`.
+    Duration? initialSilence,
   }) async {
     final wakeWord = _wakeWord;
     if (wakeWord != null) {
       await wakeWord.pauseAround(
-        () => _listenOnceInner(language: language, onResult: onResult, pauseFor: pauseFor, listenFor: listenFor),
+        () => _listenOnceInner(
+            language: language,
+            onResult: onResult,
+            pauseFor: pauseFor,
+            listenFor: listenFor,
+            initialSilence: initialSilence),
       );
     } else {
-      await _listenOnceInner(language: language, onResult: onResult, pauseFor: pauseFor, listenFor: listenFor);
+      await _listenOnceInner(
+          language: language,
+          onResult: onResult,
+          pauseFor: pauseFor,
+          listenFor: listenFor,
+          initialSilence: initialSilence);
     }
   }
 
@@ -201,6 +221,7 @@ class SttService {
     required void Function(String text, bool isFinal) onResult,
     required Duration pauseFor,
     required Duration listenFor,
+    Duration? initialSilence,
   }) async {
     await _signalListening();
     final cloud = _cloudStt;
@@ -216,11 +237,20 @@ class SttService {
         onResult: onResult,
         pauseFor: pauseFor,
         listenFor: listenFor,
+        initialSilence: initialSilence,
       );
       if (usedCloud) return;
       debugPrint('[Stt] Cloud STT unavailable — falling back to on-device recognizer');
     }
-    await _listenOnceOnDevice(language: language, onResult: onResult, pauseFor: pauseFor, listenFor: listenFor);
+    await _listenOnceOnDevice(
+      language: language,
+      onResult: onResult,
+      // The on-device recognizer has a single pause setting covering both the
+      // wait to start and the gap after speech, so a caller asking for a
+      // shorter start window gets it applied to both here.
+      pauseFor: initialSilence != null && initialSilence < pauseFor ? initialSilence : pauseFor,
+      listenFor: listenFor,
+    );
   }
 
   /// Adapts `CloudSttService`'s open-ended stream into this method's
@@ -247,7 +277,9 @@ class SttService {
     required void Function(String text, bool isFinal) onResult,
     required Duration pauseFor,
     required Duration listenFor,
+    Duration? initialSilence,
   }) async {
+    final startWindow = initialSilence ?? _initialSilenceTimeout;
     final done = Completer<void>();
     _cloudSessionDone = done;
     Timer? silenceTimer;
@@ -295,8 +327,7 @@ class SttService {
 
     void resetSilenceTimer() {
       silenceTimer?.cancel();
-      silenceTimer =
-          Timer(heardSpeech ? pauseFor : _initialSilenceTimeout, () => finish('silence', synthesizeFinal: true));
+      silenceTimer = Timer(heardSpeech ? pauseFor : startWindow, () => finish('silence', synthesizeFinal: true));
     }
 
     final started = await cloud.start(

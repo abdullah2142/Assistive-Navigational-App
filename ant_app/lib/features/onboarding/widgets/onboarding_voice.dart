@@ -397,6 +397,24 @@ bool isHelpRequest(String text) {
   return _helpTriggersEn.any(lower.contains) || _helpTriggersBn.any(text.contains);
 }
 
+/// How many times in a row an unmatched fragment is treated as an unfinished
+/// sentence and followed by another listen rather than a retry prompt.
+///
+/// Two, so a sentence may carry one long pause and one more, and no further:
+/// past that the user is not pausing, they are saying something this screen
+/// does not understand, and they need to be told so.
+const int _maxContinuations = 2;
+
+/// How long a continuation listen waits for speech to resume before giving up
+/// on the idea that the user was mid-sentence.
+///
+/// Deliberately short. This window opens immediately after the user has
+/// already spoken, so it is not the "gathering their thoughts" case
+/// [SttService] defaults to eight seconds for — and every one of these that
+/// passes with nothing said is silence the user is sitting in before being
+/// told anything.
+const Duration _continuationWindow = Duration(seconds: 3);
+
 /// Listens indefinitely for one of [choices] to be spoken, re-prompting
 /// with [retryHint] between attempts rather than silently looping — same
 /// "separate the listening from the silence" fix the hazard-report and
@@ -441,6 +459,20 @@ Future<void> listenForVoiceChoice({
   // doesn't think to.
   const missesBeforeAutoHelp = 2;
   var misses = 0;
+  // What was heard on the previous attempt but matched nothing, kept so a
+  // sentence broken by a pause can be stitched back into one answer.
+  //
+  // Reported directly: "sometimes speaking fast works but being too slow
+  // turns the mic off". Both recognizer paths end a session on a
+  // mid-sentence pause — Cloud STT runs with `singleUtterance: false` and
+  // finalizes a *segment* once the speaker stops, which `SttService` treats
+  // as the whole utterance, and the on-device path hits its own `pauseFor`.
+  // So "আমি ... একাই হাঁটি" said with a beat in the middle arrived as "আমি",
+  // matched nothing, and the screen apologised over the top of somebody who
+  // was still answering. Raising `pauseFor` cannot fix the cloud half of
+  // that, because the server finalizes before the timer is ever reached.
+  var carried = '';
+  var continuations = 0;
   while (!isCancelled()) {
     if (!await stt.ensureAvailable()) {
       debugPrint('[OnboardingVoice] stt.ensureAvailable() returned false — mic unavailable');
@@ -459,25 +491,37 @@ Future<void> listenForVoiceChoice({
     }
     OnboardingVoiceChoice? matched;
     var wantsHelp = false;
+    var heardThisAttempt = '';
     await stt.listenOnce(
       language: language,
+      // A continuation window is only asking "are they still talking?", so it
+      // must not sit through the full eight-second wait meant for somebody
+      // who has not started answering yet.
+      initialSilence: carried.isEmpty ? null : _continuationWindow,
       onResult: (text, isFinal) {
         if (!isFinal || matched != null || wantsHelp) return;
         final trimmed = text.trim();
         debugPrint('[OnboardingVoice] heard (final): "$trimmed"');
         if (trimmed.isEmpty) return;
+        heardThisAttempt = trimmed;
         if (helpText != null && isHelpRequest(trimmed)) {
           wantsHelp = true;
           return;
         }
+        // Matched against what was just heard *and* against it stitched onto
+        // the fragment before it, so a sentence broken by a pause is still
+        // one answer. See [carried].
+        final candidates = carried.isEmpty ? [trimmed] : ['$carried $trimmed', trimmed];
         // Best score wins, rather than first past the post. See
         // `OnboardingVoiceChoice.matchScore` for the live failure this fixes.
         var bestScore = 0.0;
-        for (final choice in choices) {
-          final score = choice.matchScore(trimmed);
-          if (score > bestScore) {
-            bestScore = score;
-            matched = choice;
+        for (final candidate in candidates) {
+          for (final choice in choices) {
+            final score = choice.matchScore(candidate);
+            if (score > bestScore) {
+              bestScore = score;
+              matched = choice;
+            }
           }
         }
         if (matched != null) {
@@ -498,9 +542,25 @@ Future<void> listenForVoiceChoice({
     if (wantsHelp && helpText != null) {
       debugPrint('[OnboardingVoice] help requested — speaking full option list');
       misses = 0;
+      carried = '';
+      continuations = 0;
       await tts.speak(helpText, language: language);
       continue;
     }
+    // Something was heard, it just did not add up to an answer yet. The most
+    // likely reason is that the user is not finished: they paused in the
+    // middle of a sentence, the recognizer finalized the half it had, and
+    // this loop would otherwise talk over them to say it did not understand.
+    // Listen on instead, and keep the fragment.
+    if (heardThisAttempt.isNotEmpty && continuations < _maxContinuations) {
+      carried = carried.isEmpty ? heardThisAttempt : '$carried $heardThisAttempt';
+      continuations++;
+      debugPrint('[OnboardingVoice] no match yet — treating "$heardThisAttempt" as an '
+          'unfinished sentence and listening on (carrying "$carried")');
+      continue;
+    }
+    carried = '';
+    continuations = 0;
     misses++;
     debugPrint('[OnboardingVoice] no match this attempt (miss #$misses)');
     if (helpText != null && misses >= missesBeforeAutoHelp) {

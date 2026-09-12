@@ -1386,3 +1386,108 @@ In the distributed build and not yet exercised by a tester:
 - an unclear read-back looping forever without ever saying "yes or no"
 - `voiceAutoListen` not re-derived when the vision answer changes
 - the command tour losing its closing instruction to a 30 s playback timeout
+
+---
+
+## 37. The fullscreen button covers the map's current-location button — FIXED
+
+**Reported:** "the map full screen button covers the current location button."
+
+**Not two of this app's buttons.** Those sit in opposite corners — the
+fullscreen toggle top-right, the recentre button bottom-right — which is why
+this looked wrong at first reading. The button underneath is **Google's**,
+drawn inside the platform view where nothing in `dashboard_map_panel.dart` can
+see it.
+
+`GoogleMap` is configured with `myLocationButtonEnabled`, `zoomControlsEnabled`,
+`compassEnabled` and `mapToolbarEnabled` all on — deliberately, and the comment
+there explains why. On Android those land at: my-location **top-right**, zoom
+**bottom-right**, compass **top-left**, toolbar **bottom-right**. This app then
+stacks its own chrome in the same corners. That is three collisions, not one;
+the reported one is simply the one people hit first, because my-location is the
+control a sighted companion reaches for most.
+
+**Fix:** `GoogleMap.padding`, which is the supported way to move the native
+controls. Vertical only — pushing them sideways would walk the zoom buttons
+into the middle of the map and the compass under the route banner, whereas
+dropping them below this app's top row and lifting them above its bottom one
+puts each in free space. The Google logo, bottom-left, is left alone:
+obscuring it breaks the Maps terms.
+
+Symmetric top and bottom on purpose. `padding` also moves the camera's idea of
+centre, so an asymmetric inset would quietly put the user off-centre on every
+recentre — a worse bug than the one being fixed.
+
+**Covered by:** `test/map_control_overlap_test.dart`. The padding and the
+`Positioned` values are now derived from the same constants, so the tests fail
+if a button changes size or position without the padding being revisited.
+
+## 38. Speaking slowly turns the microphone off — FIXED
+
+**Reported, Part 1:** "sometimes usually fast works but being too slow turns
+the mic off", answering the interview in Bangla with long pauses mid-sentence.
+The test plan itself calls that "how real people under stress talk" — and for
+this app's users it is how many of them talk all the time.
+
+**Both recognizer paths end a session on a mid-sentence pause**, and the
+distinction matters because the obvious fix does not work:
+
+- Cloud STT runs with `singleUtterance: false`, so it finalizes a **segment**
+  once the speaker stops. `SttService` treats the first `isFinal: true` as the
+  whole utterance and closes the session.
+- The on-device recognizer hits its own `pauseFor`.
+
+**Raising `pauseFor` cannot fix the cloud half** — the server finalizes the
+fragment before that timer is ever reached. So `আমি ... একাই হাঁটি` said with a
+beat in the middle arrived as `আমি`, matched nothing, and the screen apologised
+over the top of somebody who was still answering. From the user's side, the mic
+turned off while they were talking.
+
+**Fix:** `listenForVoiceChoice` now treats a fragment that was *heard but
+matched nothing* as an unfinished sentence rather than a failed answer. It
+listens on without speaking, stitches the next fragment onto the last, and
+matches against the join as well as the new piece alone. Up to two
+continuations; past that the user is not pausing, they are saying something the
+screen does not understand, and they need telling.
+
+Silence is handled the opposite way on purpose: nothing heard at all is not
+somebody mid-sentence, so the retry hint comes immediately — which is the
+behaviour testers confirmed already works.
+
+`SttService.listenOnce` gained an `initialSilence` override for this. The
+default eight-second wait is right for someone gathering their thoughts before
+answering; after they have already spoken it is just silence they sit in before
+being told anything, so a continuation window asks for three.
+
+**Covered by:** `test/slow_speech_onboarding_test.dart`, 6 tests, including
+that a fast complete answer still takes exactly one listen and is not slowed
+down by any of this.
+
+## 39. The contact name read-back cannot be checked by ear — FIXED
+
+**Reported, Part 3 step 13:** "Dictate a name that is not a common English word
+(a relative's real name). Check what the read-back says." — *Misspellings.*
+
+The phone number in that same read-back is spoken one digit at a time, for a
+reason the string's own comment gives: a dictated number is easy for STT to get
+subtly wrong, and this is an emergency contact. Testers confirmed that half
+works (steps 11 and 12).
+
+**The name had no equivalent, and it needed one more than the number did.** The
+name was only ever *pronounced* — and "Rahima", "Rohima" and "Raheema" are the
+same sound. The misspelling was not merely present, it was **undetectable**: a
+user who cannot see the screen was being asked to confirm something they had no
+way to check.
+
+**Fix:** the name is said and then spelled. The pronunciation to recognise it
+by, the letters to verify it by.
+
+Spelled by **grapheme cluster**, not code unit, which is the whole difficulty
+in Bangla. `'রাহিমা'.split('')` gives `র া হ ি ম া` — bare vowel signs, which
+mean nothing said aloud and are not how anyone spells a name. The grapheme
+clusters are `রা হি মা`: the syllables, which is exactly how a Bangla speaker
+spells one out. Conjuncts hold together for the same reason — `আব্দুল্লাহ` is
+`আ ব্দু ল্লা হ`.
+
+**Covered by:** `test/spoken_name_test.dart`, 8 tests, including that two names
+which sound alike now spell differently.

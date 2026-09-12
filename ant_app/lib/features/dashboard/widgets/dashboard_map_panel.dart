@@ -85,6 +85,40 @@ class DashboardMapPanel extends ConsumerStatefulWidget {
   /// it's ever embedded read-only elsewhere).
   final VoidCallback? onToggleFullScreen;
 
+  // ---- Overlay chrome vs. Google's own controls ---------------------------
+  //
+  // Reported: "the map full screen button covers the current location button".
+  // Not two of this app's buttons — those sit in opposite corners. The one
+  // underneath is Google's, and it is invisible to anything in this file.
+  //
+  // `GoogleMap` draws its own controls inside the platform view: my-location
+  // top-right, zoom buttons bottom-right, the compass top-left, the toolbar
+  // bottom-right. This app then stacks its own chrome on top in the same
+  // corners — the fullscreen toggle top-right, the recentre button
+  // bottom-right, the route banner across the top. Three collisions, and the
+  // reported one is simply the one people hit first, because my-location is
+  // the control a sighted companion reaches for most.
+  //
+  // `GoogleMap.padding` is the supported way to move them: it insets the
+  // native controls (and the camera's idea of centre, which is why it is kept
+  // symmetric top and bottom — an asymmetric inset would quietly shift every
+  // recentre off-centre).
+  static const double _overlayEdgeInset = 12;
+  static const double _overlayButtonSize = 44; // 10pt padding + 24pt icon
+  static const double overlayReservedEdge = _overlayEdgeInset + _overlayButtonSize;
+
+  /// Keeps Google's controls clear of this app's own.
+  ///
+  /// Vertical only. Pushing them *sideways* would walk the zoom buttons into
+  /// the middle of the map and the compass under the route banner, whereas
+  /// dropping them below this app's top row and lifting them above its bottom
+  /// one puts each in free space. The Google logo, bottom-left, is left where
+  /// it is — obscuring it breaks the Maps terms.
+  static const EdgeInsets nativeControlPadding = EdgeInsets.only(
+    top: overlayReservedEdge,
+    bottom: overlayReservedEdge,
+  );
+
   @override
   ConsumerState<DashboardMapPanel> createState() => _DashboardMapPanelState();
 }
@@ -329,8 +363,8 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
                   ),
                 if (route != null && !_following)
                   Positioned(
-                    bottom: 12,
-                    right: 12,
+                    bottom: DashboardMapPanel._overlayEdgeInset,
+                    right: DashboardMapPanel._overlayEdgeInset,
                     child: Semantics(
                       button: true,
                       label: d.mapRecentreSemantics,
@@ -350,8 +384,8 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
                   ),
                 if (widget.onToggleFullScreen != null)
                   Positioned(
-                    top: 12,
-                    right: 12,
+                    top: DashboardMapPanel._overlayEdgeInset,
+                    right: DashboardMapPanel._overlayEdgeInset,
                     child: Semantics(
                       button: true,
                       label: widget.isFullScreen ? d.mapCollapseSemantics : d.mapExpandSemantics,
@@ -464,6 +498,10 @@ class _DashboardMapPanelState extends ConsumerState<DashboardMapPanel> {
       initialCameraPosition:
           gmaps.CameraPosition(target: _myLocation ?? _dhakaFallback, zoom: _myLocationZoom),
       style: _cleanMapStyle,
+      // Without this, Google's my-location button sits directly underneath
+      // this panel's fullscreen toggle, and its zoom buttons underneath the
+      // recentre button. See [nativeControlPadding].
+      padding: DashboardMapPanel.nativeControlPadding,
       myLocationEnabled: true,
       // All of these were off, which left a map that could not be zoomed,
       // rotated, tilted or recentred — the reason it read as a static

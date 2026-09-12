@@ -182,6 +182,7 @@ class _ScriptedStt extends SttService {
     required void Function(String text, bool isFinal) onResult,
     Duration pauseFor = const Duration(seconds: 3),
     Duration listenFor = const Duration(minutes: 5),
+    Duration? initialSilence,
   }) async {
     final utterance = _rec.take();
     _rec.events.add('listen: ${utterance ?? "<silence>"}');

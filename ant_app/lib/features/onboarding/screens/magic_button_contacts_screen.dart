@@ -13,6 +13,7 @@ import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
 import '../widgets/onboarding_voice.dart';
 import '../widgets/spoken_digits.dart';
+import '../widgets/spoken_name.dart';
 import '../widgets/voice_dictate_button.dart';
 
 class MagicButtonContactsScreen extends ConsumerStatefulWidget {
@@ -198,8 +199,9 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
   ) async {
     final spacedPhone = _phoneController.text.trim().split('').join(' ');
     while (!cancelled()) {
+      final name = _nameController.text.trim();
       await tts.speak(
-        s.contactsConfirmSpoken(_nameController.text.trim(), spacedPhone),
+        s.contactsConfirmSpoken(name, spelledOutName(name), spacedPhone),
         language: language,
       );
       if (cancelled()) return false;

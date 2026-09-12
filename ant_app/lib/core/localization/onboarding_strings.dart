@@ -354,9 +354,21 @@ class Onboarding {
   /// almost anywhere else in onboarding. [spacedPhone] should have its
   /// digits spoken one at a time (space-separated), not read as one large
   /// number — see `_spaceOutDigits` at the call site.
-  String contactsConfirmSpoken(String name, String spacedPhone) => _t(
-        'I heard the name as $name, and the phone number as $spacedPhone. Say "yes" to save this, or "no" to try again.',
-        'নাম শুনেছি $name, আর ফোন নম্বর $spacedPhone। ঠিক থাকলে "হ্যাঁ" বলুন, নাহলে আবার বলতে "না" বলুন।',
+  /// [spelledName] is [name] spelled out — see `spelledOutName`.
+  ///
+  /// The number was always read digit by digit so it could be checked by ear.
+  /// The name was not, and a name is no easier to get right: reported against
+  /// the step that asks for a relative's real name, the read-back came out
+  /// misspelled. Nor could it have been caught, because the name was only ever
+  /// *pronounced*, and "Rahima", "Rohima" and "Raheema" are the same sound —
+  /// so a user who cannot see the screen was being asked to confirm something
+  /// they had no way to check. It is said and then spelled: the pronunciation
+  /// to recognise it by, the letters to verify it by.
+  String contactsConfirmSpoken(String name, String spelledName, String spacedPhone) => _t(
+        'I heard the name as $name — spelled $spelledName — and the phone number as $spacedPhone. '
+            'Say "yes" to save this, or "no" to try again.',
+        'নাম শুনেছি $name — বানান $spelledName — আর ফোন নম্বর $spacedPhone। '
+            'ঠিক থাকলে "হ্যাঁ" বলুন, নাহলে আবার বলতে "না" বলুন।',
       );
 
   // Passerby messages

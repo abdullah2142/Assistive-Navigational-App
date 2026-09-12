@@ -78,14 +78,12 @@ class EmergencyOutcome {
 class EmergencyService {
   EmergencyService({
     required TtsService tts,
-    required SttService stt,
     required AlertService alerts,
     EmergencyChannel? channel,
     RoutingService? routing,
     RoutePlanningService? planner,
     void Function(RouteChoice route, AppLanguage language)? onRoute,
   })  : _tts = tts,
-        _stt = stt,
         _alerts = alerts,
         _channel = channel ?? EmergencyChannel(),
         _routing = routing ?? RoutingService(),
@@ -93,7 +91,6 @@ class EmergencyService {
         _onRoute = onRoute;
 
   final TtsService _tts;
-  final SttService _stt;
   final AlertService _alerts;
   final EmergencyChannel _channel;
   final RoutingService _routing;
@@ -152,13 +149,26 @@ class EmergencyService {
     }
 
     if (confirm) {
-      final outcome = await VoiceCancelWindow.run(
+      // Read back, then go — no five-second window.
+      //
+      // Asked for directly, and it is the same call already made for dictated
+      // prose: the read-back *is* the confirmation. The argument for keeping
+      // it here longer than elsewhere was that this mistake cannot be undone
+      // by looking at the screen, and that is still true — so this is a real
+      // trade, not a tidy-up. What it buys is five seconds, on the one path in
+      // the app where five seconds is the whole point.
+      //
+      // `VoiceCancelWindow.run` and its deliberately narrow SOS vocabulary
+      // (`cancelsEmergency`, which refuses "stop" and "wait" precisely because
+      // those are what people shout at an attacker) are left in place and
+      // still tested. Restoring the window means calling it here again and
+      // handing this service an `SttService` — the field went with the window
+      // rather than being left behind unused.
+      final outcome = await VoiceCancelWindow.readBackOnly(
         tts: _tts,
-        stt: _stt,
         language: profile.language,
-        readBack: d.emergencyAbout(recipients.length, VoiceCancelWindow.window.inSeconds),
+        readBack: d.emergencyAbout(recipients.length),
         isCancelled: () => false,
-        emergency: true,
       );
       if (outcome != CancelWindowOutcome.proceed) {
         await _speak(d.emergencyCancelled, profile.language);

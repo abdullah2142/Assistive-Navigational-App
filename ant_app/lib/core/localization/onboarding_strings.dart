@@ -172,6 +172,47 @@ class Onboarding {
   List<String> get autoListenNoSynonyms =>
       _bn ? const ['না', 'আমি চাপব', 'বন্ধ'] : const ['no', 'i will tap', 'manual', 'off'];
 
+  // ---- Option narration ---------------------------------------------------
+  //
+  // Asked rather than decided, because it has been decided both ways and both
+  // were right for somebody. `OnboardingScaffold` first deferred the option
+  // list until it was asked for, so a user who knew their answer did not sit
+  // through a read-out; live testing reverted that, because a microphone
+  // opening in silence reads as the app "just recording". Different people,
+  // both correct.
+  String get optionNarrationTitle =>
+      _t('Should I read the choices out?', 'আমি কি বিকল্পগুলো পড়ে শোনাব?');
+  String get optionNarrationSubtitle => _t(
+        'On every question, ANT can read all the answers out before it listens — or stay quiet '
+            'and read them only when you ask.',
+        'প্রতিটি প্রশ্নে ANT শোনার আগে সব উত্তর পড়ে শোনাতে পারে — অথবা চুপ থেকে আপনি চাইলে তবেই পড়বে।',
+      );
+  String get optionNarrationAlwaysLabel => _t('Read them every time', 'প্রতিবার পড়ে শোনাও');
+  String get optionNarrationAlwaysDescription => _t(
+        'Best if you cannot see the screen — you never have to guess what you may say.',
+        'স্ক্রিন দেখতে না পেলে এটাই ভালো — কী বলা যাবে তা অনুমান করতে হবে না।',
+      );
+  List<String> get optionNarrationAlwaysSynonyms => _bn
+      ? const ['প্রতিবার', 'পড়ে শোনাও', 'সবসময়', 'হ্যাঁ']
+      : const ['every time', 'read them', 'always', 'yes', 'read it out'];
+
+  String get optionNarrationOnRequestLabel => _t('Only when I ask', 'শুধু আমি চাইলে');
+  String get optionNarrationOnRequestDescription => _t(
+        'Quicker once you know the questions. Say "options" at any point to hear them.',
+        'প্রশ্নগুলো জানা থাকলে দ্রুত হয়। যেকোনো সময় "বিকল্প" বললেই শুনতে পাবেন।',
+      );
+  List<String> get optionNarrationOnRequestSynonyms => _bn
+      ? const ['শুধু চাইলে', 'চাইলে', 'না', 'দরকার নেই']
+      : const ['only when i ask', 'when i ask', 'no', 'keyword', 'on request'];
+
+  /// Spoken in place of the option list when the user has asked for quiet.
+  ///
+  /// The silence itself was the reported problem — a mic opening with nothing
+  /// said reads as the app simply recording. So this is not "say nothing", it
+  /// is "say the one thing that gets the list back".
+  String get optionNarrationKeywordHint =>
+      _t('Say "options" to hear the choices.', '"বিকল্প" বললে পছন্দগুলো শুনতে পাবেন।');
+
   String get themeDarkLabel => _t('Dark', 'গাঢ়');
   String get themeDarkDescription => _t('Deep charcoal background, soft white text.', 'গাঢ় কালচে পটভূমি, নরম সাদা লেখা।');
   List<String> get themeDarkSynonyms => _bn ? const ['কালো', 'রাতের মোড', 'গাঢ় রং'] : const ['black', 'night mode', 'night'];

@@ -3,6 +3,14 @@
 // BEFORE the microphone opens** — never a brief intro with the options
 // available only if the user thinks to ask for "help".
 //
+// That is now the *default* rather than the only behaviour: a user can ask for
+// the list to be held back until they say "options"
+// (`UserProfile.narrateOptionsFirst`, and see
+// `option_narration_preference_test.dart`). It stays the default because it is
+// the safer answer for somebody who cannot see the screen, and these screens
+// are seeded with a default profile — so everything below still holds, and
+// still catches a screen that forgets to narrate at all.
+//
 // This is a cross-screen rule, and the screens that broke it are exactly
 // the ones that bypass `OnboardingScaffold`'s shared `_speakThenListen`
 // with a custom `autoSpeak: false` loop of their own. A rule enforced only

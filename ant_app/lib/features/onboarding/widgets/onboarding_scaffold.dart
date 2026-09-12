@@ -36,6 +36,7 @@ class OnboardingScaffold extends ConsumerStatefulWidget {
     this.language = AppLanguage.english,
     this.autoSpeak = true,
     this.voiceChoices = const [],
+    this.alwaysNarrateOptions = false,
     this.onVoiceRestart,
   });
 
@@ -68,6 +69,15 @@ class OnboardingScaffold extends ConsumerStatefulWidget {
   /// sequential yes/no questions) drives `listenForVoiceChoice` itself
   /// rather than using this — see `CognitiveAnxietyScreen`.
   final List<OnboardingVoiceChoice> voiceChoices;
+
+  /// Reads [spokenOptions] out regardless of what the user has asked for.
+  ///
+  /// Exactly one screen needs this: the one that asks the question. Someone
+  /// who previously chose quiet and then navigates *back* to change their mind
+  /// would otherwise be handed a silent microphone and two options they cannot
+  /// hear — unable to answer by voice the very question about answering by
+  /// voice.
+  final bool alwaysNarrateOptions;
 
   /// How to restart voice guidance on a screen that drives its own loop
   /// ([autoSpeak] false) after a failed step — see
@@ -131,7 +141,29 @@ class _OnboardingScaffoldState extends ConsumerState<OnboardingScaffold> {
     // than the slightly longer narration this restores. `listenForVoiceChoice`
     // still recognizes "help" mid-loop to *repeat* this, which stays useful
     // regardless of when it was first said.
-    final introParts = [widget.title, if (widget.subtitle != null) widget.subtitle!, ...widget.spokenOptions];
+    // Whether the options come unprompted, or only when asked for.
+    //
+    // The comment above records why this stopped being a constant: it shipped
+    // both ways and each reverted the other, because each was right for a
+    // different person. `UserProfile.narrateOptionsFirst` is that question put
+    // to the user instead of guessed at. It defaults to reading them, which is
+    // both the current behaviour and the safer answer for somebody who cannot
+    // see the screen — and it is what the first two screens get, since they
+    // run before a profile exists at all.
+    final narrateFirst =
+        widget.alwaysNarrateOptions || (ref.read(onboardingControllerProvider).profile?.narrateOptionsFirst ?? true);
+    final s0 = Onboarding.of(widget.language);
+    final introParts = [
+      widget.title,
+      if (widget.subtitle != null) widget.subtitle!,
+      // Never simply silent: a mic that opens with nothing said is the exact
+      // thing that got the deferred version reverted. When the list is held
+      // back, the way to get it is said instead.
+      if (narrateFirst)
+        ...widget.spokenOptions
+      else if (widget.spokenOptions.isNotEmpty)
+        s0.optionNarrationKeywordHint,
+    ];
     final intro = introParts.join('. ');
     await _tts.speak(intro, language: widget.language);
     if (_disposed || widget.voiceChoices.isEmpty || !ref.read(ttsEnabledProvider)) return;

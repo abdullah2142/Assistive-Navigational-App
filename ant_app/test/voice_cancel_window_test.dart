@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ant_app/core/localization/app_language.dart';
 import 'package:ant_app/core/localization/dashboard_strings.dart';
 import 'package:ant_app/core/services/voice_cancel_window.dart';
+import 'package:ant_app/core/services/tts_service.dart';
 
 void main() {
   group("English heard in a Bangla session", _phoneticBanglaTests);
@@ -58,6 +59,58 @@ void main() {
         expect(VoiceCancelWindow.classify(phrase), isNull);
       });
     }
+  });
+
+  // The five-second window is gone from every path that ships: dictation lost
+  // it first (the read-back is the confirmation), and the Magic Button lost it
+  // when that reasoning was extended to the emergency. `run` and the narrow SOS
+  // vocabulary below stay tested because restoring the window is a decision
+  // somebody may make again, and because `cancelsEmergency` is the part that
+  // took the most care to get right.
+  group('read-back only', () {
+    test('returns straight away, with no window to sit through', () async {
+      final tts = _RecordingTts();
+      final stopwatch = Stopwatch()..start();
+
+      final outcome = await VoiceCancelWindow.readBackOnly(
+        tts: tts,
+        language: AppLanguage.english,
+        readBack: 'Messaging 2 people and calling for help now.',
+        isCancelled: () => false,
+      );
+      stopwatch.stop();
+
+      expect(outcome, CancelWindowOutcome.proceed);
+      expect(tts.spoken.single, contains('Messaging 2 people'),
+          reason: 'the read-back still happens — it is the confirmation now');
+      expect(stopwatch.elapsed, lessThan(VoiceCancelWindow.window),
+          reason: 'the point of the change is that it does not wait');
+    });
+
+    test('a caller that has gone away still stops it', () async {
+      // The only remaining way out: the screen or flow being torn down under
+      // it. The Magic Button passes a constant false here, because an SOS
+      // does not stop just because a widget did.
+      final outcome = await VoiceCancelWindow.readBackOnly(
+        tts: _RecordingTts(),
+        language: AppLanguage.english,
+        readBack: 'anything',
+        isCancelled: () => true,
+      );
+      expect(outcome, CancelWindowOutcome.cancelled);
+    });
+
+    test('a failed read-back does not swallow the send', () async {
+      // Losing the voice must not lose the message. This is the emergency
+      // path: a TTS engine that throws cannot be allowed to mean "cancelled".
+      final outcome = await VoiceCancelWindow.readBackOnly(
+        tts: _ThrowingTts(),
+        language: AppLanguage.english,
+        readBack: 'anything',
+        isCancelled: () => false,
+      );
+      expect(outcome, CancelWindowOutcome.proceed);
+    });
   });
 
   group('the window is long enough to react to', () {
@@ -113,4 +166,29 @@ void _phoneticBanglaTests() {
   test('the emergency vocabulary already had this and keeps it', () {
     expect(VoiceCancelWindow.cancelsEmergency('ক্যান্সেল'), isTrue);
   });
+}
+
+class _RecordingTts implements TtsService {
+  final List<String> spoken = [];
+
+  @override
+  Future<void> speak(String text, {AppLanguage language = AppLanguage.english}) async => spoken.add(text);
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  void setVoiceId(String voiceId) {}
+}
+
+class _ThrowingTts implements TtsService {
+  @override
+  Future<void> speak(String text, {AppLanguage language = AppLanguage.english}) async =>
+      throw StateError('no audio route');
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  void setVoiceId(String voiceId) {}
 }

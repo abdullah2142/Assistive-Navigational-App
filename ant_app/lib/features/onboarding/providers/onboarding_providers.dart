@@ -488,8 +488,14 @@ class OnboardingController extends Notifier<OnboardingState> {
     // cannot reach. See `autoListenDefaultFor`.
     _goTo(shouldAskAboutAutoListen(profile.visionLevel)
         ? OnboardingStep.autoListenQuestion
-        : OnboardingStep.verbosityAndVoice);
+        : _afterAutoListen(isDeafOrHardOfHearing));
   }
+
+  /// Where the interview goes once auto-listen is settled, asked or skipped.
+  OnboardingStep _afterAutoListen(bool isDeafOrHardOfHearing) =>
+      shouldAskAboutOptionNarration(isDeafOrHardOfHearing: isDeafOrHardOfHearing)
+          ? OnboardingStep.optionNarrationQuestion
+          : OnboardingStep.verbosityAndVoice;
 
   /// The answer to `OnboardingStep.autoListenQuestion`.
   Future<void> setAutoListen(bool enabled) async {
@@ -497,6 +503,15 @@ class OnboardingController extends Notifier<OnboardingState> {
     if (profile == null) return;
     _stopCurrentScreenVoice();
     if (!await _persist(profile.copyWith(voiceAutoListen: enabled))) return;
+    _goTo(_afterAutoListen(profile.isDeafOrHardOfHearing));
+  }
+
+  /// The answer to `OnboardingStep.optionNarrationQuestion`.
+  Future<void> setNarrateOptionsFirst(bool narrateFirst) async {
+    final profile = state.profile;
+    if (profile == null) return;
+    _stopCurrentScreenVoice();
+    if (!await _persist(profile.copyWith(narrateOptionsFirst: narrateFirst))) return;
     _goTo(OnboardingStep.verbosityAndVoice);
   }
 

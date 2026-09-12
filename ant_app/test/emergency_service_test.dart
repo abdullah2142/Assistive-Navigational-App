@@ -99,11 +99,21 @@ void main() {
         expect(Dashboard.of(language).emergencyActivated.trim(), isNotEmpty);
       });
 
-      test('$language names the cancel word in the countdown', () {
+      test('$language says how many people are being contacted', () {
         final d = Dashboard.of(language);
-        final prompt = d.emergencyAbout(3, 5);
+        final prompt = d.emergencyAbout(3);
         expect(prompt, contains('3'));
-        expect(prompt, contains('5'));
+      });
+
+      test('$language does not offer a cancel it cannot honour', () {
+        // The five-second window is gone. A read-back that still said "say
+        // cancel to stop" would be inviting somebody in trouble to talk to
+        // nothing, which is worse than saying nothing at all.
+        final d = Dashboard.of(language);
+        final prompt = d.emergencyAbout(3).toLowerCase();
+        for (final word in ['cancel', 'বাতিল', 'stop', 'থামা']) {
+          expect(prompt, isNot(contains(word)), reason: prompt);
+        }
       });
     }
 
@@ -114,7 +124,7 @@ void main() {
         d.emergencyCancelled,
         d.emergencyNotSent,
         d.emergencyNoContacts,
-        d.emergencyAbout(2, 5),
+        d.emergencyAbout(2),
       ]) {
         expect(RegExp(r'[ঀ-৿]').hasMatch(s), isTrue, reason: s);
       }

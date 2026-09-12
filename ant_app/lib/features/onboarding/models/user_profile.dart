@@ -37,6 +37,7 @@ class UserProfile {
     this.snapshotConsent = SnapshotConsentPreference.askEachTime,
     this.wakeWordEnabled = false,
     this.wakeWordThreshold,
+    this.narrateOptionsFirst = true,
     this.savedPlaces = const [],
     this.onboardingStep,
     bool? voiceAutoListen,
@@ -136,6 +137,26 @@ class UserProfile {
   /// A tester who finds their setting should not lose it to a reinstall.
   final double? wakeWordThreshold;
 
+  /// Whether a screen reads its options out before it starts listening, or
+  /// waits to be asked for them.
+  ///
+  /// This has been decided both ways already, which is why it is now a
+  /// question rather than a constant. `OnboardingScaffold` originally deferred
+  /// the list until the user said "options", so somebody who already knew
+  /// their answer did not sit through a read-out; live testing reverted it,
+  /// because a microphone opening in silence reads as the app "just
+  /// recording" with no idea what to say. Both findings are real, and they
+  /// came from different people.
+  ///
+  /// Defaults to reading them out. That is the current behaviour, it is the
+  /// safer of the two for someone who cannot see the screen, and a user who
+  /// finds it slow can say so — whereas a user left in silence has nothing to
+  /// say it *to*.
+  ///
+  /// Either way "options"/"help"/"বিকল্প" still repeats the list mid-listen;
+  /// this only decides whether it is offered unprompted.
+  final bool narrateOptionsFirst;
+
   // Whether voice mic entry points (the passerby message composer today —
   // see `PasserbyMessagePicker`) should start listening automatically
   // instead of waiting for a manual mic tap. Defaults to on for anyone
@@ -179,6 +200,7 @@ class UserProfile {
         'snapshotConsent': snapshotConsent.name,
         'wakeWordEnabled': wakeWordEnabled,
         'wakeWordThreshold': wakeWordThreshold,
+        'narrateOptionsFirst': narrateOptionsFirst,
         'voiceAutoListen': voiceAutoListen,
         'savedPlaces': savedPlaces.map((p) => p.toJson()).toList(),
         'onboardingStep': onboardingStep?.name,
@@ -211,6 +233,9 @@ class UserProfile {
         snapshotConsent: SnapshotConsentPreference.fromFirestore(json['snapshotConsent'] as String?),
         wakeWordEnabled: json['wakeWordEnabled'] as bool? ?? false,
         wakeWordThreshold: (json['wakeWordThreshold'] as num?)?.toDouble(),
+        // Absent on every profile written before the question existed, and
+        // those users have been hearing the options all along.
+        narrateOptionsFirst: json['narrateOptionsFirst'] as bool? ?? true,
         // Not `?? false` like the others — a profile that's never had this
         // field written yet (every profile created before this field
         // existed) should still get the smart, profile-based default
@@ -257,6 +282,7 @@ class UserProfile {
     SnapshotConsentPreference? snapshotConsent,
     bool? wakeWordEnabled,
     double? wakeWordThreshold,
+    bool? narrateOptionsFirst,
     bool? voiceAutoListen,
     List<SavedPlace>? savedPlaces,
     OnboardingStep? onboardingStep,
@@ -285,6 +311,7 @@ class UserProfile {
         snapshotConsent: snapshotConsent ?? this.snapshotConsent,
         wakeWordEnabled: wakeWordEnabled ?? this.wakeWordEnabled,
         wakeWordThreshold: wakeWordThreshold ?? this.wakeWordThreshold,
+        narrateOptionsFirst: narrateOptionsFirst ?? this.narrateOptionsFirst,
         // Always resolved to a concrete value before reaching the
         // constructor (never left as a bare `null` pass-through) — this
         // preserves whatever was already persisted rather than recomputing
@@ -331,6 +358,13 @@ bool autoListenDefaultFor({
 
 /// Whether onboarding should put the question to this user at all.
 bool shouldAskAboutAutoListen(VisionLevel visionLevel) => visionLevel != VisionLevel.none;
+
+/// Whether to ask how options should be narrated.
+///
+/// Not asked of a Deaf or hard-of-hearing user: spoken guidance is switched
+/// off for them the moment they say so (see `setDeafHearing`), so a question
+/// about when narration happens is a question about something that does not.
+bool shouldAskAboutOptionNarration({required bool isDeafOrHardOfHearing}) => !isDeafOrHardOfHearing;
 
 String voiceIdFor(AppLanguage language, {required bool female}) {
   final locale = language == AppLanguage.bangla ? 'bn-BD' : 'en-US';

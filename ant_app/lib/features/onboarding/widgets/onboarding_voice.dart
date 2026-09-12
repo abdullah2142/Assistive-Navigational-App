@@ -423,12 +423,18 @@ const Duration _continuationWindow = Duration(seconds: 3);
 /// matches (after calling its `onSelect`) or [isCancelled] reports true
 /// (the screen was left, e.g. via back or a manual tap already handled it).
 ///
-/// [helpText] — the full option list, if the caller has one — is deliberately
-/// never spoken up front (explicit user feedback: forcing a full read-out of
-/// every option before the user can even respond makes the assistant feel
-/// slow and unresponsive to someone who already knows what they want). It's
-/// offered only when asked for ("help"/"hint"/"বিকল্প" etc., recognized here)
-/// so a user who needs it can always get it without derailing one who doesn't.
+/// [helpText] — the full option list, if the caller has one — is what
+/// "help"/"hint"/"options"/"বিকল্প" repeats mid-loop, and what gets read
+/// automatically after two misses in a row.
+///
+/// Whether it is *also* spoken up front is not decided here: `OnboardingScaffold`
+/// speaks it as part of its intro, or holds it back and says how to ask for it,
+/// according to `UserProfile.narrateOptionsFirst`. That began as a constant and
+/// was reversed twice — deferring it made the assistant feel slow to someone
+/// who already knew their answer, and reading it made a mic that opened in
+/// silence feel broken to someone who did not — so it is a question put to the
+/// user now rather than a call made for them. Either way this function's own
+/// behaviour is the same: the list is always available on request.
 Future<void> listenForVoiceChoice({
   required SttService stt,
   required TtsService tts,

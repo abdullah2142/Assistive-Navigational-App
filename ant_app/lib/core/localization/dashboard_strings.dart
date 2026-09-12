@@ -54,10 +54,17 @@ class Dashboard {
       _t('Emergency mode. Sending alerts.', 'জরুরি অবস্থা। সাহায্যের বার্তা পাঠানো হচ্ছে।');
 
   /// The cancel window's read-back for an accidental trigger.
-  String emergencyAbout(int contacts, int seconds) => _t(
-        'I will message $contacts people and call for help in $seconds seconds. '
-        'Say cancel to stop.',
-        '$contacts জনকে বার্তা পাঠাব এবং $seconds সেকেন্ডে ফোন করব। থামাতে বলুন বাতিল।',
+  /// Said as the SOS goes out, not before a countdown.
+  ///
+  /// The five-second window this used to introduce is gone — asked for
+  /// directly, on the grounds that the read-back is already the confirmation.
+  /// So this no longer promises a way to stop it, because there isn't one:
+  /// inviting a "cancel" that nothing is listening for would be worse than
+  /// saying nothing at all. It still says exactly what is happening, which is
+  /// what the user is waiting to hear.
+  String emergencyAbout(int contacts) => _t(
+        'Messaging $contacts people and calling for help now.',
+        '$contacts জনকে বার্তা পাঠাচ্ছি এবং এখনই ফোন করছি।',
       );
 
   String get emergencyCancelled =>
@@ -926,6 +933,13 @@ class Dashboard {
       );
 
   String get settingsWakeWordReset => _t('Reset to default', 'ডিফল্টে ফিরুন');
+
+  String get settingsOptionNarrationSection =>
+      _t('Reading choices out', 'পছন্দ পড়ে শোনানো');
+  String get settingsOptionNarrationSwitch => _t(
+        'Read every question\'s choices out before listening. Off, they are read only when you say "options".',
+        'শোনার আগে প্রতিটি প্রশ্নের পছন্দগুলো পড়ে শোনাও। বন্ধ থাকলে "বিকল্প" বললে তবেই পড়া হবে।',
+      );
 
   String get settingsAutoListenSection => _t('Auto-listen', 'নিজে থেকে শোনা');
   String get settingsAutoListenSwitch =>

@@ -15,6 +15,7 @@ import 'lock_in_screen.dart';
 import 'magic_button_contacts_screen.dart';
 import 'mobility_question_screen.dart';
 import 'onboarding_complete_screen.dart';
+import 'option_narration_screen.dart';
 import 'paired_confirmation_screen.dart';
 import 'passerby_messages_screen.dart';
 import 'role_selection_screen.dart';
@@ -78,6 +79,7 @@ class _OnboardingFlowScreenState extends ConsumerState<OnboardingFlowScreen> {
       OnboardingStep.cognitiveAnxietyQuestion => const CognitiveAnxietyScreen(),
       OnboardingStep.deafHearingQuestion => const DeafHearingScreen(),
       OnboardingStep.autoListenQuestion => const AutoListenScreen(),
+      OnboardingStep.optionNarrationQuestion => const OptionNarrationScreen(),
       OnboardingStep.verbosityAndVoice => const VerbosityVoiceScreen(),
       OnboardingStep.magicButtonContacts => const MagicButtonContactsScreen(),
       OnboardingStep.passerbyMessages => const PasserbyMessagesScreen(),

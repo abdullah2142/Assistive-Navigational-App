@@ -562,6 +562,14 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
             ),
           ),
           _SectionCard(
+            title: d.settingsOptionNarrationSection,
+            child: _SwitchRow(
+              label: d.settingsOptionNarrationSwitch,
+              value: profile.narrateOptionsFirst,
+              onChanged: (v) => _save(profile.copyWith(narrateOptionsFirst: v)),
+            ),
+          ),
+          _SectionCard(
             title: d.settingsAutoListenSection,
             child: _SwitchRow(
               label: d.settingsAutoListenSwitch,

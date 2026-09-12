@@ -1539,3 +1539,75 @@ that the slider runs the opposite way to the threshold (dragging right must
 make it *easier* to trigger), that it saves on drag end rather than per frame,
 and that the tile fits a 360dp phone in both languages. That last one caught a
 real overflow that would have painted a striped bar across the meter.
+
+## 41. The five-second window is gone from the Magic Button too — DONE
+
+Asked for directly: *"remove the redundant 5 second sending delay"*.
+
+Dictation lost its window earlier, on the grounds that the read-back is
+already the confirmation. The Magic Button kept its one deliberately — item
+24's note says that for the emergency the mistake is messaging and telephoning
+somebody's family, and cannot be undone by looking at the screen, so losing it
+"should be a decision, not a tidy-up". This is that decision.
+
+`EmergencyService` now calls `VoiceCancelWindow.readBackOnly`. `emergencyAbout`
+was rewritten with it: it used to say *"...in 5 seconds. Say cancel to stop."*
+and now says what is happening in the present tense. A read-back that still
+invited a cancel nothing was listening for would be worse than saying nothing
+at all — it would have somebody in trouble talking to a microphone that was
+never opened.
+
+**The trade, stated plainly:** a false trigger now sends immediately. That is
+the cost, and it is real — the volume-down hold has produced accidental SOSs
+before (see the `disarmHold` work in `MainActivity`). What it buys is five
+seconds on the one path in the app where five seconds is the whole point.
+
+`VoiceCancelWindow.run` and `cancelsEmergency` — the narrow SOS vocabulary that
+deliberately refuses "stop" and "wait", because those are what people shout at
+an attacker — are left in place and still tested. Restoring the window means
+calling `run` here again and handing the service an `SttService`; the field went
+with the window rather than being left behind unused.
+
+**Covered by:** three new tests in `test/voice_cancel_window_test.dart`
+(including that a TTS engine which throws cannot turn into "cancelled" on the
+emergency path) and two in `test/emergency_service_test.dart`.
+
+## 42. Option narration is now the user's choice — DONE
+
+Asked for directly: *"in onboarding and in settings, ask a question if user
+wants option narration first or upon keyword only"*.
+
+**This had already been decided twice, in opposite directions, and both were
+right.** `OnboardingScaffold` first deferred the option list until somebody
+said "options", so a user who already knew their answer did not sit through a
+read-out. Live testing reverted it — a microphone opening in silence reads as
+the app "just recording", with no idea what to say. The comments recording both
+reversals are still in the file. Neither reporter was wrong; they were
+different people.
+
+So it is asked instead of guessed:
+
+- `UserProfile.narrateOptionsFirst`, defaulting to **on** — the existing
+  behaviour, and the safer of the two for somebody who cannot see the screen. A
+  user who finds it slow can say so; a user left in silence has nothing to say
+  it to.
+- A new onboarding step, `OnboardingStep.optionNarrationQuestion`, after the
+  auto-listen question and before verbosity. Skipped for a Deaf or
+  hard-of-hearing user: spoken guidance is already switched off for them, so it
+  would be a question about something that does not happen.
+- A toggle in My Settings, beside auto-listen.
+
+**Holding the list back never means silence.** That silence is precisely what
+got the deferred version reverted the first time, so the intro says
+`optionNarrationKeywordHint` instead — *"Say 'options' to hear the choices."* —
+and a test checks that the word it names is one `isHelpRequest` actually
+recognises. A hint naming a keyword the matcher does not know would be worse
+than no hint.
+
+The question screen narrates its own options regardless
+(`OnboardingScaffold.alwaysNarrateOptions`). Somebody who chose quiet and then
+navigates back to change their mind would otherwise face a silent microphone
+and two options they cannot hear — unable to answer by voice the very question
+about answering by voice.
+
+**Covered by:** `test/option_narration_preference_test.dart`, 10 tests.

@@ -10,6 +10,7 @@ import '../services/navigation_controller.dart';
 import '../services/route_planning_service.dart';
 import '../../features/guardian/providers/guardian_providers.dart';
 import '../services/emergency_service.dart';
+import '../services/haptics_service.dart';
 import '../services/stt_service.dart';
 import '../../core/providers/tts_providers.dart';
 import '../services/wake_word_service.dart';
@@ -48,6 +49,10 @@ final cloudSttServiceProvider = Provider<CloudSttService>((ref) {
 /// volume hold and a shouted "help me" seconds apart from sending two full
 /// rounds of messages — the same person asking twice, not asking for twice
 /// as much help.
+/// The three-pattern haptic language (Module 7). One instance, because the
+/// hazard-alarm throttle is state that has to be shared across every caller.
+final hapticsServiceProvider = Provider<HapticsService>((ref) => HapticsService());
+
 final emergencyServiceProvider = Provider<EmergencyService>(
   (ref) => EmergencyService(
     tts: ref.watch(ttsServiceProvider),
@@ -97,7 +102,10 @@ final geminiAssistantServiceProvider = Provider<GeminiAssistantService?>((ref) {
 /// replaces the previous session rather than running two narrators over
 /// the same voice.
 final navigationControllerProvider = Provider<NavigationController>((ref) {
-  final controller = NavigationController(tts: ref.watch(ttsServiceProvider));
+  final controller = NavigationController(
+    tts: ref.watch(ttsServiceProvider),
+    haptics: ref.watch(hapticsServiceProvider),
+  );
   ref.onDispose(controller.dispose);
   return controller;
 });

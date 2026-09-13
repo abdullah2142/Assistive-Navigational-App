@@ -216,3 +216,62 @@ T? exclusive<T>(List<String> words, VoicePhrase first, T firstValue, VoicePhrase
   if (a == b) return null;
   return a ? firstValue : secondValue;
 }
+
+/// Edit distance between two words, capped — anything beyond [limit] is not a
+/// near miss and there is no reason to keep counting.
+///
+/// Iterative two-row Levenshtein: a command matcher runs this across a handful
+/// of words on every utterance, so it must not allocate a full matrix.
+int boundedEditDistance(String a, String b, {int limit = 1}) {
+  if (a == b) return 0;
+  if ((a.length - b.length).abs() > limit) return limit + 1;
+  var previous = List<int>.generate(b.length + 1, (i) => i);
+  var current = List<int>.filled(b.length + 1, 0);
+  for (var i = 1; i <= a.length; i++) {
+    current[0] = i;
+    var best = current[0];
+    for (var j = 1; j <= b.length; j++) {
+      final substitution = previous[j - 1] + (a.codeUnitAt(i - 1) == b.codeUnitAt(j - 1) ? 0 : 1);
+      final deletion = previous[j] + 1;
+      final insertion = current[j - 1] + 1;
+      current[j] = substitution < deletion
+          ? (substitution < insertion ? substitution : insertion)
+          : (deletion < insertion ? deletion : insertion);
+      if (current[j] < best) best = current[j];
+    }
+    // Every remaining row can only add to this, so a whole row already past
+    // the limit can never come back under it.
+    if (best > limit) return limit + 1;
+    final swap = previous;
+    previous = current;
+    current = swap;
+  }
+  return previous[b.length];
+}
+
+/// Whether [words] contains [target] or something a recognizer would plausibly
+/// have produced instead of it.
+///
+/// Exists because this app's commands are matched against what Cloud STT
+/// *returned*, not what the user said. "Report a hazard" came back as "People
+/// of the hazard" on a real device, and a matcher built on exact substrings
+/// had nothing to offer it — so the command took a 1.5-to-29-second round trip
+/// to Gemini to be understood, when the local path costs 17ms.
+///
+/// One edit, and only for words long enough that one edit still leaves them
+/// recognisable. Three letters or fewer must match exactly: at that length an
+/// edit is a different word, not a mis-hearing ("cab"/"cap", "off"/"of").
+bool containsNearWord(List<String> words, String target) {
+  if (words.contains(target)) return true;
+  if (target.length <= 3) return false;
+  final allowance = target.length >= 7 ? 2 : 1;
+  for (final word in words) {
+    if ((word.length - target.length).abs() > allowance) continue;
+    if (boundedEditDistance(word, target, limit: allowance) <= allowance) return true;
+  }
+  return false;
+}
+
+/// True when every word in [targets] has a near match in [words].
+bool containsAllNear(List<String> words, List<String> targets) =>
+    targets.every((t) => containsNearWord(words, t));

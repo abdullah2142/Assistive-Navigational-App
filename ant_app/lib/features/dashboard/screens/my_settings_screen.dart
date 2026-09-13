@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +8,7 @@ import '../../../core/localization/app_language.dart';
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
+import '../../../core/services/haptics_service.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/ai_text_summarizer.dart';
@@ -559,6 +562,37 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                 ref.read(wakeWordServiceProvider).threshold = threshold;
                 _save(profile.copyWith(wakeWordThreshold: threshold));
               },
+            ),
+          ),
+          _SectionCard(
+            title: d.settingsHapticsSection,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(d.settingsHapticsHint, style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 10),
+                // Segmented rather than a slider: three named levels the plan
+                // specifies, and a blind user can be told "Strong, Medium,
+                // Gentle" in a way they cannot be told a slider position.
+                SegmentedButton<HapticIntensity>(
+                  segments: [
+                    for (final level in HapticIntensity.values)
+                      ButtonSegment(value: level, label: Text(d.hapticIntensityLabel(level))),
+                  ],
+                  selected: {profile.hapticIntensity},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (selection) {
+                    final level = selection.first;
+                    // Applied to the live service before the write, and played
+                    // straight back: choosing a strength you cannot feel is
+                    // the thing this setting exists to prevent, so it has to
+                    // answer immediately rather than after a round trip.
+                    final haptics = ref.read(hapticsServiceProvider)..intensity = level;
+                    unawaited(haptics.play(HapticCue.confirmation));
+                    _save(profile.copyWith(hapticIntensity: level));
+                  },
+                ),
+              ],
             ),
           ),
           _SectionCard(

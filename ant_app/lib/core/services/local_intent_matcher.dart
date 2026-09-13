@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../localization/app_language.dart';
 import 'voice_matching.dart';
 
@@ -113,7 +115,65 @@ class LocalIntentMatcher {
         // route", and before `_matchRoute` for the same reason.
         _matchCancelRoute(lower, text) ??
         _matchRouteChange(lower, text) ??
-        _matchRoute(lower, text, bn);
+        _matchRoute(lower, text, bn) ??
+        // Last, and only when every exact matcher has declined: this pass
+        // trades precision for recall, so it must never pre-empt one that is
+        // certain.
+        _matchMisheard(lower, text);
+  }
+
+  // ---- recall pass for what the recognizer actually returned -------------
+
+  /// Commands worth recognising through a mis-transcription, and the words
+  /// that carry them.
+  ///
+  /// Every word listed must be present, near enough — not a majority, all of
+  /// them. A single loose word is how "show me the screen brightness" becomes
+  /// a passer-by helper.
+  ///
+  /// Deliberately short. These are the commands a user reaches for while
+  /// standing in the street and needing something to happen, where the cost of
+  /// the miss is a round trip to Gemini of between 1.5 and 29 seconds — and
+  /// often a failure at the end of it, since a model given "People of the
+  /// hazard" has no better chance than the matcher did.
+  static const _mishearable = <({String intent, List<String> en, List<String> bn})>[
+    (intent: 'open_hazard_report', en: ['hazard'], bn: ['বিপদ']),
+    (intent: 'open_hazard_report', en: ['report', 'problem'], bn: ['সমস্যা', 'জানাও']),
+    (intent: 'open_passerby_helper', en: ['show', 'screen'], bn: ['স্ক্রিন', 'দেখাও']),
+  ];
+
+  /// A forgiving match on a long utterance is a coincidence, not a command.
+  ///
+  /// Somebody saying "the pavement here is a real hazard for me every morning"
+  /// is describing their day. Somebody saying "report a hazard" is asking for
+  /// something. Length is what separates them once exactness has been given
+  /// up.
+  static const int _maxMisheardWords = 6;
+
+  static LocalIntent? _matchMisheard(String lower, String text) {
+    // Questions *about* a command are not the command — the same guard every
+    // exact matcher applies, and it matters more here.
+    if (kQuestionBlockers.any(lower.contains)) return null;
+    if (_emergencyQuestionBlockers.any(lower.contains) ||
+        _emergencyQuestionBlockers.any(text.contains)) {
+      return null;
+    }
+    final words = voiceWords(text);
+    if (words.isEmpty || words.length > _maxMisheardWords) return null;
+    final lowered = words.map((w) => w.toLowerCase()).toList();
+
+    for (final candidate in _mishearable) {
+      // Bangla is matched exactly: an edit-distance rule tuned on Latin
+      // letters does not transfer to a script where a single code point is a
+      // vowel sign, and a wrong "near miss" there would be a command the user
+      // never gave.
+      if (containsAllNear(lowered, candidate.en) ||
+          candidate.bn.every((t) => words.any((w) => w.contains(t)))) {
+        debugPrint('[Intent] misheard-recall matched ${candidate.intent} in "$text"');
+        return LocalIntent(candidate.intent, const {});
+      }
+    }
+    return null;
   }
 
   // ---- pair_with_caretaker --------------------------------------------
@@ -375,6 +435,14 @@ class LocalIntentMatcher {
   static const _reportVerbsBn = ['জানাও', 'রিপোর্ট', 'আছে'];
 
   static LocalIntent? _matchOverlay(String lower, String text, bool bn) {
+    // Asking *about* a command is not the command. Every other matcher in
+    // this file guards for it; this one never did, so "what happens if I
+    // report a hazard" opened the Reporting Hub on the spot — a user trying to
+    // understand the feature was put inside it instead.
+    if (_emergencyQuestionBlockers.any(lower.contains) ||
+        _emergencyQuestionBlockers.any(text.contains)) {
+      return null;
+    }
     if (_showScreenEn.any(lower.contains) || _showScreenBn.any(text.contains)) {
       return const LocalIntent('open_passerby_helper', {});
     }

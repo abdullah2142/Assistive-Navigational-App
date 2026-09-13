@@ -38,6 +38,7 @@ class UserProfile {
     this.wakeWordEnabled = false,
     this.wakeWordThreshold,
     this.narrateOptionsFirst = true,
+    this.hapticIntensity = HapticIntensity.medium,
     this.savedPlaces = const [],
     this.onboardingStep,
     bool? voiceAutoListen,
@@ -157,6 +158,15 @@ class UserProfile {
   /// this only decides whether it is offered unprompted.
   final bool narrateOptionsFirst;
 
+  /// How strong the haptic patterns are — see `HapticsService`.
+  ///
+  /// Module 7 step 3.1 asks for this because older devices have weaker
+  /// motors, and the test handset for this project is a budget Xiaomi. It cuts
+  /// the other way too: a strong buzz startles, and being startled in a crowd
+  /// is its own failure for a user who told onboarding that crowds make them
+  /// anxious.
+  final HapticIntensity hapticIntensity;
+
   // Whether voice mic entry points (the passerby message composer today —
   // see `PasserbyMessagePicker`) should start listening automatically
   // instead of waiting for a manual mic tap. Defaults to on for anyone
@@ -201,6 +211,7 @@ class UserProfile {
         'wakeWordEnabled': wakeWordEnabled,
         'wakeWordThreshold': wakeWordThreshold,
         'narrateOptionsFirst': narrateOptionsFirst,
+        'hapticIntensity': hapticIntensity.name,
         'voiceAutoListen': voiceAutoListen,
         'savedPlaces': savedPlaces.map((p) => p.toJson()).toList(),
         'onboardingStep': onboardingStep?.name,
@@ -236,6 +247,7 @@ class UserProfile {
         // Absent on every profile written before the question existed, and
         // those users have been hearing the options all along.
         narrateOptionsFirst: json['narrateOptionsFirst'] as bool? ?? true,
+        hapticIntensity: HapticIntensity.fromFirestore(json['hapticIntensity'] as String?),
         // Not `?? false` like the others — a profile that's never had this
         // field written yet (every profile created before this field
         // existed) should still get the smart, profile-based default
@@ -283,6 +295,7 @@ class UserProfile {
     bool? wakeWordEnabled,
     double? wakeWordThreshold,
     bool? narrateOptionsFirst,
+    HapticIntensity? hapticIntensity,
     bool? voiceAutoListen,
     List<SavedPlace>? savedPlaces,
     OnboardingStep? onboardingStep,
@@ -312,6 +325,7 @@ class UserProfile {
         wakeWordEnabled: wakeWordEnabled ?? this.wakeWordEnabled,
         wakeWordThreshold: wakeWordThreshold ?? this.wakeWordThreshold,
         narrateOptionsFirst: narrateOptionsFirst ?? this.narrateOptionsFirst,
+        hapticIntensity: hapticIntensity ?? this.hapticIntensity,
         // Always resolved to a concrete value before reaching the
         // constructor (never left as a bare `null` pass-through) — this
         // preserves whatever was already persisted rather than recomputing

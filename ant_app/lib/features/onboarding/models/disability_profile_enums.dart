@@ -53,3 +53,22 @@ enum SnapshotConsentPreference {
   static SnapshotConsentPreference fromFirestore(String? value) => SnapshotConsentPreference.values
       .firstWhere((v) => v.name == value, orElse: () => SnapshotConsentPreference.askEachTime);
 }
+
+/// How hard the haptic patterns should be.
+///
+/// `07_module_plan_haptics.md` step 3.1: "Older devices have weaker motors, so
+/// the app will allow setting the default vibration amplitude to High, Medium
+/// or Low." The test device for this project is a budget Xiaomi, and a pattern
+/// a blind user cannot feel through a pocket is not feedback.
+///
+/// Low is not only for weak motors — it is also for a user who finds a strong
+/// buzz startling, which for someone already anxious in a crowd is its own
+/// kind of failure.
+enum HapticIntensity {
+  high,
+  medium,
+  low;
+
+  static HapticIntensity fromFirestore(String? value) =>
+      HapticIntensity.values.firstWhere((v) => v.name == value, orElse: () => HapticIntensity.medium);
+}

@@ -353,7 +353,7 @@ measured distribution rather than against a guess.)
 
 ---
 
-## 25. Assistant replies take 1.5-29 seconds, unpredictably
+## 25. Assistant replies take 1.5-29 seconds, unpredictably — LOCAL PATH WIDENED
 
 **Measured in the same session.** Three Gemini round trips: **1486 ms**,
 **19883 ms**, **20204 ms**, **28867 ms** — same device, same session, same
@@ -1766,3 +1766,81 @@ a visible add button beside the mic for the sighted path.
 `setPasserbyHelperMessages` — the earlier draft asserted Continue was *enabled*
 and passed trivially, because the pre-selected suggestions had already enabled
 it.
+
+## 46. Commands lost to mis-transcription — FIXED
+
+The measured cause behind half of item 25. "Report a hazard" came back from
+Cloud STT as **"People of the hazard"** on a real device, and every matcher in
+`LocalIntentMatcher` is an exact substring test, so it had nothing to offer
+that — the command took the 1.5-to-29-second round trip to Gemini, which has no
+better chance with those words than the matcher did. The local path costs 17ms.
+
+**Fix:** a recall pass that runs **last**, only once every exact matcher has
+declined, so it can never pre-empt one that is certain. It matches a short list
+of high-value commands on signature words with one edit of tolerance
+(`containsNearWord`, two edits for words of seven letters or more). Three
+letters or fewer must still match exactly — at that length an edit is a
+different word, not a mis-hearing ("cab"/"cap", "off"/"of").
+
+Now recognised: `People of the hazard.`, `report a hazad`, `reporter hazard`,
+`show me screen`, `shou my screen`, `show my scren`.
+
+Guarded three ways, because this pass trades precision for recall:
+
+- **Every** signature word must be present, not a majority. One loose word is
+  how "turn up the screen brightness" becomes a passer-by helper.
+- Six words maximum. "The pavement here is a real hazard for me every morning"
+  is somebody describing their day; length is what separates it from a request
+  once exactness has been given up.
+- Questions about a command are excluded.
+
+**Bangla is matched exactly, deliberately.** An edit-distance rule tuned on
+Latin letters does not transfer to a script where one code point is a vowel
+sign, and a wrong "near miss" there would be a command the user never gave. It
+gets recall from its own phrase lists instead.
+
+**A pre-existing bug fell out of this:** `_matchOverlay` was the one matcher in
+the file with no question guard, so "what happens if I report a hazard" opened
+the Reporting Hub — a user trying to understand the feature was put inside it.
+
+**Covered by:** `test/misheard_command_test.dart`, 17 tests.
+
+## 47. Module 7's haptic language was never actually built — DONE
+
+Eight call sites reached for `HapticFeedback` directly with whatever constant
+seemed right. That is not a language: `mediumImpact` at a turn and
+`mediumImpact` when a microphone opens say the same thing about two unrelated
+events. The comments in `NavigationController` already named the plan's
+patterns — "Single buzz", "Double buzz", "Long buzz" — while the code produced
+none of them.
+
+`HapticsService` now owns the three patterns `07_module_plan_haptics.md`
+allows, and no others. The restriction is the design: a blind user learns three
+patterns and knows them instantly, where six become noise nobody can tell apart
+while walking.
+
+**Amplitude control is the part that needed a new dependency.**
+`HapticFeedback` cannot set strength at all, so `vibration` is in now. Step 3.1
+asks for High/Medium/Low because "older devices have weaker motors", and the
+test handset for this project is a budget Xiaomi — a pattern a blind user
+cannot feel through a pocket is not feedback. It cuts the other way too: a
+strong buzz startles, and being startled in a crowd is its own failure for
+someone who told onboarding that crowds make them anxious.
+
+Settings shows three named levels rather than a slider, and **plays the level
+back as you choose it** — picking a strength you cannot feel is the exact thing
+this setting exists to prevent, so it answers immediately rather than after a
+Firestore round trip.
+
+Step 3.2's sensory-overload throttle is in: one hazard alarm every five
+seconds, because an alarm on every hazard in a crowd panics the person it is
+meant to protect.
+
+Degrades in both directions — no amplitude control still plays the pattern
+(most older handsets are here: they buzz, they just cannot be told how hard),
+and no motor at all falls back to system haptics rather than going silent. Every
+path is guarded: a cue rides alongside a spoken instruction and never carries
+meaning alone, so a platform that refuses to buzz must not take the turn
+announcement, the arrival or the SOS down with it.
+
+**Covered by:** `test/haptics_service_test.dart`, 12 tests.

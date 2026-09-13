@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
@@ -11,6 +10,7 @@ import '../localization/dashboard_strings.dart';
 import 'navigation_narrator.dart';
 import 'route_planning_service.dart';
 import 'routing_service.dart' show ManeuverKind;
+import 'haptics_service.dart';
 import 'tts_service.dart';
 
 /// Drives spoken turn-by-turn navigation: subscribes to GPS, asks
@@ -30,13 +30,21 @@ import 'tts_service.dart';
 /// point — a blind user learns three patterns and knows them instantly,
 /// where six become noise nobody can tell apart while walking.
 class NavigationController {
-  NavigationController({required TtsService tts, Stream<Position>? positionStream})
-      : _tts = tts,
+  NavigationController({
+    required TtsService tts,
+    HapticsService? haptics,
+    Stream<Position>? positionStream,
+  })  : _tts = tts,
+        // Defaulted rather than required: every existing test builds this with
+        // a TTS alone, and a controller that cannot buzz is still a controller
+        // that narrates.
+        _haptics = haptics ?? HapticsService(),
         // Injectable so a test can walk a synthetic track past a route
         // without a device, the same way `NavigationNarrator` is tested.
         _injectedStream = positionStream;
 
   final TtsService _tts;
+  final HapticsService _haptics;
   final Stream<Position>? _injectedStream;
 
   StreamSubscription<Position>? _subscription;
@@ -165,7 +173,7 @@ class NavigationController {
 
     switch (cue.kind) {
       case NavigationCueKind.turnAhead:
-        HapticFeedback.selectionClick();
+        unawaited(_haptics.play(HapticCue.navigation));
         await _speak(d.navigateTurnAhead(
           kind: step!.maneuver,
           meters: cue.distanceMeters,
@@ -173,19 +181,18 @@ class NavigationController {
         ));
       case NavigationCueKind.turnNow:
         // Single buzz — "turn", per the haptics module plan.
-        HapticFeedback.mediumImpact();
+        unawaited(_haptics.play(HapticCue.navigation));
         await _speak(cue.isFinalStep
             ? d.navigateFinalTurn(kind: step!.maneuver, streetName: step.streetName)
             : d.navigateTurnNow(kind: step!.maneuver, streetName: step.streetName));
       case NavigationCueKind.offRoute:
         // Long buzz — the "something is wrong" pattern.
-        HapticFeedback.heavyImpact();
+        unawaited(_haptics.play(HapticCue.hazard));
         await _speak(d.navigateOffRoute);
       case NavigationCueKind.arrived:
-        // Double buzz — "confirmed".
-        HapticFeedback.mediumImpact();
-        await Future<void>.delayed(const Duration(milliseconds: 120));
-        HapticFeedback.mediumImpact();
+        // Double buzz — "confirmed". One call now: the pattern is the
+        // service's, not two impacts and a sleep spelled out at the call site.
+        unawaited(_haptics.play(HapticCue.confirmation));
         await _speak(d.navigateArrived);
         await stop(silent: true);
         // Set *after* `stop`, which clears it: arriving is a state the map

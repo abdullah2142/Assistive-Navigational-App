@@ -1,5 +1,6 @@
 import '../../features/dashboard/models/hazard_report.dart';
 import '../services/routing_service.dart' show ManeuverKind;
+import '../../features/onboarding/models/disability_profile_enums.dart';
 import 'app_language.dart';
 
 /// All UI text for the Split-Mode Dashboard, My Settings, the Crowdsource
@@ -968,6 +969,18 @@ class Dashboard {
         'You have photo sharing switched off, so nothing was sent.',
         'আপনি ছবি শেয়ার বন্ধ রেখেছেন, তাই কিছু পাঠানো হয়নি।',
       );
+
+  // ---- Haptic strength (Module 7 step 3.1) --------------------------------
+  String get settingsHapticsSection => _t('Vibration strength', 'কম্পনের মাত্রা');
+  String get settingsHapticsHint => _t(
+        'How strongly the phone buzzes for turns, arrivals and hazards. Tap a level to feel it.',
+        'মোড়, পৌঁছানো ও বিপদের জন্য ফোন কতটা জোরে কাঁপবে। অনুভব করতে একটি মাত্রায় চাপ দিন।',
+      );
+  String hapticIntensityLabel(HapticIntensity level) => switch (level) {
+        HapticIntensity.high => _t('Strong', 'জোরালো'),
+        HapticIntensity.medium => _t('Medium', 'মাঝারি'),
+        HapticIntensity.low => _t('Gentle', 'মৃদু'),
+      };
 
   String get settingsOptionNarrationSection =>
       _t('Reading choices out', 'পছন্দ পড়ে শোনানো');

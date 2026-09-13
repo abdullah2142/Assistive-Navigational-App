@@ -92,6 +92,9 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     });
     ref.read(ttsServiceProvider).setVoiceId(widget.profile.voiceId);
     _applyWakeWordThreshold();
+    // The saved strength has to reach the service before the first turn, not
+    // on the first visit to settings.
+    ref.read(hapticsServiceProvider).intensity = widget.profile.hapticIntensity;
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => ref.read(chatControllerProvider.notifier).ensureWelcomeMessage(Dashboard.of(widget.profile.language)),
@@ -140,6 +143,9 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     // case, since somebody tuning it has the wake word switched on already.
     if (widget.profile.wakeWordThreshold != oldWidget.profile.wakeWordThreshold) {
       _applyWakeWordThreshold();
+    }
+    if (widget.profile.hapticIntensity != oldWidget.profile.hapticIntensity) {
+      ref.read(hapticsServiceProvider).intensity = widget.profile.hapticIntensity;
     }
     if (widget.profile.wakeWordEnabled == oldWidget.profile.wakeWordEnabled) return;
     if (widget.profile.wakeWordEnabled) {

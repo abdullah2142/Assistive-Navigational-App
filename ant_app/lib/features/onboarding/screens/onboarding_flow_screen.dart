@@ -101,6 +101,32 @@ class _OnboardingFlowScreenState extends ConsumerState<OnboardingFlowScreen> {
     // misfire off the new screen's own speech. A screen change here should
     // be instant, not animated — see `OnboardingScaffold.dispose` for the
     // other half of this fix (it now also stops TTS, not just STT).
-    return KeyedSubtree(key: ValueKey(step), child: screen);
+    final view = KeyedSubtree(key: ValueKey(step), child: screen);
+
+    // Android's back gesture goes back a *step*, not out of the app.
+    //
+    // Reported as "backbutton of caretaker code input page doesn't work", and
+    // it was true of every screen in the interview, not just that one: this
+    // whole flow is a single route that switches on state, so the system back
+    // had nothing to pop except the route itself, and pressing it left the
+    // app. Before onboarding could resume (item 26), leaving mid-interview was
+    // indistinguishable from losing the lot — which is very likely part of
+    // what "app data clean hoye jaay close korlei" was describing.
+    //
+    // The on-screen back arrow in `OnboardingScaffold` always worked; it is
+    // the gesture every Android user actually reaches for that did not.
+    //
+    // `canPop` is true only on the very first screen, where there is no
+    // previous step: refusing there would trap somebody in an app they cannot
+    // leave, which is worse than the bug.
+    final atStart = ref.watch(onboardingControllerProvider.select((s) => s.history.isEmpty));
+    return PopScope(
+      canPop: atStart,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        ref.read(onboardingControllerProvider.notifier).goBack();
+      },
+      child: view,
+    );
   }
 }

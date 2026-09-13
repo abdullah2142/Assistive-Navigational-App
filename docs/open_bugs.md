@@ -1623,3 +1623,80 @@ and two options they cannot hear — unable to answer by voice the very question
 about answering by voice.
 
 **Covered by:** `test/option_narration_preference_test.dart`, 10 tests.
+
+---
+
+## 43. A call for help wrapped in politeness did not fire — FIXED
+
+**Reported, Part E 8:** *"sentence er moddhe help me thakle trigger korche na"*
+— a call for help inside a sentence does not trigger.
+
+Measured before changing anything. The cases that missed were not sentences at
+all; they were the same two-word cry wearing politeness:
+
+| Heard | Words | Before |
+| --- | --- | --- |
+| `কেউ আমাকে সাহায্য করো` (somebody help me) | 4 | **missed** |
+| `আমাকে একটু সাহায্য করো` (help me a little) | 4 | **missed** |
+| `help me i am on the road` | 7 | missed |
+
+English hides this, because "help me" already contains its pronoun and
+"please" fitted inside `_maxBareCryWords`. Bangla puts the pronoun and the
+softener in separate words, so ordinary politeness pushed every one of these
+over a line that was drawn against **errands** — which they are not.
+
+**Fix:** politeness is stripped before the cry is measured (`_cryFiller`).
+Deliberately *not* a raised cap: the cap is doing real work, and
+`সাহায্য করো গুলশান যেতে` ("help me get to Gulshan") and "help me find a
+pharmacy" are four content words each and must stay out. Equally deliberately,
+the filler holds **no pronouns and no articles** — drop `me` and `a` and "help
+me find a pharmacy" becomes a three-word cry, which the tests pin down.
+
+**Covered by:** `test/tester_round_2_test.dart`, checked in both directions.
+
+## 44. The system back gesture left the app — FIXED
+
+**Reported:** *"Backbutton of caretaker code input page doesn't work"*.
+
+True of **every** screen in the interview, not just that one. The on-screen
+back arrow in `OnboardingScaffold` always worked; what did not was the gesture
+every Android user actually reaches for. `OnboardingFlowScreen` is a single
+route that switches on state, so the system back had nothing to pop except the
+route itself — and pressing it left the app.
+
+Before onboarding could resume (item 26), leaving mid-interview was
+indistinguishable from losing everything. **This is very likely part of what
+"app data clean hoye jaay close korlei" was describing**, and it would explain
+why that report survived the resume fix landing.
+
+**Fix:** a `PopScope` mapping the gesture to `goBack()`. `canPop` is true only
+on the first screen, where there is no previous step — refusing there would
+trap somebody in an app they cannot leave, which is worse than the bug.
+
+**Found while testing it:** `_rememberStep` could throw *synchronously* out of
+`goBack`. `catchError` only covers an async failure, and reaching
+`ProfileService` constructs `FirebaseFirestore.instance`, which throws outright
+when no app is initialised. Losing a bookmark must never cost the user the step
+they were taking, which is what the doc comment claimed and the code did not
+do. Now wrapped.
+
+## 45. Your own passer-by message was dropped on the floor — FIXED
+
+**Reported:** *"What might you need to tell a strangers? — can not take 'my own
+message'"*.
+
+Three suggestions are pre-selected, so Continue was always enabled and the
+screen looked fine. But the saved list was built from `_selected + _custom`,
+and **nothing put typed text into `_custom`**: the only commit path was the
+soft keyboard's submit key. Dictation was worse — `_dictate` filled the field
+and stopped there, so a blind user spoke their message, heard nothing wrong,
+and it was discarded at Continue.
+
+**Fix, three ways in, because each was separately broken:** dictation commits
+what it heard; Continue takes whatever is still in the field; and there is now
+a visible add button beside the mic for the sighted path.
+
+**Covered by:** two tests asserting what actually reaches
+`setPasserbyHelperMessages` — the earlier draft asserted Continue was *enabled*
+and passed trivially, because the pre-selected suggestions had already enabled
+it.

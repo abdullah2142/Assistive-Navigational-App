@@ -466,6 +466,7 @@ class Onboarding {
   List<String> get passerbyAddOwnTriggers => _bn
       ? const ['নিজের বার্তা', 'আমার বার্তা যোগ করব', 'নিজের কথা', 'কাস্টম বার্তা']
       : const ['my own message', 'add my own', 'say my own', 'custom message', 'write my own', 'add a message'];
+  String get passerbyAddOwnButton => _t('Add this message', 'এই বার্তাটি যোগ করুন');
   String get passerbyAddOwnPromptSpoken => _t('Okay, say your message now.', 'ঠিক আছে, এখন আপনার বার্তা বলুন।');
   String get passerbyNeedAtLeastOneSpoken => _t(
         'Please pick at least one message, or add your own, before continuing.',

@@ -150,6 +150,39 @@ class LocalIntentMatcher {
   /// words and a question. Three is the line between them.
   static const int _maxBareCryWords = 3;
 
+  /// Words that do not make a cry any less of a cry.
+  ///
+  /// Reported from the device: *"sentence er moddhe help me thakle trigger
+  /// korche na"* — a call for help inside a sentence does not fire. Measured,
+  /// and the cases that missed were not sentences at all, they were the same
+  /// two-word cry wearing politeness:
+  ///
+  ///   `কেউ আমাকে সাহায্য করো`   somebody help me      — 4 words, missed
+  ///   `আমাকে একটু সাহায্য করো`  help me a little      — 4 words, missed
+  ///
+  /// English hides this because "help me" already contains its pronoun and
+  /// "please" was inside the cap. Bangla puts the pronoun and the softener in
+  /// separate words, so ordinary politeness pushed every one of these over a
+  /// line drawn against *errands*, which they are not.
+  ///
+  /// Stripped before counting rather than raising the cap, because the cap is
+  /// doing real work: `সাহায্য করো গুলশান যেতে` ("help me get to Gulshan") and
+  /// "help me find a pharmacy" are both four content words and both must stay
+  /// out. Politeness is not content.
+  /// Politeness and vocatives only — deliberately no pronouns and no
+  /// articles. "Help me find a pharmacy" is an errand, and it survives the
+  /// cap only because `me` and `a` are counted: drop those and an errand
+  /// becomes a three-word cry. `আমাকে` stays counted for the same reason.
+  static const _cryFiller = {
+    'please', 'plz', 'someone', 'somebody', 'anyone', 'anybody', 'kindly',
+    'just', 'oh', 'hey', 'ant',
+    'একটু', 'কেউ', 'কেউই', 'একজন', 'দয়া', 'করে', 'প্লিজ',
+  };
+
+  /// How long the cry is once politeness is taken out of it.
+  static int _cryLength(Iterable<String> spoken) =>
+      spoken.where((w) => !_cryFiller.contains(w)).length;
+
   /// Or when something else in the sentence says this is not an errand.
   ///
   /// Overwhelmingly these are statements about what the speaker *cannot*
@@ -248,7 +281,7 @@ class LocalIntentMatcher {
     if (strong) return const LocalIntent('trigger_emergency', {});
     final hasDistress =
         _distressContext.any(lower.contains) || _distressContext.any(text.contains);
-    if (hasDistress || spoken.length <= _maxBareCryWords) {
+    if (hasDistress || _cryLength(spoken) <= _maxBareCryWords) {
       return const LocalIntent('trigger_emergency', {});
     }
     return null;

@@ -199,11 +199,23 @@ class OnboardingController extends Notifier<OnboardingState> {
   void _rememberStep(OnboardingStep step) {
     final profile = state.profile;
     if (profile == null) return;
-    unawaited(
-      ref.read(profileServiceProvider).saveOnboardingStep(uid: profile.uid, step: step).catchError(
-            (Object e) => debugPrint('[Onboarding] could not record step $step: $e'),
-          ),
-    );
+    // The whole call, not just the future it returns.
+    //
+    // `catchError` only covers an *async* failure. Reaching the service can
+    // throw synchronously — `ProfileService`'s constructor asks for
+    // `FirebaseFirestore.instance`, which throws outright when no Firebase app
+    // is initialised — and that exception would come straight back out of
+    // `_goTo`/`goBack`, breaking navigation itself. Losing a bookmark must
+    // never cost the user the step they were trying to take.
+    try {
+      unawaited(
+        ref.read(profileServiceProvider).saveOnboardingStep(uid: profile.uid, step: step).catchError(
+              (Object e) => debugPrint('[Onboarding] could not record step $step: $e'),
+            ),
+      );
+    } catch (e) {
+      debugPrint('[Onboarding] could not record step $step: $e');
+    }
   }
 
   void goBack() {

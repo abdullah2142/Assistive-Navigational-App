@@ -111,7 +111,17 @@ class _PasserbyMessagesScreenState extends ConsumerState<PasserbyMessagesScreen>
         _customController.selection = TextSelection.collapsed(offset: trimmed.length);
       },
     );
-    if (mounted) setState(() => _listening = false);
+    if (!mounted) return;
+    setState(() => _listening = false);
+    // Committed, not left sitting in the field.
+    //
+    // Reported as "can not take my own message". Dictating filled the box and
+    // stopped there — nothing added it to `_custom`, and since Continue is
+    // enabled on `_selected + _custom` being non-empty, somebody whose only
+    // answer was their own message watched the button stay greyed out with
+    // their words visibly in the field. A user who cannot see that field had
+    // no way to discover the problem at all.
+    _addCustom();
   }
 
   static const _donePhrasesEn = [
@@ -324,6 +334,9 @@ class _PasserbyMessagesScreenState extends ConsumerState<PasserbyMessagesScreen>
     final s = Onboarding.of(profile.language);
     _initFrom(s, profile);
 
+    // Text still in the box counts. Requiring a separate "add" step before
+    // Continue is the same trap as above, just reached by typing.
+    final pendingCustom = _customController.text.trim();
     final allSelected = [..._selected, ..._custom];
 
     return OnboardingScaffold(
@@ -333,8 +346,10 @@ class _PasserbyMessagesScreenState extends ConsumerState<PasserbyMessagesScreen>
       language: profile.language,
       isLoading: state.isLoading,
       primaryActionLabel: s.continueLabel,
-      primaryActionEnabled: allSelected.isNotEmpty,
-      onPrimaryAction: () => controller.setPasserbyHelperMessages(allSelected),
+      primaryActionEnabled: allSelected.isNotEmpty || pendingCustom.isNotEmpty,
+      onPrimaryAction: () => controller.setPasserbyHelperMessages(
+        [...allSelected, if (pendingCustom.isNotEmpty) summarizeText(pendingCustom)],
+      ),
       spokenOptions: [
         s.passerbySpokenPreselected(_suggestions.take(3).join('. ')),
         if (_suggestions.length > 3) s.passerbySpokenMore(_suggestions.skip(3).join('. ')),
@@ -381,6 +396,28 @@ class _PasserbyMessagesScreenState extends ConsumerState<PasserbyMessagesScreen>
                     controller: _customController,
                     decoration: InputDecoration(hintText: s.passerbyWriteOwnHint),
                     onSubmitted: (_) => _addCustom(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // An explicit, visible way to commit the text. There was none —
+              // only the soft keyboard's submit key, which a screen-reader
+              // user may never reach and a sighted one has no reason to guess.
+              Semantics(
+                button: true,
+                label: s.passerbyAddOwnButton,
+                child: Material(
+                  color: pendingCustom.isEmpty
+                      ? Theme.of(context).disabledColor
+                      : Theme.of(context).colorScheme.secondary,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: pendingCustom.isEmpty ? null : _addCustom,
+                    child: const Padding(
+                      padding: EdgeInsets.all(14),
+                      child: Icon(Icons.add_rounded, color: Colors.white),
+                    ),
                   ),
                 ),
               ),

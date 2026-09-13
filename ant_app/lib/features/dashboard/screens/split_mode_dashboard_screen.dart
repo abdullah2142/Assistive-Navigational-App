@@ -8,6 +8,7 @@ import '../models/hazard_report.dart';
 import '../models/suggested_chip.dart';
 import '../widgets/chat_stream_panel.dart';
 import '../widgets/crowdsource_reporting_hub.dart';
+import '../widgets/caretaker_inbox_listener.dart';
 import '../widgets/dashboard_map_panel.dart';
 import '../providers/chat_providers.dart';
 import '../widgets/passerby_message_picker.dart';
@@ -146,7 +147,12 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
       if (_mapVisible) return;
       setState(() => _mapVisible = true);
     });
-    return Scaffold(
+    // Wraps the whole dashboard so the caretaker's messages keep arriving
+    // while the user is anywhere in it. Renders nothing of its own — delivery
+    // is into the chat stream, spoken. See `CaretakerInboxListener`.
+    return CaretakerInboxListener(
+      profile: widget.profile,
+      child: Scaffold(
       // Deliberately minimal — a single icon, not a menu bar. See
       // MySettingsScreen's doc comment for why this exists at all.
       appBar: AppBar(
@@ -224,6 +230,7 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
             );
           },
         ),
+      ),
       ),
     );
   }

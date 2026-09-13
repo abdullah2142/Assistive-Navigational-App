@@ -13,6 +13,8 @@ import '../../../core/services/offline_intent_matcher.dart';
 import '../../../core/services/pending_place_save.dart';
 import '../../../core/services/route_planning_service.dart';
 import '../../../core/services/routing_service.dart' show RouteCandidate;
+import '../../guardian/models/communication_message.dart';
+import '../../onboarding/models/disability_profile_enums.dart';
 import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../models/chat_message.dart';
@@ -198,6 +200,51 @@ class ChatController extends Notifier<ChatState> {
   /// Public because it does not come from a typed or spoken message and so
   /// has no path through `sendFreeText`.
   Future<void> triggerEmergency(UserProfile profile) => _runEmergency(profile);
+
+  /// Delivers a message the caretaker sent, aloud and into the chat.
+  ///
+  /// Module 8's receiving half. The chat stream is deliberately reused rather
+  /// than given its own inbox screen: it is the one surface this user already
+  /// knows, it is already read aloud, and a separate screen is a place a blind
+  /// user has to be told to go and look at.
+  ///
+  /// Returns the audio, if any, for the caller to play — this controller owns
+  /// text and state, not the speaker.
+  Future<void> receiveCaretakerMessage(
+    CommunicationMessage message,
+    UserProfile profile, {
+    Future<bool> Function(String audioBase64)? playAudio,
+  }) async {
+    final d = Dashboard.of(profile.language);
+    switch (message.type) {
+      case CommunicationType.memo:
+        if (message.text.trim().isEmpty) return;
+        await _appendAssistantReply(d.caretakerMemoHeard(message.text.trim()), profile);
+      case CommunicationType.voiceMemo:
+        final audio = message.audioBase64;
+        // Announced first, then played. The announcement is what tells a user
+        // who cannot see the screen that the sound about to come out of their
+        // phone is their caretaker and not the assistant.
+        await _appendAssistantReply(d.caretakerVoiceMemoHeard, profile);
+        if (audio == null || playAudio == null) return;
+        if (!await playAudio(audio)) {
+          await _appendAssistantReply(d.caretakerVoiceMemoUnplayable, profile);
+        }
+      case CommunicationType.snapshotRequest:
+        await _appendAssistantReply(d.caretakerSnapshotRequested, profile);
+        // Consent is read here for the first time. Onboarding has been
+        // collecting it since Module 1 and nothing has ever looked at it.
+        if (profile.snapshotConsent == SnapshotConsentPreference.never) {
+          await _appendAssistantReply(d.caretakerSnapshotDeclined, profile);
+          return;
+        }
+        // Module 6 is unbuilt — there is no camera dependency in this app at
+        // all. Saying so is the whole point: a request that arrives and then
+        // silently does nothing is exactly what item 28 felt like from both
+        // ends.
+        await _appendAssistantReply(d.caretakerSnapshotNotAvailable, profile);
+    }
+  }
 
   /// Runs the Magic Button and reports the outcome in the chat.
   ///

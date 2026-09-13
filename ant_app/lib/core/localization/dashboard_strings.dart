@@ -937,6 +937,38 @@ class Dashboard {
 
   String get settingsWakeWordReset => _t('Reset to default', 'ডিফল্টে ফিরুন');
 
+  // ---- Caretaker messages arriving (Module 8, receiving half) -------------
+  String caretakerMemoHeard(String text) =>
+      _t('Message from your caretaker: $text', 'আপনার সহায়কের বার্তা: $text');
+
+  String get caretakerVoiceMemoHeard =>
+      _t('A voice message from your caretaker.', 'আপনার সহায়ক একটি ভয়েস বার্তা পাঠিয়েছেন।');
+
+  /// Said when the clip itself cannot be played, so the user is not left
+  /// wondering whether anything arrived.
+  String get caretakerVoiceMemoUnplayable => _t(
+        'A voice message from your caretaker arrived, but it could not be played.',
+        'আপনার সহায়কের ভয়েস বার্তা এসেছে, কিন্তু বাজানো যায়নি।',
+      );
+
+  String get caretakerSnapshotRequested => _t(
+        'Your caretaker asked to see a photo of what is around you.',
+        'আপনার সহায়ক আপনার আশপাশের একটি ছবি দেখতে চেয়েছেন।',
+      );
+
+  /// Module 6 is not built, so the request can be delivered and not answered.
+  /// Saying so is the point: a request that silently does nothing is what the
+  /// whole of item 28 felt like.
+  String get caretakerSnapshotNotAvailable => _t(
+        'Sending photos is not available in this build yet, so nothing was sent.',
+        'এই সংস্করণে ছবি পাঠানো এখনও চালু হয়নি, তাই কিছু পাঠানো হয়নি।',
+      );
+
+  String get caretakerSnapshotDeclined => _t(
+        'You have photo sharing switched off, so nothing was sent.',
+        'আপনি ছবি শেয়ার বন্ধ রেখেছেন, তাই কিছু পাঠানো হয়নি।',
+      );
+
   String get settingsOptionNarrationSection =>
       _t('Reading choices out', 'পছন্দ পড়ে শোনানো');
   String get settingsOptionNarrationSwitch => _t(

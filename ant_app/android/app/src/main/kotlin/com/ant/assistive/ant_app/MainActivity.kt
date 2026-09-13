@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -33,6 +35,15 @@ class MainActivity : FlutterActivity() {
          * frightened.
          */
         private const val SOS_HOLD_MS = 3000L
+
+        /**
+         * How long after the last auto-repeat the key is still assumed down.
+         *
+         * Android's volume repeat interval is tens of milliseconds, so this is
+         * generous by an order of magnitude — it is here to tolerate a slow or
+         * briefly stalled repeat stream, not to time anything.
+         */
+        private const val REPEAT_GRACE_MS = 700L
     }
 
     /**
@@ -62,6 +73,11 @@ class MainActivity : FlutterActivity() {
     private val holdHandler = Handler(Looper.getMainLooper())
     private var holdArmed = false
 
+    /// Whether this device delivered any auto-repeat during the current hold,
+    /// and when the last one arrived. See [fireIfStillHeld].
+    private var sawRepeat = false
+    private var lastKeyDownAt = 0L
+
     /**
      * Volume Down held for [SOS_HOLD_MS] triggers the Magic Button.
      *
@@ -82,50 +98,84 @@ class MainActivity : FlutterActivity() {
      * off. The voice trigger covers that case.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN && event.repeatCount == 0 && !holdArmed) {
-            // repeatCount == 0 is the initial press; the auto-repeats that
-            // follow are what Android uses to keep lowering the volume, and
-            // they must reach it.
-            holdArmed = true
-            holdHandler.postDelayed({
-                if (holdArmed) {
-                    holdArmed = false
-                    emergencyChannel?.invokeMethod("sosHeld", null)
-                }
-            }, SOS_HOLD_MS)
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            if (event.repeatCount == 0 && !holdArmed) {
+                holdArmed = true
+                sawRepeat = false
+                lastKeyDownAt = SystemClock.elapsedRealtime()
+                // Say that the press landed, immediately.
+                //
+                // There was no feedback at all until the SOS fired three
+                // seconds later, so a user holding the key had no way to tell
+                // it from a key that had not registered — and the natural
+                // response to that is to keep holding and then report that it
+                // "takes more than 3 seconds". A tick at the start costs
+                // nothing and answers the only question they have.
+                window?.decorView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                holdHandler.postDelayed({ fireIfStillHeld() }, SOS_HOLD_MS)
+            } else if (holdArmed) {
+                // Auto-repeats while the key stays down. These are the
+                // liveness signal — see [fireIfStillHeld].
+                sawRepeat = true
+                lastKeyDownAt = SystemClock.elapsedRealtime()
+            }
         }
         // Always falls through: the volume is the system's to change.
         return super.onKeyDown(keyCode, event)
     }
 
-    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+    /**
+     * Fires the SOS only if the key still appears to be down.
+     *
+     * Liveness is judged from the key's own auto-repeats rather than from
+     * window focus, and that is the fix. The previous version disarmed on any
+     * focus loss, which is correct for an incoming call and wrong for the
+     * thing that happens every single time: holding Volume Down raises the
+     * system volume panel, and on some ROMs — MIUI among them, which is what
+     * this is tested on — that panel takes focus. The hold was being cancelled
+     * by the very UI the hold summons, so the SOS never fired and the user
+     * kept holding.
+     *
+     * Repeats survive that, because Android keeps delivering them to the
+     * activity while the key is physically down.
+     *
+     * The fallback matters as much as the rule: if no repeat ever arrived,
+     * this device does not auto-repeat volume keys, and demanding one would
+     * mean the Magic Button never works there at all. In that case fall back
+     * to the older test — armed, and no key-up seen.
+     */
+    private fun fireIfStillHeld() {
+        if (!holdArmed) return
+        val quiet = SystemClock.elapsedRealtime() - lastKeyDownAt
+        if (sawRepeat && quiet > REPEAT_GRACE_MS) {
+            // Repeats stopped well before the window closed: the key went up
+            // somewhere this activity could not hear it.
             holdArmed = false
-            holdHandler.removeCallbacksAndMessages(null)
+            return
         }
+        holdArmed = false
+        emergencyChannel?.invokeMethod("sosHeld", null)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) disarmHold()
         return super.onKeyUp(keyCode, event)
     }
 
-    /**
-     * Disarms the hold whenever this window stops being the one receiving
-     * keys.
-     *
-     * `onKeyUp` is the only other thing that clears it, and Android does not
-     * deliver a matching key-up to a window that lost focus mid-press. So a
-     * user ducking the volume who is interrupted by an incoming call
-     * releases the key against the call screen, this activity never hears
-     * it, and three seconds later an SOS fires from a press they abandoned.
-     */
     private fun disarmHold() {
         holdArmed = false
+        sawRepeat = false
         holdHandler.removeCallbacksAndMessages(null)
     }
 
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (!hasFocus) disarmHold()
-    }
-
+    /**
+     * Deliberately no longer disarms on focus loss.
+     *
+     * That is what the volume panel trips. A press abandoned against a call
+     * screen is caught by [fireIfStillHeld] instead, which notices the
+     * repeats stopping — and `onPause` below still covers a real
+     * backgrounding.
+     */
     override fun onPause() {
         disarmHold()
         super.onPause()

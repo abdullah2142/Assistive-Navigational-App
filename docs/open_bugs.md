@@ -493,7 +493,7 @@ channel itself is item 28, which is the thing to fix first regardless.
 **Covered by:** `test/hazard_report_submit_test.dart`, 3 tests. All three fail
 against the unbounded version.
 
-## 28. Caretaker communication does not work at all — DIAGNOSED, UNBUILT
+## 28. Caretaker communication does not work at all — RECEIVING HALF BUILT
 
 **Tester D:** "caretaker er snapshot request user er kache ashtese na. Not only
 that, communication er kono part e kaaj korche na."
@@ -535,6 +535,72 @@ was deliberately left rather than half-started. What it needs, in order:
 3. Snapshot requests gated on `UserProfile.snapshotConsent`, which onboarding
    already collects and nothing yet reads.
 4. Module 6, for the capture itself.
+
+**Steps 1-3 are now built.** `incomingCaretakerMessagesProvider` subscribes the
+Disabled User's device to `communications/{myUid}/messages`, filtered to
+incoming in Dart (the collection is keyed by their uid and already capped at 50,
+so both directions arrive together and splitting them server-side would need a
+composite index for nothing). `CaretakerInboxListener` wraps the dashboard and
+hands each new message to `ChatController.receiveCaretakerMessage`.
+
+Delivery is into the **chat stream**, spoken — deliberately not a new inbox
+screen. The chat is the one surface this user already has and already hears; a
+separate screen is a place a blind user has to be told to go and look at.
+
+- **Memos** are announced and written into the chat.
+- **Voice memos** are announced *first*, then played. The announcement is what
+  tells somebody who cannot see the screen that the sound about to come out of
+  their phone is their caretaker and not the assistant. A clip that will not
+  decode says so rather than passing in silence.
+- **Snapshot requests** are delivered and then answered honestly: Module 6 is
+  unbuilt, there is no `camera` dependency in the app at all, so nothing can be
+  sent and the user is told that. A request that arrives and silently does
+  nothing is exactly what this item felt like from both ends.
+  `UserProfile.snapshotConsent` is read here for the first time — onboarding has
+  collected it since Module 1 and nothing has ever looked at it — and `never`
+  refuses before the missing module is even reached.
+
+**Two limits worth stating rather than discovering:**
+
+1. **Only messages that arrive while the app is open are announced.**
+   `watchMessages` replays the last 50, so the first snapshot seeds a
+   seen-set and says nothing — otherwise every launch would read the whole
+   history aloud. The cost is a memo sent while the app was closed staying
+   silent. The honest fix is a persisted read marker, and the rules cannot
+   support one today: `communications` grants read and create, no update. That
+   wants a rules change, not a workaround.
+2. **An unpaired user opens no subscription at all.** Pairing is optional by
+   design, so a solo user must not carry a live Firestore query for a
+   conversation that cannot exist.
+
+**Covered by:** `test/caretaker_inbox_test.dart`, 7 tests.
+
+## 41b. The SOS hold was being cancelled by the volume panel — FIXED
+
+**Reported, Part E 1:** "Perhaps it takes more than 3s."
+
+`MainActivity` disarmed the hold on **any** window focus loss. That is right
+for an incoming call and wrong for the thing that happens every single time:
+holding Volume Down raises the system volume panel, and on some ROMs — MIUI
+among them, which is the test device — that panel takes focus. The hold was
+being cancelled by the very UI the hold summons, so the SOS never fired and the
+user kept holding, which is precisely what "more than 3 seconds" describes.
+
+**Fix:** liveness now comes from the key's own auto-repeats rather than from
+focus. Android keeps delivering `onKeyDown` repeats to the activity while the
+key is physically down, and those survive the volume panel. A press abandoned
+against a call screen is still caught — the repeats stop, and `fireIfStillHeld`
+notices. `onPause` still covers a real backgrounding.
+
+The fallback matters as much as the rule: if no repeat ever arrived, that
+device does not auto-repeat volume keys, and demanding one would mean the Magic
+Button never works there at all. In that case it falls back to the older test —
+armed, and no key-up seen.
+
+**Also:** a haptic tick the moment the press registers. There was no feedback
+at all until the SOS fired three seconds later, so a user holding the key could
+not tell it from a key that had not registered — and the natural response to
+that is to keep holding and then report that it takes longer than it does.
 
 ## 29. "Cancel" is not recognised in a Bangla session — FIXED
 

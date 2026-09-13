@@ -582,6 +582,30 @@ class ChatController extends Notifier<ChatState> {
 
     final d = Dashboard.of(profile.language);
 
+    // The emergency is matched and dispatched *before* anything that waits.
+    //
+    // It used to sit after the location lookup, and behind the pending-save
+    // and pending-clarification handlers, so every "save me" paid for a
+    // cached GPS fix it never reads — `EmergencyService` fetches its own
+    // position, later, on its own budget. That was an unbounded wait until
+    // recently and is a two-second one now, on the one command in the app
+    // where the reply is the whole point. Reported as "Emergency, SOS, Save
+    // me — reply dite koyek second time nicche".
+    //
+    // Jumping the pending-question queue is not new behaviour, it is the
+    // existing rule applied earlier: someone in trouble does not stop being in
+    // trouble because the assistant happened to have asked them something.
+    final localIntent = LocalIntentMatcher.match(
+      trimmed,
+      profile.language,
+      recentSetting: state.lastSettingChanged,
+    );
+    if (localIntent?.name == 'trigger_emergency') {
+      debugPrint('[Chat] local match: trigger_emergency (ahead of the location fix)');
+      await _runEmergency(profile);
+      return;
+    }
+
     // Best-effort cached fix rather than `getCurrentPosition()` — a chat
     // reply doesn't need a fresh GPS lock badly enough to justify the
     // battery/latency cost of forcing one (see hardware-constraint
@@ -640,11 +664,6 @@ class ChatController extends Notifier<ChatState> {
     // it isn't confident about). `FunctionCallExecutor` is what actually
     // applies the change — the exact same code Gemini's own function
     // calling uses, so the effect and wording are identical either way.
-    final localIntent = LocalIntentMatcher.match(
-      trimmed,
-      profile.language,
-      recentSetting: state.lastSettingChanged,
-    );
     // A reply to the assistant's own question belongs to that conversation,
     // not to the command matcher.
     //
@@ -671,6 +690,10 @@ class ChatController extends Notifier<ChatState> {
       // dispatch, call, alert — so it does not go through the executor,
       // which exists to apply one change and describe it. It also must not
       // wait on anything the executor does first.
+      // Handled above, before the location lookup — see the comment there.
+      // Left as a guard rather than deleted: if the early dispatch is ever
+      // moved or gated, an SOS falling through to the executor would be
+      // silent, and silence is the one outcome this path must never have.
       if (localIntent.name == 'trigger_emergency') {
         await _runEmergency(profile);
         return;

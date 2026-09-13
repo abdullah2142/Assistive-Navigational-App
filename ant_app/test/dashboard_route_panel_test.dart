@@ -17,10 +17,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 
 import 'package:ant_app/core/providers/ai_assistant_providers.dart';
+import 'package:ant_app/core/services/emergency_service.dart';
 import 'package:ant_app/core/services/navigation_narrator.dart';
 import 'package:ant_app/core/services/route_planning_service.dart';
 import 'package:ant_app/core/services/route_safety_service.dart';
 import 'package:ant_app/core/services/routing_service.dart';
+import 'package:ant_app/features/dashboard/models/chat_message.dart';
 import 'package:ant_app/features/dashboard/providers/chat_providers.dart';
 import 'package:ant_app/features/dashboard/screens/split_mode_dashboard_screen.dart';
 import 'package:ant_app/features/dashboard/widgets/dashboard_map_panel.dart';
@@ -57,13 +59,16 @@ void main() {
   /// Pumps the dashboard with a controller a test can push a route into,
   /// which is the piece that was missing when this behaviour shipped
   /// untested.
-  Future<_Harness> pumpDashboard(WidgetTester tester) async {
+  Future<_Harness> pumpDashboard(WidgetTester tester, {EmergencyService? emergency}) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.reset);
 
     final container = ProviderContainer(
-      overrides: [chatControllerProvider.overrideWith(_TestChatController.new)],
+      overrides: [
+        chatControllerProvider.overrideWith(_TestChatController.new),
+        if (emergency != null) emergencyServiceProvider.overrideWithValue(emergency),
+      ],
     );
     addTearDown(container.dispose);
 
@@ -160,6 +165,27 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(DashboardMapPanel, skipOffstage: false), findsNothing);
+    });
+
+    testWidgets('an SOS does not wait on the location fix first', (tester) async {
+      // Reported as "Emergency, SOS, Save me — reply dite koyek second time
+      // nicche". The phrase matches locally in milliseconds, but the dispatch
+      // sat behind a cached-GPS lookup it never reads: `EmergencyService`
+      // fetches its own position later, on its own budget.
+      //
+      // One pump, no clock advanced. If the location wait is ever put back in
+      // front of this, nothing will have happened by now and the test fails.
+      final fake = _FakeEmergency();
+      final harness = await pumpDashboard(tester, emergency: fake);
+
+      unawaited(harness.say('save me'));
+      await tester.pump();
+
+      expect(harness.lastUserMessage, 'save me');
+      expect(fake.triggered, isTrue,
+          reason: 'dispatched on the first pump, with no clock advanced — if '
+              'the location wait is ever put back in front of this, nothing '
+              'will have happened yet');
     });
 
     testWidgets('end to end, from the words the user actually says', (tester) async {
@@ -309,6 +335,14 @@ class _Harness {
 
   RouteChoice? get routeInState => container.read(chatControllerProvider).pendingRoute;
 
+  String? get lastUserMessage => container
+      .read(chatControllerProvider)
+      .messages
+      .where((m) => m.sender == ChatSender.user)
+      .lastOrNull
+      ?.text;
+
+
   /// A rebuild that changes something other than the route.
   void touch() => _controller.touch();
 
@@ -327,4 +361,19 @@ class _TestChatController extends ChatController {
   void cancelTrip() => state = state.copyWith(clearRoute: true);
 
   void touch() => state = state.copyWith(isAssistantTyping: !state.isAssistantTyping);
+}
+
+/// Stands in for the real escalation, which reaches Firestore through
+/// `AlertService` the moment it is constructed.
+class _FakeEmergency implements EmergencyService {
+  bool triggered = false;
+
+  @override
+  Future<EmergencyOutcome> trigger({required UserProfile profile, bool confirm = true}) async {
+    triggered = true;
+    return const EmergencyOutcome(cancelled: false);
+  }
+
+  @override
+  bool get isRunning => false;
 }

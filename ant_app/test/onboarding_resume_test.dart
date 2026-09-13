@@ -20,6 +20,8 @@
 //      second screen of the app.
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:ant_app/features/onboarding/screens/onboarding_flow_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -135,6 +137,74 @@ void main() {
       controller.resumeFrom(_halfFinished());
       controller.skipPairing(); // -> visionQuestion
       controller.resumeFrom(_halfFinished());
+      expect(container.read(onboardingControllerProvider).step, OnboardingStep.visionQuestion);
+    });
+  });
+
+  // The device bug that survived the first fix, reported as "app data clean
+  // hoye jaay close korlei".
+  //
+  // `_ProfileGate` renders `OnboardingFlowScreen(resumeFrom: profile)`, but on
+  // a cold start `profileStreamProvider` frequently emits **null first** — the
+  // local cache is empty after a force-kill, so the first snapshot has no
+  // document and the real one lands a beat later. Adopting only in
+  // `initState` meant the State was built with null, returned early, and the
+  // profile that arrived afterwards came through `didUpdateWidget`, where
+  // nothing was listening. The user got question one and their answers looked
+  // destroyed.
+  //
+  // Invisible to the earlier tests because they all handed the profile over on
+  // the very first build, which is the one case that was never broken.
+  group('a profile that arrives after the first build', () {
+    testWidgets('is still adopted', (tester) async {
+      final profiles = _FakeProfiles();
+      final container = _container(profiles: profiles);
+      final profile = _halfFinished();
+
+      Future<void> pumpWith(UserProfile? resumeFrom) => tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(home: OnboardingFlowScreen(resumeFrom: resumeFrom)),
+            ),
+          );
+
+      // First frame: auth restored, but the document has not arrived yet.
+      await pumpWith(null);
+      await tester.pump();
+      expect(container.read(onboardingControllerProvider).step, OnboardingStep.languageSelection);
+
+      // The snapshot lands. Same widget type in the same slot, so Flutter
+      // updates the existing State rather than creating a new one.
+      await pumpWith(profile);
+      await tester.pump();
+
+      expect(container.read(onboardingControllerProvider).step, OnboardingStep.deafHearingQuestion,
+          reason: 'this is the whole bug — a late profile must still resume');
+      expect(container.read(onboardingControllerProvider).profile?.mobilityAid, MobilityAid.whiteCane);
+    });
+
+    testWidgets('and is still only adopted once', (tester) async {
+      final container = _container(profiles: _FakeProfiles());
+      final profile = _halfFinished();
+
+      Future<void> pumpWith(UserProfile? resumeFrom) => tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(home: OnboardingFlowScreen(resumeFrom: resumeFrom)),
+            ),
+          );
+
+      await pumpWith(null);
+      await tester.pump();
+      await pumpWith(profile);
+      await tester.pump();
+
+      container.read(onboardingControllerProvider.notifier).skipPairing();
+      await tester.pump();
+
+      // The stream keeps emitting. None of those may drag the user back.
+      await pumpWith(profile);
+      await tester.pump();
       expect(container.read(onboardingControllerProvider).step, OnboardingStep.visionQuestion);
     });
   });

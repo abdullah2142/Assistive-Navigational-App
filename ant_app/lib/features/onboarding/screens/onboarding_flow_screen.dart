@@ -53,10 +53,33 @@ class _OnboardingFlowScreenState extends ConsumerState<OnboardingFlowScreen> {
   @override
   void initState() {
     super.initState();
-    final profile = widget.resumeFrom;
+    _adopt(widget.resumeFrom);
+  }
+
+  /// Also on update, not only on first build — this is the half that was
+  /// missing, and it is the half a real device actually hits.
+  ///
+  /// `AppRoot`'s `_ProfileGate` hands the profile down from a Firestore
+  /// stream, and on a cold start that stream frequently emits **null first**:
+  /// the local cache is empty after a force-kill, so the first snapshot
+  /// carries no document and the real one lands a beat later. Flutter sees the
+  /// same widget type in the same slot and updates this State rather than
+  /// recreating it, so `initState` never runs again — the profile arrived
+  /// here, where nothing was listening, and the user was shown question one
+  /// with their answers apparently destroyed. Reported twice, as "app data
+  /// clean hoye jaay close korlei".
+  @override
+  void didUpdateWidget(covariant OnboardingFlowScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.resumeFrom?.uid != oldWidget.resumeFrom?.uid) _adopt(widget.resumeFrom);
+  }
+
+  void _adopt(UserProfile? profile) {
     if (profile == null) return;
-    // Not in `build` — this writes provider state, and the controller's own
-    // guard makes it a no-op on every call after the first anyway.
+    // Not in `build` — this writes provider state. Repeat calls are safe:
+    // the controller adopts once per session and ignores the rest, which is
+    // what stops a re-emitting stream dragging the user back to where they
+    // launched from.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) ref.read(onboardingControllerProvider.notifier).resumeFrom(profile);
     });

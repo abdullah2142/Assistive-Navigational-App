@@ -17,6 +17,7 @@ import '../../onboarding/models/trusted_contact.dart';
 import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../../onboarding/services/pairing_service.dart';
+import '../widgets/diagnostics_report_tile.dart';
 import '../widgets/wake_word_sensitivity_tile.dart';
 
 /// The two voices, named for the language the profile is actually set to.
@@ -563,6 +564,10 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                 _save(profile.copyWith(wakeWordThreshold: threshold));
               },
             ),
+          ),
+          _SectionCard(
+            title: d.settingsDiagnosticsSection,
+            child: DiagnosticsReportTile(strings: d),
           ),
           _SectionCard(
             title: d.settingsHapticsSection,

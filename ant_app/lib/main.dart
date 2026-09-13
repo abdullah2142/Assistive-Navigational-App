@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/diagnostics/diagnostics_log.dart';
 import 'core/routing/app_root.dart';
 import 'core/theme/app_colors.dart';
 import 'core/theme/app_theme.dart';
@@ -14,6 +15,13 @@ import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // First, before anything else has a chance to log.
+  //
+  // Recording is never switched on by a tester: somebody who has to remember
+  // to start a log before the thing goes wrong will not have one when it does.
+  // Every line is redacted as it is recorded — see `log_redaction.dart`.
+  diagnosticsLog.install();
 
   // Confirmed live: `google_speech`'s `EndlessStreamingService` can deliver
   // one last buffered gRPC response asynchronously just after `dispose()`

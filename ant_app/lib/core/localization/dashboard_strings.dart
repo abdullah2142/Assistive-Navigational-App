@@ -971,6 +971,21 @@ class Dashboard {
       );
 
   // ---- Haptic strength (Module 7 step 3.1) --------------------------------
+  // ---- Diagnostics ---------------------------------------------------------
+  String get settingsDiagnosticsSection => _t('Send a report to the developers', 'ডেভেলপারদের রিপোর্ট পাঠান');
+  String get settingsDiagnosticsHint => _t(
+        'Sends what the app did during this session, so a problem you hit can be found. '
+            'What you said, names, numbers and your location are replaced with their shape first — '
+            'never the actual words.',
+        'এই সেশনে অ্যাপ কী করেছে তা পাঠানো হয়, যাতে আপনার সমস্যা খুঁজে বের করা যায়। '
+            'আপনি যা বলেছেন, নাম, নম্বর ও আপনার অবস্থান — সবই আগে ঢেকে দেওয়া হয়, আসল কথা কখনো যায় না।',
+      );
+  String get settingsDiagnosticsButton => _t('Send report', 'রিপোর্ট পাঠান');
+  String settingsDiagnosticsReady(int lines) =>
+      _t('$lines lines of this session are ready to send.', 'এই সেশনের $lines লাইন পাঠানোর জন্য প্রস্তুত।');
+  String settingsDiagnosticsFailed(String error) =>
+      _t('Could not build the report: $error', 'রিপোর্ট তৈরি করা যায়নি: $error');
+
   String get settingsHapticsSection => _t('Vibration strength', 'কম্পনের মাত্রা');
   String get settingsHapticsHint => _t(
         'How strongly the phone buzzes for turns, arrivals and hazards. Tap a level to feel it.',

@@ -1,6 +1,17 @@
 # Pack C — Actually walking somewhere
 
 **Modules 4 and 7 · routing, map, route safety, haptics**
+
+> **New this round — send a report when something goes wrong.**
+> My Settings → *Send a report to the developers* → **Send report**, then share
+> it however you like. Do it **immediately**, before carrying on: the app keeps
+> only the last part of the session, and continuing to test pushes the evidence
+> out.
+>
+> It contains what the app *did*, never what you *said* — words, names, numbers
+> and your location are replaced with their shape before they are written down.
+> Keep writing down what you said and what you expected; the report supplies
+> everything you cannot see.
 **Budget: about 4 hours, and most of it outdoors on your feet**
 
 ## What you own
@@ -211,7 +222,77 @@ You completed **four real walks**, one after dark and one with the phone
 pocketed and screen off, using only audio and vibration — and every turn
 arrived in time for you to take it.
 
+
+## New in round 3
+
+Pack C had no new sections in round 2. It has four now, and one of them is a
+brand-new native component that could plausibly be dead on arrival — **check
+the vibration first, not last.**
+
+### Vibration — three patterns that must feel different
+
+Module 7 finally exists. Until now every buzz in the app was the same generic
+tap. There are now three deliberate patterns, and the whole point is that you
+can tell them apart **without looking**:
+
+| Pattern | Feels like | When |
+| --- | --- | --- |
+| **Navigational** | one short buzz | a turn is coming up |
+| **Confirmation** | two short buzzes | you arrived, or something was sent |
+| **Hazard** | one long, hard buzz | stop walking |
+
+1. My Settings → **Vibration strength** → tap **Strong**, **Medium**, **Gentle**
+   in turn. Each tap plays a sample. Can you feel the difference between the
+   three strengths on *your* phone?
+2. On an older or cheaper phone, does **Gentle** register at all? It is meant
+   to be usable, not theoretical.
+3. Walk a route and confirm a turn buzz feels different from an arrival buzz.
+   **If you have to think about which one it was, that is a HURTS** — the
+   entire design assumes they are distinguishable in a pocket, mid-street.
+4. If nothing buzzes at all any more, stop and report it. That is the new
+   component failing, and it would affect every other test in this pack.
+
+### The map's buttons no longer overlap
+
+The fullscreen button used to sit directly on top of the map's own
+current-location button.
+
+1. Open the map with a route running.
+2. Find the **fullscreen** button and the **current-location** button. Both
+   should be tappable without hitting the other.
+3. Expand to fullscreen and come back. Still both reachable?
+4. Check the zoom buttons at the bottom too — they had the same problem with
+   the recentre button.
+
+### The map closes when you cancel
+
+1. Start a route so the map is showing.
+2. Say **"cancel the trip"**.
+3. The map should close, not sit there still drawing a route that no longer
+   exists.
+4. Ask for a new route. The map should come back — and **not** come back
+   already fullscreen if that is how you left it.
+
+### Directions at the start of a route
+
+Carried over from round 2 and still unfixed — see Part 11. It is in this list
+only to say: **send a report the moment it happens now.** Three different
+causes look identical from outside, and the report distinguishes them in a way
+your description cannot.
+
 ## Coverage — tick what you actually did
+
+**New in round 3**
+
+- [ ] Vibration sampled at all three strengths in My Settings
+- [ ] Turn / arrival / hazard patterns told apart without looking
+- [ ] Gentle setting usable on this phone: yes / no
+- [ ] Vibration still works at all (if not — reported)
+- [ ] Fullscreen and current-location buttons both reachable
+- [ ] Zoom buttons clear of the recentre button
+- [ ] Map closed when the trip was cancelled
+- [ ] New route did not reopen already-fullscreen
+- [ ] Report sent at least once
 
 - [ ] Walk 1: English, screen on
 - [ ] Walk 2: Bangla

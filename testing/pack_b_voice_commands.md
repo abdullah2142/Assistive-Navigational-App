@@ -1,6 +1,17 @@
 # Pack B — Saying things the app didn't expect
 
 **Module 3 · voice commands, the assistant, the wake word**
+
+> **New this round — send a report when something goes wrong.**
+> My Settings → *Send a report to the developers* → **Send report**, then share
+> it however you like. Do it **immediately**, before carrying on: the app keeps
+> only the last part of the session, and continuing to test pushes the evidence
+> out.
+>
+> It contains what the app *did*, never what you *said* — words, names, numbers
+> and your location are replaced with their shape before they are written down.
+> Keep writing down what you said and what you expected; the report supplies
+> everything you cannot see.
 **Budget: about 4 hours — the largest pack, and the most mechanical**
 
 ## What you own
@@ -206,7 +217,90 @@ You operated every dashboard function using words you chose yourself, in
 both languages, without memorising anything — and the wake word worked at
 least nine times out of ten across a session.
 
+
+## New in round 3
+
+### The sensitivity dial — the most useful hour in this pack
+
+**The old question "does the wake word trigger?" is retired.** It depended on a
+threshold we were guessing at from one person's voice in one room. There is now
+a dial and a live meter, so the question is **what number does your voice
+score** — which is answerable, and is what we need from you.
+
+My Settings → **"Hey ANT" sensitivity**. Make sure the wake word itself is on
+above it, or the meter has nothing to show.
+
+1. Say **"Hey Jarvis"** normally, at the distance and volume you would really
+   use. Watch the bar.
+2. Write down the number under it — it reads **"Triggers at 0.30"**. **Send us
+   that number, not the percentage.** The raw number is what matches our logs.
+3. Say it again five times and note the range. Ours scored 0.30 to 0.97.
+4. Now say it the way the app currently seems to want it — softly, gently, with
+   a gap between the two words. Note that number too.
+
+**The gap between those two numbers is the finding.** If normal speech scores
+0.1 and careful speech scores 0.7, the problem is the recognition model and no
+setting will fix it. If normal speech scores 0.28 and the line sits at 0.30,
+moving the line fixes it today.
+
+5. Set the marker just under where your normal voice reaches, then use the app
+   for a while. Does it fire when you did not say it? That is the cost of
+   moving it, and we need to know how bad it is.
+6. **Say it with the phone in your pocket**, screen off. Then send a report
+   immediately — see below.
+
+### Saying commands badly on purpose
+
+The app now tries to recognise commands through a mis-hearing. "Report a
+hazard" came back from the recognizer as "People of the hazard" on a real
+phone, and that now still opens the hazard report.
+
+Try each of these and note which are understood:
+
+- say a command with a word slurred or half-swallowed
+- say it quickly enough that two words run together
+- say it over traffic noise
+- say it with a cough or "um" in the middle
+
+Then the other direction, which matters just as much:
+
+- **"what happens if I report a hazard"** — must *not* open the report screen
+- **"the pavement here is a real hazard"** — must not either
+
+If describing your day opens screens, that is worse than a command being
+missed.
+
+### The microphone after an interruption
+
+1. Start the wake word, then **put the phone in airplane mode** for ten
+   seconds and take it out again. Does "Hey Jarvis" still work?
+2. Take a real phone call, hang up, try again.
+3. Play music in another app, stop it, try again.
+
+The recorder used to die silently in all three cases while the app carried on
+believing it was listening. Send a report if any of them stays dead.
+
+### My Settings belongs to you this round
+
+It was referenced by three packs and owned by none. Go through every control
+once: wake word, sensitivity, reading choices out, auto-listen, vibration
+strength, contacts, saved places, theme, text size, language. For each one —
+does it take effect **immediately**, and does it still hold after the app is
+closed and reopened?
+
 ## Coverage — tick what you actually did
+
+**New in round 3**
+
+- [ ] Wake-word score recorded for normal speech (number: ______)
+- [ ] Score recorded for careful/soft speech (number: ______)
+- [ ] Marker moved, false triggers counted over real use
+- [ ] Wake word tried with the phone in a pocket, report sent
+- [ ] Commands said badly on purpose
+- [ ] "What happens if I report a hazard" did NOT open it
+- [ ] Mic after airplane mode / phone call / other audio
+- [ ] Every My Settings control changed, and checked after a restart
+- [ ] Report sent at least once
 
 - [ ] Full phrasebook sweep, English
 - [ ] Full phrasebook sweep, Bangla

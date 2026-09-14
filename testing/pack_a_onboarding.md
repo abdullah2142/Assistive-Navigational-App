@@ -1,6 +1,17 @@
 # Pack A — Setup, entirely by voice
 
 **Modules 1 · onboarding, pairing, the command tour**
+
+> **New this round — send a report when something goes wrong.**
+> My Settings → *Send a report to the developers* → **Send report**, then share
+> it however you like. Do it **immediately**, before carrying on: the app keeps
+> only the last part of the session, and continuing to test pushes the evidence
+> out.
+>
+> It contains what the app *did*, never what you *said* — words, names, numbers
+> and your location are replaced with their shape before they are written down.
+> Keep writing down what you said and what you expected; the report supplies
+> everything you cannot see.
 **Budget: about 3 hours, across two sittings**
 
 ## What you own
@@ -155,6 +166,71 @@ language, once outdoors — every number and name you spoke was read back
 before it was stored, and every phrase the command tour taught you actually
 worked on the dashboard.
 
+
+## New in round 3
+
+These four are the reason you have this pack again. Nothing below has been
+used by anyone but the developer.
+
+### 23. The question about reading choices out
+
+Somewhere after the hearing question you will be asked whether ANT should
+**read every question's choices out before listening**, or stay quiet and read
+them only when you ask.
+
+1. Answer **"only when I ask"**. Every screen after that should say its
+   question and then a short line telling you how to hear the options — it must
+   **never** open the microphone in silence. If it does, that is a BLOCKS.
+2. Say **"options"** on the next question. The full list should be read.
+3. Go into My Settings, find "Reading choices out", switch it back on, and
+   confirm the next screen reads everything again.
+4. Then go *back* to that question in setup if you can. It must read its own
+   two options aloud even though you asked for quiet — otherwise you cannot
+   answer by voice the one question that is about answering by voice.
+
+### 24. Killing the app on a bad connection
+
+This is the bug that was reported twice and fixed twice, and the second fix is
+the one that matters. A plain restart on wifi will not find it.
+
+1. Get about half way through the interview.
+2. **Turn mobile data and wifi off.**
+3. Force-close the app from the recents screen.
+4. Open it again. It should put you back on the step you left, with everything
+   you already answered still there.
+5. **Now turn the network back on.** Still on the right step?
+
+Send a report either way. This one is worth confirming even when it works.
+
+### 25. A real name in the contact read-back
+
+Use a relative's actual name, not "test".
+
+1. Dictate the contact name and number as usual.
+2. The read-back now **spells the name out** after saying it — "I heard the
+   name as Rahima, spelled R a h i m a".
+3. **Bangla names are spelled by syllable** — রাহিমা comes back as "রা হি মা",
+   not as separate letters and vowel signs.
+4. Say **no** if the spelling is wrong, and dictate again.
+
+The point is that you can now *hear* a misspelling. Before this you could not:
+"Rahima" and "Rohima" sound identical read aloud. Tell us whether the spelling
+actually let you catch one.
+
+### 26. Answering slowly, with a pause in the middle
+
+Not the same as the "fast and slow" run you already do. Deliberately stop in
+the **middle** of a sentence for two or three seconds, then finish it.
+
+```
+"আমি ... [pause] ... একাই হাঁটি"
+"I use ... [pause] ... a white cane"
+```
+
+The app should wait and stitch the two halves into one answer. It used to take
+the first half, fail to match it, and apologise over the top of you while you
+were still talking.
+
 ## Coverage — tick what you actually did
 
 - [ ] Caretaker code spoken digit by digit, once
@@ -180,6 +256,17 @@ worked on the dashboard.
 - [ ] Microphone permission denied
 - [ ] Narration toggled off and on
 - [ ] Command tour repeated, then every taught phrase tried
+
+**New in round 3**
+
+- [ ] Narration question answered "only when I ask", and a screen never opened the mic in silence
+- [ ] "options" said mid-question, full list read back
+- [ ] Setting toggled back on in My Settings
+- [ ] Killed mid-interview **with the network off**, resumed on the right step
+- [ ] Real name dictated, spelling heard back, a misspelling caught
+- [ ] Bangla name spelled by syllable
+- [ ] Sentence answered with a deliberate pause in the middle
+- [ ] Report sent at least once
 
 ## Before you start
 

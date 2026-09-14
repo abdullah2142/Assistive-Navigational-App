@@ -1,6 +1,17 @@
 # Pack D — Asking for help, and flagging trouble
 
 **Modules 2 and 5 · hazard reporting, passer-by helper, caretaker side**
+
+> **New this round — send a report when something goes wrong.**
+> My Settings → *Send a report to the developers* → **Send report**, then share
+> it however you like. Do it **immediately**, before carrying on: the app keeps
+> only the last part of the session, and continuing to test pushes the evidence
+> out.
+>
+> It contains what the app *did*, never what you *said* — words, names, numbers
+> and your location are replaced with their shape before they are written down.
+> Keep writing down what you said and what you expected; the report supplies
+> everything you cannot see.
 **Budget: about 3.5 hours, plus one session with a second phone**
 
 ## What you own
@@ -179,7 +190,76 @@ both languages, three separate people understood the passer-by screen with
 no explanation, and a remote setting change from a caretaker phone reached
 the other device.
 
+
+## New in round 3
+
+### The caretaker side is worth testing for the first time
+
+**Be aware of what happened here.** Pack D's caretaker section existed in round
+2 and could not have found anything: the sending half worked, and nothing on
+the user's phone was listening. Messages went into the database and stayed
+there. So "I tested it and nothing happened" was the correct result last round,
+and it is not a useful baseline for this one.
+
+This needs **two people and two phones**, paired. Book the time at the start of
+the round or it will not happen.
+
+1. **Pair properly first.** If pairing itself fails, stop and report that — it
+   is a different problem and it makes everything below untestable.
+2. Caretaker sends a **written memo**. On the user's phone it should be read
+   aloud and appear in the chat. How long did it take to arrive?
+3. Caretaker sends a **voice memo**. It should play on the user's phone.
+4. Caretaker sends a **snapshot request**. The user should be told a photo was
+   asked for, and told plainly that **sending photos is not built yet**. If it
+   silently does nothing, that is a bug; if it says so clearly, that is correct
+   behaviour for now.
+5. **With the user's app closed**, send a memo. Open the app. Does it arrive?
+6. Send three memos in a row. Are they all read out, or do they talk over each
+   other?
+
+The user's phone now listens continuously for these. **If the app feels slower
+or the phone runs hotter than last round, say so** — that is the most likely
+cost of this feature.
+
+### Hazard reports actually save now
+
+They never did. The report was composed, the flow completed, and nothing
+landed — it was stuck waiting on a GPS fix that never arrived.
+
+1. File a hazard report and confirm it says it was saved.
+2. File one **indoors with a poor GPS signal**. It should still save, without
+   coordinates rather than not at all.
+3. File one with **mobile data off**. It should tell you it is saved and will
+   sync — not report a failure, and not hang.
+4. Pick a category **by tapping** rather than by voice. The second page must
+   read *its own* instructions, not repeat the first page's.
+
+### Your own passer-by message
+
+"My own message" was dropped on the floor entirely.
+
+1. Choose to write your own message rather than picking a suggestion.
+2. Dictate it, and confirm it is the message actually shown to the passer-by.
+3. Confirm a dictated message is read back and then **sent straight away** —
+   there is deliberately no five-second wait here any more. That wait now
+   exists only on the Magic Button, which is Pack E's business.
+
 ## Coverage — tick what you actually did
+
+**New in round 3**
+
+- [ ] Paired with a second phone, pairing itself worked
+- [ ] Written memo arrived, read aloud (delay: ______)
+- [ ] Voice memo played
+- [ ] Snapshot request arrived and said photos are not built yet
+- [ ] Memo sent while the user's app was closed
+- [ ] Three memos in a row handled sanely
+- [ ] App speed / phone heat after the inbox was added: ______
+- [ ] Hazard report saved indoors, poor GPS
+- [ ] Hazard report saved with data off
+- [ ] Category picked by tap, second page did not repeat the first
+- [ ] Own passer-by message written, dictated and shown
+- [ ] Report sent at least once
 
 - [ ] Show Screen narrated before opening the mic
 - [ ] Said nothing — message box stayed empty

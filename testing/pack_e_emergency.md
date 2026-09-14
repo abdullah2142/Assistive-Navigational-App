@@ -36,6 +36,12 @@ That is what makes this pack safe to run at all. It also means:
 
 ---
 
+> **New this round — send a report when something goes wrong.**
+> My Settings → *Send a report to the developers* → **Send report**. Do it
+> immediately, before carrying on. It contains what the app did, never what you
+> said — and for this pack especially, the contact numbers you are testing with
+> are replaced before they are written down.
+
 ## Part 1 — The gesture
 
 1. Hold **Volume Down for three seconds**. Note what you hear first, and how
@@ -116,6 +122,77 @@ Needs the second phone. Agree a time with whoever owns Pack D.
 
 ---
 
+## Part 7 — New in round 3
+
+Pack E had no new sections in round 2. These three are the reason it is being
+run again, and the first one is the report you filed as "Perhaps it takes more
+than 3 seconds".
+
+### The hold that was being eaten
+
+You were right, and it was not the timing. **Holding Volume Down opens the
+system volume panel**, and that panel taking focus was cancelling the hold —
+the app deliberately disarms when it stops being the focused window, because
+otherwise a press abandoned during an incoming call would fire an SOS three
+seconds later.
+
+1. Hold **Volume Down** for three seconds. **You should feel a short buzz the
+   moment the press registers** — that is new, and it tells you the hold has
+   started rather than leaving you guessing.
+2. Does the volume panel still appear? It is allowed to. The question is
+   whether the SOS still fires with it on screen.
+3. Try it with the **screen on and the app open**, then with the **screen on
+   and the app in the background**. Android only delivers key events to the
+   app in front, so the second is expected to fail — confirm it fails
+   *quietly* rather than half-starting.
+4. Try holding it for **five seconds**, and for **two**. Two should do nothing.
+5. Count how many of ten attempts fire. Anything under ten is a finding.
+
+### The five-second window, and where it deliberately is not
+
+This changed twice and landed on a rule worth understanding, because it looks
+inconsistent until you know it:
+
+| | Dictated message | Magic Button |
+| --- | --- | --- |
+| Read back to you | yes | yes |
+| Five seconds to say "cancel" | **no** | **yes** |
+
+The difference is not importance — it is whether the thing can be triggered **by
+accident**. You chose to dictate a message; nobody chooses to lean on a volume
+key in a pocket. A read-back confirms *what* was said, never *whether you meant
+to start it*.
+
+1. Confirm the Magic Button still gives you five seconds and names the word.
+2. Confirm a dictated passer-by or hazard message does **not** wait, and does
+   not invite you to cancel something that is already gone.
+3. During the SOS window, say **"stop"**, then **"wait"**. Neither should
+   cancel — they are what people shout at an attacker, not at a phone.
+4. Say **"cancel"** and **"বাতিল"**. Both should.
+
+### Calls for help inside a sentence
+
+"Help me" buried in a longer sentence did not trigger. Politeness in Bangla
+broke it too.
+
+Try each, and note which fire:
+
+- "help me I am on the road"
+- "somebody please help me"
+- **"আমাকে একটু সাহায্য করো"**
+- **"কেউ আমাকে সাহায্য করো"**
+- "বাঁচাও বিপদে পড়েছি সাহায্য করো"
+
+And these, which must **not** fire:
+
+- "can you help me change the text size"
+- "what happens if I say help me"
+- "I'm fine, no help needed"
+
+**Time each one.** "Save me" was taking several seconds because it was waiting
+on a location fix it never used; it should now respond immediately. If any of
+them still lags, send a report straight afterwards.
+
 ## Hunt for
 
 - **Any false trigger.** Volume keys during music, a shouted word in
@@ -135,6 +212,22 @@ once with the screen off and the phone pocketed, once with no signal, and once
 cancelled — and you can hand back the complete spoken transcript in order.
 
 ## Coverage — tick what you actually did
+
+**New in round 3**
+
+- [ ] Buzz felt when the hold registers
+- [ ] Ten holds attempted, ______ of 10 fired
+- [ ] Volume panel appeared: yes / no — SOS still fired: yes / no
+- [ ] Two-second hold did nothing
+- [ ] Background hold failed quietly
+- [ ] Five-second window present on the Magic Button
+- [ ] Dictated message did NOT wait
+- [ ] "stop" and "wait" did not cancel; "cancel"/"বাতিল" did
+- [ ] "help me" inside a sentence fired
+- [ ] Bangla polite requests fired
+- [ ] "Can you help me change the text size" did NOT fire
+- [ ] SOS responded immediately (no multi-second lag)
+- [ ] Report sent at least once
 
 - [ ] Volume hold: screen on
 - [ ] Volume hold: screen off

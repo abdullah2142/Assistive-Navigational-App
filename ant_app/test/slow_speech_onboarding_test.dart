@@ -153,6 +153,7 @@ class _ScriptedStt extends SttService {
     Duration pauseFor = const Duration(seconds: 3),
     Duration listenFor = const Duration(minutes: 5),
     Duration? initialSilence,
+    List<String> phraseHints = const [],
   }) async {
     initialSilences.add(initialSilence);
     if (sessions >= _utterances.length) {

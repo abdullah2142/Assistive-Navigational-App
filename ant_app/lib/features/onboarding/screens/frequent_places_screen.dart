@@ -6,6 +6,7 @@ import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/saved_place_matcher.dart';
+import '../../../core/services/dhaka_places.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/services/tts_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -170,6 +171,9 @@ class _FrequentPlacesScreenState extends ConsumerState<FrequentPlacesScreen> {
       var skipped = false;
       await _stt.listenOnce(
         language: language,
+        // Every one of these prompts asks for a Dhaka place name, which is
+        // exactly the vocabulary a general recognizer is weakest at.
+        phraseHints: dhakaPlacePhrases,
         onResult: (text, isFinal) {
           if (!isFinal || heard != null || skipped) return;
           final trimmed = text.trim();

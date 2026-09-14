@@ -25,6 +25,7 @@ class _FailsMidStreamCloudStt implements CloudSttService {
     required AppLanguage language,
     required void Function(String text, bool isFinal) onResult,
     void Function(Object error)? onStreamError,
+    List<String> phraseHints = const [],
   }) async {
     started = true;
     // Fires after start() has resolved, exactly as the real stream does.

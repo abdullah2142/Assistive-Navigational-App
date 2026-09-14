@@ -195,6 +195,13 @@ class SttService {
     // thoughts; it is far too long to sit there after they have already
     // started answering. See `listenForVoiceChoice`.
     Duration? initialSilence,
+
+    /// Proper nouns this session is likely to hear — see [placeNameHints].
+    ///
+    /// Only reaches Cloud STT; the on-device recognizer has no equivalent.
+    /// That asymmetry is fine: the on-device path is already the degraded one,
+    /// and this is a recall improvement on top, not a correctness requirement.
+    List<String> phraseHints = const [],
   }) async {
     final wakeWord = _wakeWord;
     if (wakeWord != null) {
@@ -204,7 +211,8 @@ class SttService {
             onResult: onResult,
             pauseFor: pauseFor,
             listenFor: listenFor,
-            initialSilence: initialSilence),
+            initialSilence: initialSilence,
+            phraseHints: phraseHints),
       );
     } else {
       await _listenOnceInner(
@@ -212,7 +220,8 @@ class SttService {
           onResult: onResult,
           pauseFor: pauseFor,
           listenFor: listenFor,
-          initialSilence: initialSilence);
+          initialSilence: initialSilence,
+          phraseHints: phraseHints);
     }
   }
 
@@ -222,6 +231,7 @@ class SttService {
     required Duration pauseFor,
     required Duration listenFor,
     Duration? initialSilence,
+    List<String> phraseHints = const [],
   }) async {
     await _signalListening();
     final cloud = _cloudStt;
@@ -238,6 +248,7 @@ class SttService {
         pauseFor: pauseFor,
         listenFor: listenFor,
         initialSilence: initialSilence,
+        phraseHints: phraseHints,
       );
       if (usedCloud) return;
       debugPrint('[Stt] Cloud STT unavailable — falling back to on-device recognizer');
@@ -278,6 +289,7 @@ class SttService {
     required Duration pauseFor,
     required Duration listenFor,
     Duration? initialSilence,
+    List<String> phraseHints = const [],
   }) async {
     final startWindow = initialSilence ?? _initialSilenceTimeout;
     final done = Completer<void>();
@@ -332,6 +344,7 @@ class SttService {
 
     final started = await cloud.start(
       language: language,
+      phraseHints: phraseHints,
       onResult: (text, isFinal) {
         debugPrint('[Stt] cloud heard "$text" (isFinal=$isFinal)');
         lastText = text;

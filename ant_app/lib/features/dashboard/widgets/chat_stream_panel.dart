@@ -9,6 +9,7 @@ import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/background_listening_service.dart';
 import '../../../core/services/emergency_channel.dart';
+import '../../../core/services/dhaka_places.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/services/wake_word_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -280,6 +281,18 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
       setState(() => _listening = true);
       await _stt.listenOnce(
         language: widget.profile.language,
+        // The main mic: anything can be said into it, and a destination is
+        // among the most common. Reported directly — a Dhaka place name comes
+        // back as something unrelated, because a general model is weighted
+        // towards ordinary vocabulary and thana names are rare words that
+        // sound like common ones. The user's own saved places lead the list:
+        // what somebody calls their own home is a far stronger hint than any
+        // gazetteer entry, and it is the name they will actually say.
+        phraseHints: placeNameHints(
+          savedPlaceLabels: [for (final p in widget.profile.savedPlaces) p.label],
+          homeAddress: widget.profile.homeAddress,
+          safePlaceAddress: widget.profile.safePlaceAddress,
+        ),
         onResult: (text, isFinal) {
           // `mounted` must gate the whole callback — a pending listen session
           // can still deliver a result after this widget is gone (same crash

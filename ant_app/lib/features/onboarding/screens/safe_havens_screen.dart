@@ -5,6 +5,7 @@ import '../../../core/localization/app_language.dart';
 import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
+import '../../../core/services/dhaka_places.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/services/tts_service.dart';
 import '../providers/onboarding_providers.dart';
@@ -90,6 +91,9 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
       String? home;
       await stt.listenOnce(
         language: language,
+        // Every one of these prompts asks for a Dhaka place name, which is
+        // exactly the vocabulary a general recognizer is weakest at.
+        phraseHints: dhakaPlacePhrases,
         onResult: (text, isFinal) {
           if (isFinal && text.trim().isNotEmpty) home = text.trim();
         },
@@ -123,6 +127,9 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
     String? place;
     await stt.listenOnce(
       language: language,
+      // Every one of these prompts asks for a Dhaka place name, which is
+      // exactly the vocabulary a general recognizer is weakest at.
+      phraseHints: dhakaPlacePhrases,
       onResult: (text, isFinal) {
         if (!isFinal) return;
         final trimmed = text.trim();

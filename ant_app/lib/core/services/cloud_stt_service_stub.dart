@@ -15,6 +15,9 @@ class CloudSttService {
     /// Never called here — this stub reports unavailable before any stream
     /// exists. Present so the two implementations stay interchangeable.
     void Function(Object error)? onStreamError,
+
+    /// Accepted and ignored — nothing recognises anything on web.
+    List<String> phraseHints = const [],
   }) async =>
       false;
 

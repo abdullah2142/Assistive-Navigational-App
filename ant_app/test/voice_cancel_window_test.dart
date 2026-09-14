@@ -300,6 +300,7 @@ class _SilentStt extends SttService {
     Duration pauseFor = const Duration(seconds: 3),
     Duration listenFor = const Duration(minutes: 5),
     Duration? initialSilence,
+    List<String> phraseHints = const [],
   }) async {}
 
   @override
@@ -320,6 +321,7 @@ class _SayingStt extends SttService {
     Duration pauseFor = const Duration(seconds: 3),
     Duration listenFor = const Duration(minutes: 5),
     Duration? initialSilence,
+    List<String> phraseHints = const [],
   }) async {
     onResult(_utterance, true);
   }

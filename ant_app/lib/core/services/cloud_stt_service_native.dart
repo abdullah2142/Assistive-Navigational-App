@@ -35,6 +35,12 @@ class CloudSttService {
 
   bool get isListening => _listening;
 
+  /// Note on strength: the API supports a per-context `boost` (0-20), but
+  /// `google_speech`'s own `SpeechContext` wrapper takes only `phrases` and
+  /// drops the boost field on its way to the protobuf. So these go with
+  /// Google's default weighting, which is the mild one. If the hints turn out
+  /// to help but not enough, that wrapper is where the ceiling is — not here.
+
   /// Starts continuous recognition. [onResult] fires for every interim and
   /// final transcript, same contract as `SttService.listenOnce`'s
   /// callback — but this keeps running past any pause in speech rather
@@ -56,6 +62,16 @@ class CloudSttService {
     /// enforced mid-stream, not at connect time, so the *only* signal that
     /// the free tier ran out arrives here.
     void Function(Object error)? onStreamError,
+
+    /// Proper nouns to tell the recognizer are likely in this session.
+    ///
+    /// Reported directly: a user says a Dhaka location and the transcript
+    /// comes back as something unrelated. That is the normal failure mode for
+    /// rare proper nouns — a general model is weighted towards common
+    /// vocabulary, and thana names sound like ordinary words. Phrase hints
+    /// exist for precisely this, cost nothing per request, and this app never
+    /// used them.
+    List<String> phraseHints = const [],
   }) async {
     if (!CloudSttConfig.isConfigured) return false;
     if (isListening) return true;
@@ -75,6 +91,9 @@ class CloudSttService {
           sampleRateHertz: _sampleRate,
           model: RecognitionModel.command_and_search,
           enableAutomaticPunctuation: true,
+          speechContexts: [
+            if (phraseHints.isNotEmpty) SpeechContext(phraseHints),
+          ],
         ),
         // The entire point of this service — kept explicit even though
         // it's the default, since accidentally flipping this would

@@ -48,6 +48,7 @@ const {
 } = require("./lib/hazard_clustering");
 const { isExpired, ttlMsFor } = require("./lib/hazard_decay");
 const { PEDESTRIAN_RELEVANT_CATEGORIES, fetchAndExtractLatestReport } = require("./lib/crime_report_ingestion");
+const { collectAdvisories } = require("./lib/news_ingestion");
 
 initializeApp();
 
@@ -1216,5 +1217,80 @@ exports.scrapeDmpCrimeReports = onSchedule(
         "changed, the extraction may have been refused by its own validation, or the site may be walled off " +
         "again. cityTrend keeps its last successful value.", err);
     }
+  },
+);
+
+/**
+ * Reads Bangladeshi news for crime reporting that names a Dhaka thana, and
+ * records what it finds as advisories.
+ *
+ * This is the caller `recordThanaAdvisory` never had. The advisory and
+ * learned-baseline layers were built, deployed, and then fed nothing — the
+ * hourly decay job has been reporting "0 thanas gained an evidence month"
+ * since the day it shipped. It is also the only per-neighbourhood signal
+ * available at all: DMP's monthly table is citywide totals, and no public
+ * source publishes crime by Dhaka thana.
+ *
+ * Six-hourly rather than hourly. These outlets publish a handful of relevant
+ * stories a day between them, an advisory lives 60 days, and the thing this
+ * feeds counts *months* with evidence — nothing downstream can tell the
+ * difference between polling four times a day and twenty-four, so the quieter
+ * schedule is free.
+ *
+ * Writes through the same validation every other path uses rather than
+ * touching Firestore directly: `validateAdvisory` enforces provenance, and an
+ * advisory naming a thana with no `crimeZones` document is refused outright.
+ * A pipeline that could bypass those checks would be the one place in this
+ * system where an unaudited claim about a real neighbourhood could get in.
+ */
+exports.ingestCrimeNews = onSchedule(
+  { schedule: "every 6 hours", timeZone: "Asia/Dhaka", timeoutSeconds: 300 },
+  async () => {
+    const { advisories, errors } = await collectAdvisories();
+    for (const error of errors) {
+      // Logged, never thrown: one outlet going down or putting up a bot wall
+      // must not stop the others being read.
+      console.warn(`ingestCrimeNews: source unavailable — ${error}`);
+    }
+    if (advisories.length === 0) {
+      console.log(`ingestCrimeNews: nothing admissible this run (${errors.length} source errors).`);
+      return;
+    }
+
+    const db = getFirestore();
+    let recorded = 0;
+    let skipped = 0;
+    for (const advisory of advisories) {
+      const problem = validateAdvisory(advisory);
+      if (problem) {
+        console.warn(`ingestCrimeNews: refused an advisory — ${problem}`);
+        skipped++;
+        continue;
+      }
+      const zone = await db.collection("crimeZones").doc(advisory.thanaSlug).get();
+      if (!zone.exists) {
+        console.warn(`ingestCrimeNews: no crimeZones document for "${advisory.thanaSlug}" — skipping.`);
+        skipped++;
+        continue;
+      }
+      // Keyed on the source URL, so the same story seen in two runs is one
+      // advisory that gets its expiry refreshed, not two pieces of evidence.
+      const id = Buffer.from(advisory.sourceUrl).toString("base64url").slice(0, 200);
+      await db.collection("thanaAdvisories").doc(id).set({
+        thanaSlug: advisory.thanaSlug,
+        severity: advisory.severity,
+        sourceTier: advisory.sourceTier,
+        sourceUrl: advisory.sourceUrl,
+        sourceTitle: advisory.sourceTitle,
+        publishedAt: advisory.publishedAt,
+        // An ISO string, matching `recordThanaAdvisory` exactly — the decay
+        // job reads this field and a server timestamp is a different type.
+        // Two write paths into one collection have to agree on the shape.
+        recordedAt: new Date().toISOString(),
+      }, { merge: true });
+      recorded++;
+    }
+    console.log(`ingestCrimeNews: ${recorded} advisories recorded, ${skipped} skipped, ` +
+      `${errors.length} source errors.`);
   },
 );

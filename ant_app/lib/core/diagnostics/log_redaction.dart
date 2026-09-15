@@ -21,10 +21,27 @@ final _quoted = RegExp(r'"([^"]*)"');
 /// Runs of digits long enough to be a phone number, a pairing code or a uid
 /// fragment. Four is the shortest thing worth hiding — a 6-digit pairing code
 /// is live for fifteen minutes and redeemable by anyone who sees it.
-final _digitRun = RegExp(r'\d{4,}');
+/// Never the fractional part of a number: `0.30000000000000004` is a
+/// threshold printed by arithmetic, not an identifier, and hiding its digits
+/// destroys the one measurement the sensitivity dial exists to produce. The
+/// lookbehind also stops a long run being split and half-redacted.
+final _digitRun = RegExp(r'(?<![\d.])\d{4,}');
 
 /// Coordinates, in any of the shapes these logs produce.
-final _coordinate = RegExp(r'-?\d{1,3}\.\d{4,}');
+///
+/// Anchored on a latitude/longitude's whole part rather than on "a decimal
+/// with several places", which is what this was first written as. That
+/// caught real coordinates and also ate the wake-word threshold: the
+/// sensitivity dial computes it by arithmetic, so it prints as
+/// `0.30000000000000004`, and the log came back reading `threshold <coord>`.
+/// That is precisely the number the dial exists to expose, redacted out of
+/// the first tester logs it was supposed to produce.
+///
+/// Dhaka sits near 23.8N, 90.4E, so a coordinate's integer part is two or
+/// three digits and never zero; a score or a threshold is always `0.x`.
+/// Requiring a non-zero whole part separates them without having to reason
+/// about how many decimals a float happens to print.
+final _coordinate = RegExp(r'-?(?:[1-9]\d{0,2})\.\d{4,}');
 
 /// Firebase uids: 20+ of [A-Za-z0-9] with both cases or a digit present.
 final _uid = RegExp(r'\b(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[a-z])[A-Za-z0-9]{20,}\b');

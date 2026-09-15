@@ -1,0 +1,22 @@
+caretaker doesnt get location
+turn on narration of choices, do not postpone narration of choices
+report sending error (new): "পাঠানো যায়নি：type'()→ bool' is not a subtype of type '() →FutureOr<Doc umentRefergnce<Map<String, 
+dyiamic>>>79' of 'onTimeout'"
+skip button to dashboard gone,
+app should ask for location right away when asking for mic permission too. 
+after saying cancel trip, ai thinks trip is cancelled, but map still renders previous route
+after ai asks a question, it should reopen mic
+map on koro doesnt open the map, in fact map does not auto open or auto close when route is asked to be cancelled
+chat elements go away after closing app
+full map shown at once, instead of closeup
+ambiguous additions/requests like: i need to poop, where should i go" leads to it attempting to look for places 
+it cant handle a lot of banglish terms like "trip cancel koro" 
+sound cue when mic is activated after hey jarvis or any autolistening
+even though location is on, it says it cannot tell me where i am when asked
+hey jarvis works 5 out of 10 times, across different accents, cadences, not as responsive as it should be.
+app should work like a normal chatbot, as in how conversational chatgpt and gemini is in speak mode, remembering context and informations/preferences
+the report log lines also reset when the app is closed, which is why i lost a lot of valuable tester log data, altho above is the summary points
+the app shouldnt act like only a assistive map, but also a guardian that provides counsel or assistance for ambiguous requests
+user asking to alert caretaker doesnt do anything yet
+a lot of times when asked to be taken to the closest, example: bathroom, it lists instead of routing to a closest option
+

@@ -1,0 +1,30 @@
+ANT diagnostics
+session started: 2026-09-15T14:59:50.462588
+written: 2026-09-15T15:00:31.139011
+lines: 20
+app: 1.0.0+1
+package: com.ant.assistive.ant_app
+
+Transcripts, names, numbers, coordinates and account ids are
+replaced with their shape before they reach this file.
+------------------------------------------------------------
+14:59:50.691  [WakeWord] detection threshold set to 0.05
+14:59:50.691  [WakeWord] loading melspectrogram.tflite...
+14:59:50.731  [WakeWord] melspectrogram OK, loading embedding_model.tflite...
+14:59:50.735  [WakeWord] embedding OK, loading hey_jarvis_v0.1.tflite...
+14:59:50.740  [WakeWord] all models loaded OK
+14:59:50.808  [Tts] available engines=[com.google.android.tts] default=com.google.android.tts
+14:59:51.131  [WakeWord] listening started (cold — buffers cleared)
+14:59:51.227  [Tts] switched to com.google.android.tts
+14:59:56.798  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+14:59:59.852  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:00:02.862  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:00:05.921  [WakeWord] peak=0.008 (threshold <coord>) over the last 3s
+15:00:08.974  [WakeWord] peak=0.018 (threshold <coord>) over the last 3s
+15:00:12.008  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:00:15.058  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:00:18.091  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:00:21.119  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:00:24.167  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:00:27.206  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:00:30.251  [WakeWord] peak=0.002 (threshold <coord>) over the last 3s

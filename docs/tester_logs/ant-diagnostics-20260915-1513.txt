@@ -1,0 +1,479 @@
+ANT diagnostics
+session started: 2026-09-15T15:03:29.586926
+written: 2026-09-15T15:13:00.692075
+lines: 469
+app: 1.0.0+1
+package: com.ant.assistive.ant_app
+
+Transcripts, names, numbers, coordinates and account ids are
+replaced with their shape before they reach this file.
+------------------------------------------------------------
+15:03:29.776  [WakeWord] detection threshold set to 0.05
+15:03:29.777  [WakeWord] loading melspectrogram.tflite...
+15:03:29.804  [WakeWord] melspectrogram OK, loading embedding_model.tflite...
+15:03:29.806  [WakeWord] embedding OK, loading hey_jarvis_v0.1.tflite...
+15:03:29.808  [WakeWord] all models loaded OK
+15:03:29.846  [Tts] available engines=[com.google.android.tts] default=com.google.android.tts
+15:03:30.117  [WakeWord] listening started (cold — buffers cleared)
+15:03:30.166  [Tts] switched to com.google.android.tts
+15:03:35.931  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:03:38.971  [WakeWord] peak=0.035 (threshold <coord>) over the last 3s
+15:03:40.975  [WakeWord] DETECTED (score=0.063)
+15:03:41.643  [CloudStt] continuous listening started (bangla)
+15:03:43.726  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:03:44.112  [Stt] cloud heard "<2 words, 7 chars>" (isFinal=false)
+15:03:44.177  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:03:44.231  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:03:44.249  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:03:44.441  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:03:44.484  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:03:44.828  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:03:45.013  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:03:45.348  [Stt] cloud heard "<2 words, 10 chars>" (isFinal=false)
+15:03:45.718  [Stt] cloud heard "<4 words, 19 chars>" (isFinal=false)
+15:03:45.834  [Stt] cloud heard "<4 words, 19 chars>" (isFinal=false)
+15:03:46.236  [Stt] cloud heard "<5 words, 26 chars>" (isFinal=false)
+15:03:46.454  [Stt] cloud heard "<6 words, 30 chars>" (isFinal=false)
+15:03:49.456  [Stt] cloud session ending (silence)
+15:03:49.477  [Chat] local match: request_route {destination: সাইনগর} (skipping Gemini)
+15:03:49.840  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:03:50.404  [WakeWord] listening started (cold — buffers cleared)
+15:03:56.008  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:03:58.026  [Map] building — openStreetMap=false mapsConfigured=true myLocation=null
+15:03:59.049  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:04:01.981  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:04:02.019  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:04:02.046  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:04:02.131  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:04:05.141  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:04:08.576  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:04:08.623  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:04:11.641  [WakeWord] peak=0.002 (threshold <coord>) over the last 3s
+15:04:14.653  [WakeWord] peak=0.002 (threshold <coord>) over the last 3s
+15:04:17.721  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:04:20.801  [WakeWord] peak=0.007 (threshold <coord>) over the last 3s
+15:04:21.665  [WakeWord] DETECTED (score=0.074)
+15:04:22.365  [CloudStt] continuous listening started (bangla)
+15:04:24.116  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:04:24.206  [Stt] cloud heard "<1 word, 6 chars>" (isFinal=false)
+15:04:24.389  [Stt] cloud heard "<1 word, 8 chars>" (isFinal=false)
+15:04:24.509  [Stt] cloud heard "<2 words, 14 chars>" (isFinal=false)
+15:04:24.518  [Stt] cloud heard "<2 words, 14 chars>" (isFinal=false)
+15:04:24.713  [Stt] cloud heard "<3 words, 18 chars>" (isFinal=false)
+15:04:24.830  [Stt] cloud heard "<3 words, 18 chars>" (isFinal=false)
+15:04:25.145  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:04:25.404  [Stt] cloud heard "<3 words, 18 chars>" (isFinal=false)
+15:04:28.406  [Stt] cloud session ending (silence)
+15:04:28.438  [Chat] -> Gemini: "<3 words, 18 chars>"
+15:04:28.677  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:04:29.320  [WakeWord] listening started (cold — buffers cleared)
+15:04:29.655  [Chat] <- Gemini in <digits:4>ms (first chunk -1ms): "<5 words, 27 chars>" (overlay=null, route=false, profileChanged=false)
+15:04:34.983  [WakeWord] peak=0.004 (threshold <coord>) over the last 3s
+15:04:35.216  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:04:38.030  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:04:41.050  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:04:44.097  [WakeWord] peak=0.020 (threshold <coord>) over the last 3s
+15:04:46.413  [WakeWord] DETECTED (score=0.100)
+15:04:47.044  [CloudStt] continuous listening started (bangla)
+15:04:49.240  [Stt] cloud heard "<1 word, 1 chars>" (isFinal=false)
+15:04:49.409  [Stt] cloud heard "<1 word, 2 chars>" (isFinal=false)
+15:04:49.464  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:04:49.861  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:04:49.881  [Stt] cloud heard "<2 words, 13 chars>" (isFinal=false)
+15:04:50.063  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:04:50.064  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:04:50.065  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:04:50.188  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:04:50.739  [Stt] cloud heard "<3 words, 18 chars>" (isFinal=false)
+15:04:53.742  [Stt] cloud session ending (silence)
+15:04:53.766  [Chat] -> Gemini: "<3 words, 18 chars>"
+15:04:54.087  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:04:54.725  [WakeWord] listening started (cold — buffers cleared)
+15:04:55.198  [Chat] <- Gemini in <digits:4>ms (first chunk -1ms): "<5 words, 27 chars>" (overlay=null, route=false, profileChanged=false)
+15:04:59.379  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:05:00.388  [WakeWord] peak=0.002 (threshold <coord>) over the last 3s
+15:05:03.423  [WakeWord] peak=0.005 (threshold <coord>) over the last 3s
+15:05:06.480  [WakeWord] peak=0.025 (threshold <coord>) over the last 3s
+15:05:09.527  [WakeWord] peak=0.002 (threshold <coord>) over the last 3s
+15:05:11.578  [CloudStt] continuous listening started (bangla)
+15:05:12.785  [WakeWord] listening started (warm — feature buffers kept)
+15:05:13.013  [WakeWord] peak=0.044 (threshold <coord>) over the last 3s
+15:05:14.768  [WakeWord] DETECTED (score=0.058)
+15:05:15.404  [CloudStt] continuous listening started (bangla)
+15:05:18.144  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:05:18.227  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:05:18.304  [Stt] cloud heard "<2 words, 12 chars>" (isFinal=false)
+15:05:18.387  [Stt] cloud heard "<2 words, 13 chars>" (isFinal=false)
+15:05:18.393  [Stt] cloud heard "<2 words, 10 chars>" (isFinal=false)
+15:05:18.537  [Stt] cloud heard "<2 words, 12 chars>" (isFinal=false)
+15:05:18.627  [Stt] cloud heard "<3 words, 14 chars>" (isFinal=false)
+15:05:18.632  [Stt] cloud heard "<3 words, 15 chars>" (isFinal=false)
+15:05:19.031  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:05:19.178  [Stt] cloud heard "<2 words, 10 chars>" (isFinal=false)
+15:05:19.183  [Stt] cloud heard "<3 words, 15 chars>" (isFinal=false)
+15:05:22.185  [Stt] cloud session ending (silence)
+15:05:22.199  [Chat] -> Gemini: "<3 words, 15 chars>"
+15:05:22.536  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:05:23.135  [WakeWord] listening started (cold — buffers cleared)
+15:05:23.575  [Chat] <- Gemini in <digits:4>ms (first chunk -1ms): "<6 words, 44 chars>" (overlay=null, route=false, profileChanged=false)
+15:05:28.807  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:05:31.821  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:05:34.941  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:05:37.972  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:05:41.013  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:05:44.040  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:05:47.094  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:05:48.467  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:05:50.127  [WakeWord] peak=0.018 (threshold <coord>) over the last 3s
+15:05:53.183  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:05:55.239  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:05:56.230  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:05:57.431  [WakeWord] DETECTED (score=0.068)
+15:05:58.041  [CloudStt] continuous listening started (bangla)
+15:06:00.272  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:06:01.751  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:06:02.008  [Stt] cloud heard "<2 words, 6 chars>" (isFinal=false)
+15:06:02.010  [Stt] cloud heard "<2 words, 7 chars>" (isFinal=false)
+15:06:02.145  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:06:02.384  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:06:02.704  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:06:02.911  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:06:02.911  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:06:03.046  [Stt] cloud heard "<3 words, 13 chars>" (isFinal=false)
+15:06:03.132  [Stt] cloud heard "<3 words, 13 chars>" (isFinal=false)
+15:06:03.505  [Stt] cloud heard "<3 words, 13 chars>" (isFinal=false)
+15:06:03.506  [Stt] cloud heard "<4 words, 19 chars>" (isFinal=false)
+15:06:03.813  [Stt] cloud heard "<5 words, 27 chars>" (isFinal=false)
+15:06:04.056  [Stt] cloud heard "<6 words, 31 chars>" (isFinal=false)
+15:06:07.059  [Stt] cloud session ending (silence)
+15:06:07.062  [Chat] local match: trigger_emergency (ahead of the location fix)
+15:06:07.376  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:06:08.012  [WakeWord] listening started (cold — buffers cleared)
+15:06:10.204  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:06:12.104  [BackgroundListening] foreground service stopped
+15:06:13.665  [WakeWord] peak=0.011 (threshold <coord>) over the last 3s
+15:06:16.699  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:06:18.497  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:06:19.701  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:06:22.710  [WakeWord] peak=0.023 (threshold <coord>) over the last 3s
+15:06:24.648  [CloudStt] continuous listening started (bangla)
+15:06:28.476  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:06:28.638  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:06:28.672  [Stt] cloud heard "<1 word, 7 chars>" (isFinal=false)
+15:06:29.423  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:06:30.009  [WakeWord] listening started (warm — feature buffers kept)
+15:06:30.216  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:06:31.416  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:06:33.254  [WakeWord] peak=0.028 (threshold <coord>) over the last 3s
+15:06:36.272  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:06:38.908  [WakeWord] DETECTED (score=0.075)
+15:06:39.548  [CloudStt] continuous listening started (bangla)
+15:06:41.273  [Emergency] speak failed or timed out: TimeoutException after 0:00:<coord>: Future not completed
+15:06:41.989  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:06:43.767  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:06:44.384  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:06:46.204  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:06:46.863  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:06:49.866  [Stt] cloud session ending (silence)
+15:06:49.890  [Chat] -> Gemini: "<1 word, 5 chars>"
+15:06:50.268  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:06:50.807  [WakeWord] listening started (cold — buffers cleared)
+15:06:51.426  [Chat] <- Gemini in <digits:4>ms (first chunk <digits:4>ms): "<8 words, 48 chars>" (overlay=null, route=false, profileChanged=false)
+15:06:56.493  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:06:59.529  [WakeWord] peak=0.004 (threshold <coord>) over the last 3s
+15:07:02.571  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:07:05.587  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:07:08.621  [WakeWord] peak=0.009 (threshold <coord>) over the last 3s
+15:07:11.658  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:07:14.675  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:07:15.191  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:07:16.024  [WakeWord] DETECTED (score=0.314)
+15:07:16.614  [CloudStt] continuous listening started (bangla)
+15:07:17.592  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:07:17.863  [Stt] cloud heard "<2 words, 8 chars>" (isFinal=false)
+15:07:17.931  [Stt] cloud heard "<2 words, 10 chars>" (isFinal=false)
+15:07:18.009  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:07:18.255  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:07:18.317  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:07:18.318  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:07:18.637  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:07:18.964  [Stt] cloud heard "<3 words, 17 chars>" (isFinal=false)
+15:07:21.966  [Stt] cloud session ending (silence)
+15:07:21.993  [Chat] -> Gemini: "<3 words, 17 chars>"
+15:07:22.272  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:07:22.887  [WakeWord] listening started (cold — buffers cleared)
+15:07:23.356  [Chat] <- Gemini in <digits:4>ms (first chunk <digits:4>ms): "<18 words, 97 chars>" (overlay=null, route=false, profileChanged=false)
+15:07:28.563  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:07:31.584  [WakeWord] peak=0.002 (threshold <coord>) over the last 3s
+15:07:34.639  [WakeWord] peak=0.002 (threshold <coord>) over the last 3s
+15:07:36.118  [WakeWord] DETECTED (score=0.104)
+15:07:36.701  [CloudStt] continuous listening started (bangla)
+15:07:37.873  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:07:37.978  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:07:38.119  [Stt] cloud heard "<1 word, 6 chars>" (isFinal=false)
+15:07:38.121  [Stt] cloud heard "<2 words, 8 chars>" (isFinal=false)
+15:07:38.535  [Stt] cloud heard "<3 words, 14 chars>" (isFinal=false)
+15:07:38.703  [Stt] cloud heard "<3 words, 14 chars>" (isFinal=false)
+15:07:38.758  [Stt] cloud heard "<2 words, 8 chars>" (isFinal=false)
+15:07:38.848  [Stt] cloud heard "<2 words, 8 chars>" (isFinal=false)
+15:07:39.288  [Stt] cloud heard "<2 words, 8 chars>" (isFinal=false)
+15:07:39.455  [Stt] cloud heard "<2 words, 8 chars>" (isFinal=false)
+15:07:39.464  [Stt] cloud heard "<4 words, 19 chars>" (isFinal=false)
+15:07:39.559  [Stt] cloud heard "<4 words, 19 chars>" (isFinal=false)
+15:07:40.034  [Stt] cloud heard "<4 words, 19 chars>" (isFinal=false)
+15:07:40.113  [Stt] cloud heard "<5 words, 27 chars>" (isFinal=false)
+15:07:40.204  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:07:40.408  [Stt] cloud heard "<5 words, 27 chars>" (isFinal=false)
+15:07:40.409  [Stt] cloud heard "<5 words, 27 chars>" (isFinal=false)
+15:07:40.590  [Stt] cloud heard "<5 words, 27 chars>" (isFinal=false)
+15:07:40.597  [Stt] cloud heard "<5 words, 27 chars>" (isFinal=false)
+15:07:40.804  [Stt] cloud heard "<5 words, 27 chars>" (isFinal=false)
+15:07:40.805  [Stt] cloud heard "<6 words, 31 chars>" (isFinal=false)
+15:07:40.825  [Stt] cloud heard "<6 words, 31 chars>" (isFinal=false)
+15:07:41.209  [Stt] cloud heard "<8 words, 41 chars>" (isFinal=false)
+15:07:41.469  [Stt] cloud heard "<9 words, 46 chars>" (isFinal=false)
+15:07:44.471  [Stt] cloud session ending (silence)
+15:07:44.489  [Chat] -> Gemini: "<9 words, 46 chars>"
+15:07:44.767  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:07:45.352  [WakeWord] listening started (cold — buffers cleared)
+15:07:45.971  [Chat] <- Gemini in <digits:4>ms (first chunk <digits:4>ms): "<17 words, 100 chars>" (overlay=null, route=false, profileChanged=false)
+15:07:50.967  [WakeWord] peak=0.024 (threshold <coord>) over the last 3s
+15:07:52.060  [WakeWord] DETECTED (score=0.058)
+15:07:52.640  [CloudStt] continuous listening started (bangla)
+15:07:53.485  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:07:53.540  [Stt] cloud heard "<1 word, 6 chars>" (isFinal=false)
+15:07:53.550  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:07:53.653  [Stt] cloud heard "<1 word, 6 chars>" (isFinal=false)
+15:07:54.266  [Stt] cloud heard "<1 word, 6 chars>" (isFinal=false)
+15:07:55.225  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:07:55.869  [WakeWord] listening started (cold — buffers cleared)
+15:07:56.491  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:08:01.541  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:08:02.102  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:08:04.582  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:08:07.103  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:08:07.702  [WakeWord] peak=0.009 (threshold <coord>) over the last 3s
+15:08:09.310  [CloudStt] continuous listening started (bangla)
+15:08:10.219  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:08:10.548  [Stt] cloud heard "<1 word, 8 chars>" (isFinal=false)
+15:08:10.549  [Stt] cloud heard "<2 words, 10 chars>" (isFinal=false)
+15:08:10.704  [Stt] cloud heard "<3 words, 14 chars>" (isFinal=false)
+15:08:11.128  [Stt] cloud heard "<2 words, 10 chars>" (isFinal=false)
+15:08:11.351  [Stt] cloud heard "<3 words, 14 chars>" (isFinal=false)
+15:08:14.353  [Stt] cloud session ending (silence)
+15:08:14.373  [Chat] -> Gemini: "<3 words, 14 chars>"
+15:08:14.659  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:08:15.270  [WakeWord] listening started (warm — feature buffers kept)
+15:08:15.488  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:08:15.753  [Chat] <- Gemini in <digits:4>ms (first chunk <digits:4>ms): "<11 words, 60 chars>" (overlay=null, route=false, profileChanged=false)
+15:08:18.495  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:08:21.807  [CloudStt] continuous listening started (bangla)
+15:08:24.567  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:08:24.657  [Stt] cloud heard "<1 word, 6 chars>" (isFinal=false)
+15:08:24.804  [Stt] cloud heard "<2 words, 10 chars>" (isFinal=false)
+15:08:24.967  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:08:25.070  [Stt] cloud heard "<3 words, 15 chars>" (isFinal=false)
+15:08:25.213  [Stt] cloud heard "<1 word, 6 chars>" (isFinal=false)
+15:08:25.382  [Stt] cloud heard "<1 word, 6 chars>" (isFinal=false)
+15:08:25.426  [Stt] cloud heard "<1 word, 6 chars>" (isFinal=false)
+15:08:25.530  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:08:25.594  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:08:25.598  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:08:25.846  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:08:25.936  [Map] building — openStreetMap=false mapsConfigured=true myLocation=null
+15:08:25.994  [Stt] cloud heard "<3 words, 18 chars>" (isFinal=false)
+15:08:26.037  [Stt] cloud heard "<4 words, 25 chars>" (isFinal=false)
+15:08:26.048  [Stt] cloud heard "<4 words, 25 chars>" (isFinal=false)
+15:08:26.156  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:08:26.255  [Stt] cloud heard "<5 words, 30 chars>" (isFinal=false)
+15:08:26.566  [Stt] cloud heard "<7 words, 39 chars>" (isFinal=false)
+15:08:26.814  [Stt] cloud heard "<8 words, 47 chars>" (isFinal=false)
+15:08:28.376  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:08:29.817  [Stt] cloud session ending (silence)
+15:08:29.839  [Chat] -> Gemini: "<8 words, 47 chars>"
+15:08:30.139  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:08:30.734  [WakeWord] listening started (warm — feature buffers kept)
+15:08:30.947  [WakeWord] peak=0.002 (threshold <coord>) over the last 3s
+15:08:31.212  [Chat] <- Gemini in <digits:4>ms (first chunk <digits:4>ms): "<8 words, 42 chars>" (overlay=null, route=false, profileChanged=false)
+15:08:34.020  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:08:34.075  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:08:37.064  [WakeWord] peak=0.006 (threshold <coord>) over the last 3s
+15:08:39.077  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:08:40.097  [WakeWord] peak=0.005 (threshold <coord>) over the last 3s
+15:08:40.591  [WakeWord] DETECTED (score=0.074)
+15:08:41.227  [CloudStt] continuous listening started (bangla)
+15:08:42.514  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:08:42.538  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:08:42.665  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:08:43.267  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:08:46.269  [Stt] cloud session ending (silence)
+15:08:46.293  [Chat] -> Gemini: "<2 words, 9 chars>"
+15:08:46.581  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:08:47.197  [WakeWord] listening started (cold — buffers cleared)
+15:08:47.857  [Chat] <- Gemini in <digits:4>ms (first chunk <digits:4>ms): "<10 words, 56 chars>" (overlay=null, route=false, profileChanged=false)
+15:08:49.724  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:08:52.890  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:08:55.917  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:08:56.313  [WakeWord] DETECTED (score=0.068)
+15:08:56.968  [CloudStt] continuous listening started (bangla)
+15:08:58.998  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:08:59.009  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:08:59.589  [Stt] cloud heard "<2 words, 7 chars>" (isFinal=false)
+15:08:59.591  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:08:59.714  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:08:59.718  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:08:59.985  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:09:00.296  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:09:00.297  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:09:00.511  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:09:00.616  [Stt] cloud heard "<3 words, 13 chars>" (isFinal=false)
+15:09:00.749  [Stt] cloud heard "<3 words, 13 chars>" (isFinal=false)
+15:09:01.001  [Stt] cloud heard "<3 words, 13 chars>" (isFinal=false)
+15:09:01.077  [Stt] cloud heard "<4 words, 19 chars>" (isFinal=false)
+15:09:01.423  [Stt] cloud heard "<5 words, 27 chars>" (isFinal=false)
+15:09:01.729  [Stt] cloud heard "<6 words, 31 chars>" (isFinal=false)
+15:09:04.732  [Stt] cloud session ending (silence)
+15:09:04.733  [Chat] local match: trigger_emergency (ahead of the location fix)
+15:09:05.032  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:09:05.688  [WakeWord] listening started (cold — buffers cleared)
+15:09:10.293  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:09:11.335  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:09:14.381  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:09:17.436  [WakeWord] peak=0.014 (threshold <coord>) over the last 3s
+15:09:20.203  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:09:20.519  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:09:23.015  [CloudStt] continuous listening started (bangla)
+15:09:25.803  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:09:25.956  [Stt] cloud heard "<3 words, 14 chars>" (isFinal=false)
+15:09:26.033  [Stt] cloud heard "<3 words, 15 chars>" (isFinal=false)
+15:09:26.276  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:09:26.399  [Stt] cloud heard "<3 words, 15 chars>" (isFinal=false)
+15:09:26.673  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:09:27.218  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:09:27.765  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:09:28.294  [WakeWord] listening started (warm — feature buffers kept)
+15:09:28.509  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:09:31.544  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:09:34.589  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:09:37.646  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:09:40.674  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:09:43.718  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:09:46.770  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:09:49.800  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:09:52.849  [WakeWord] peak=0.007 (threshold <coord>) over the last 3s
+15:09:55.884  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:09:58.926  [WakeWord] peak=0.003 (threshold <coord>) over the last 3s
+15:10:01.972  [WakeWord] peak=0.024 (threshold <coord>) over the last 3s
+15:10:04.756  [WakeWord] DETECTED (score=0.057)
+15:10:05.378  [CloudStt] continuous listening started (bangla)
+15:10:13.380  [Stt] cloud session ending (silence)
+15:10:14.303  [WakeWord] listening started (cold — buffers cleared)
+15:10:19.965  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:10:23.014  [WakeWord] peak=0.026 (threshold <coord>) over the last 3s
+15:10:25.908  [WakeWord] DETECTED (score=0.065)
+15:10:26.600  [CloudStt] continuous listening started (bangla)
+15:10:28.637  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:10:28.665  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:10:28.802  [Stt] cloud heard "<2 words, 8 chars>" (isFinal=false)
+15:10:28.980  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:10:29.053  [Stt] cloud heard "<2 words, 10 chars>" (isFinal=false)
+15:10:29.131  [Stt] cloud heard "<2 words, 14 chars>" (isFinal=false)
+15:10:29.231  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:10:29.782  [Stt] cloud heard "<2 words, 14 chars>" (isFinal=false)
+15:10:29.829  [Stt] cloud heard "<2 words, 14 chars>" (isFinal=false)
+15:10:30.341  [Stt] cloud heard "<2 words, 14 chars>" (isFinal=false)
+15:10:30.409  [Stt] cloud heard "<3 words, 20 chars>" (isFinal=false)
+15:10:30.652  [Stt] cloud heard "<3 words, 20 chars>" (isFinal=false)
+15:10:30.834  [Stt] cloud heard "<3 words, 20 chars>" (isFinal=false)
+15:10:30.835  [Stt] cloud heard "<3 words, 20 chars>" (isFinal=false)
+15:10:31.022  [Stt] cloud heard "<4 words, 27 chars>" (isFinal=false)
+15:10:31.377  [Stt] cloud heard "<5 words, 33 chars>" (isFinal=false)
+15:10:34.380  [Stt] cloud session ending (silence)
+15:10:34.403  [Chat] -> Gemini: "<5 words, 33 chars>"
+15:10:34.701  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:10:35.265  [WakeWord] listening started (cold — buffers cleared)
+15:10:35.767  [Chat] <- Gemini in <digits:4>ms (first chunk <digits:4>ms): "<9 words, 52 chars>" (overlay=null, route=false, profileChanged=false)
+15:10:40.945  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:10:43.991  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:10:47.038  [WakeWord] peak=0.004 (threshold <coord>) over the last 3s
+15:10:47.603  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:10:47.612  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:10:50.071  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:10:53.117  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:10:56.160  [WakeWord] peak=0.002 (threshold <coord>) over the last 3s
+15:10:59.209  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:11:02.274  [WakeWord] peak=0.005 (threshold <coord>) over the last 3s
+15:11:05.291  [WakeWord] peak=0.005 (threshold <coord>) over the last 3s
+15:11:08.322  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:11:10.198  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:11:11.341  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:11:11.436  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:11:14.381  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:11:14.637  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:11:17.430  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:11:20.444  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:11:23.506  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:11:24.359  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:11:26.546  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:11:29.597  [WakeWord] peak=0.016 (threshold <coord>) over the last 3s
+15:11:32.629  [WakeWord] peak=0.011 (threshold <coord>) over the last 3s
+15:11:33.344  [CloudStt] continuous listening started (bangla)
+15:11:34.752  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:11:34.756  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:11:34.971  [Stt] cloud heard "<1 word, 9 chars>" (isFinal=false)
+15:11:34.971  [Stt] cloud heard "<2 words, 11 chars>" (isFinal=false)
+15:11:34.998  [Stt] cloud heard "<2 words, 12 chars>" (isFinal=false)
+15:11:35.179  [Stt] cloud heard "<3 words, 15 chars>" (isFinal=false)
+15:11:35.338  [Stt] cloud heard "<3 words, 18 chars>" (isFinal=false)
+15:11:35.408  [Stt] cloud heard "<4 words, 20 chars>" (isFinal=false)
+15:11:35.469  [Stt] cloud heard "<3 words, 19 chars>" (isFinal=false)
+15:11:35.531  [Stt] cloud heard "<2 words, 12 chars>" (isFinal=false)
+15:11:35.780  [Stt] cloud heard "<2 words, 12 chars>" (isFinal=false)
+15:11:35.843  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:11:35.943  [Stt] cloud heard "<1 word, 5 chars>" (isFinal=false)
+15:11:36.563  [Stt] cloud heard "<5 words, 28 chars>" (isFinal=false)
+15:11:39.565  [Stt] cloud session ending (silence)
+15:11:39.588  [Chat] -> Gemini: "<5 words, 28 chars>"
+15:11:39.909  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:11:40.486  [WakeWord] listening started (warm — feature buffers kept)
+15:11:40.689  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:11:42.500  [Chat] <- Gemini in <digits:4>ms (first chunk -1ms): "<31 words, 191 chars>" (overlay=null, route=false, profileChanged=false)
+15:11:43.726  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:11:46.733  [WakeWord] peak=0.005 (threshold <coord>) over the last 3s
+15:11:49.776  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:11:50.192  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:11:52.828  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:11:55.862  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:11:58.887  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:12:00.183  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:12:01.942  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:12:05.002  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:12:05.457  [WakeWord] DETECTED (score=0.268)
+15:12:06.036  [CloudStt] continuous listening started (bangla)
+15:12:11.695  [Stt] cloud heard "<1 word, 3 chars>" (isFinal=false)
+15:12:11.776  [Stt] cloud heard "<1 word, 4 chars>" (isFinal=false)
+15:12:12.240  [Stt] cloud heard "<1 word, 6 chars>" (isFinal=false)
+15:12:12.389  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:12:12.957  [Stt] cloud heard "<2 words, 9 chars>" (isFinal=false)
+15:12:15.467  [Stt] cloud heard "<3 words, 16 chars>" (isFinal=false)
+15:12:16.088  [Stt] cloud heard "<3 words, 16 chars>" (isFinal=false)
+15:12:19.094  [Stt] cloud session ending (silence)
+15:12:19.110  [Chat] -> Gemini: "<3 words, 16 chars>"
+15:12:19.569  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+15:12:19.966  [WakeWord] listening started (cold — buffers cleared)
+15:12:25.538  [WakeWord] peak=0.002 (threshold <coord>) over the last 3s
+15:12:28.598  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:12:29.878  [Chat] <- Gemini in <digits:5>ms (first chunk -1ms): "<25 words, 158 chars>" (overlay=null, route=true, profileChanged=false)
+15:12:30.198  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:12:31.617  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:12:34.623  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:12:35.822  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:12:37.637  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:12:40.687  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:12:43.759  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:12:46.836  [WakeWord] peak=0.003 (threshold <coord>) over the last 3s
+15:12:49.520  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(<coord>, <coord>)
+15:12:49.887  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:12:52.934  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s
+15:12:55.953  [WakeWord] peak=0.000 (threshold <coord>) over the last 3s
+15:12:59.380  [WakeWord] peak=0.001 (threshold <coord>) over the last 3s

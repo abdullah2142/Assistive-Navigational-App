@@ -82,6 +82,24 @@ void main() {
       }
     });
 
+    test('a threshold printed as a raw float, which is what the dial emits', () {
+      // Found in the first real tester logs: the dial computes the threshold
+      // by arithmetic, so it prints as `0.30000000000000004`, and the old
+      // coordinate rule ate it — `threshold <coord>`. The one number the dial
+      // exists to expose, redacted out of the logs meant to carry it.
+      const line = '[WakeWord] peak=0.024 (threshold 0.30000000000000004) over the last 3s';
+      expect(redactLogLine(line), line);
+      expect(redactLogLine('[WakeWord] detection threshold set to 0.05'),
+          '[WakeWord] detection threshold set to 0.05');
+    });
+
+    test('a real coordinate is still caught', () {
+      // Dhaka sits near 23.8N, 90.4E — a non-zero whole part is what separates
+      // a position from a score.
+      expect(redactLogLine('[Map] fix at 23.746100, 90.374200'), contains('<coord>'));
+      expect(redactLogLine('[Map] fix at -23.746100'), contains('<coord>'));
+    });
+
     test('a wake-word score, which is the whole of item 40', () {
       // 0.783 must not be eaten as a coordinate or a digit run — it is the
       // number the sensitivity dial exists to expose.

@@ -163,12 +163,25 @@ class _FakeHazardReports implements HazardReportService {
 
   final List<HazardReport> submitted = [];
 
+  /// Returns a future whose *runtime* type is not `Future<void>`, which is
+  /// what the real service does — `CollectionReference.add` gives back a
+  /// `Future<DocumentReference>`, and `Future<void>` at the signature is only
+  /// an upcast.
+  ///
+  /// The distinction shipped a crash. `.timeout()` reads the runtime type and
+  /// demands an `onTimeout` returning that type; the caller's returns `bool`,
+  /// so every submission threw "type '() => bool' is not a subtype of ...".
+  /// A fake returning a genuine `Future<void>` cannot reproduce it, which is
+  /// exactly why the original tests passed while the device failed. Nor can
+  /// `Future<Object>` — `bool` satisfies `Object`, so the runtime check goes
+  /// through. It has to be a concrete unrelated type, as Firestore's really
+  /// is.
   @override
   Future<void> submitReport(HazardReport report) {
     submitted.add(report);
     if (failWith != null) return Future.error(StateError(failWith!));
-    if (neverCompletes) return Completer<void>().future;
-    return Future<void>.value();
+    if (neverCompletes) return Completer<_FakeDocRef>().future;
+    return Future<_FakeDocRef>.value(_FakeDocRef());
   }
 }
 
@@ -203,4 +216,10 @@ class _SilentStt extends SttService {
 
   @override
   Future<void> stop() async {}
+}
+
+/// Stands in for the `DocumentReference` Firestore hands back.
+class _FakeDocRef {
+  @override
+  String toString() => 'hazardReports/fake';
 }

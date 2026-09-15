@@ -548,17 +548,37 @@ class _CrowdsourceReportingHubState extends ConsumerState<CrowdsourceReportingHu
       // A timeout here is therefore not a failure and must not be reported as
       // one. The report is filed either way; only the confirmation is late.
       var acknowledged = true;
-      await ref
-          .read(hazardReportServiceProvider)
-          .submitReport(HazardReport(
-            reporterUid: widget.reporterUid,
-            category: _category!,
-            subCategory: _subCategoryKey!,
-            description: _isOther ? summarizeText(rawDescription) : rawDescription,
-            lat: lat,
-            lng: lng,
-          ))
-          .timeout(_submitAckBudget, onTimeout: () => acknowledged = false);
+      try {
+        await ref
+            .read(hazardReportServiceProvider)
+            .submitReport(HazardReport(
+              reporterUid: widget.reporterUid,
+              category: _category!,
+              subCategory: _subCategoryKey!,
+              description: _isOther ? summarizeText(rawDescription) : rawDescription,
+              lat: lat,
+              lng: lng,
+            ))
+            .timeout(_submitAckBudget);
+      } on TimeoutException {
+        // Not a failure: Firestore has the write in its local cache and will
+        // sync it. Only the acknowledgement is late.
+        //
+        // `.timeout()` bare, rather than with an `onTimeout` callback, and
+        // that is the whole of the bug this replaces. A callback is type-
+        // checked against the *runtime* type of the future it is attached to
+        // — and `CollectionReference.add` returns
+        // `Future<DocumentReference>`, not the `Future<void>` the service's
+        // signature promises. So a callback returning `bool` threw on every
+        // single report:
+        //
+        //   type '() => bool' is not a subtype of type
+        //   '() => FutureOr<DocumentReference<Map<String, dynamic>>>'
+        //
+        // Catching the exception instead depends on nothing about what the
+        // service hands back, which is the property worth having here.
+        acknowledged = false;
+      }
       if (!mounted) return;
       final message = acknowledged ? _d.crowdsourceSubmitSuccess : _d.crowdsourceSubmitQueued;
       // Spoken before popping, not just shown in a SnackBar afterward — a

@@ -1844,3 +1844,238 @@ meaning alone, so a platform that refuses to buzz must not take the turn
 announcement, the arrival or the SOS down with it.
 
 **Covered by:** `test/haptics_service_test.dart`, 12 tests.
+
+---
+
+# Round 3 — reported 15 September 2026
+
+Two testers, on build `ff4f452` (14 Sep, 01:54). **Nothing committed after that build
+is in their hands**, so anything below that a later commit already addresses is
+marked as such rather than re-investigated.
+
+This is the first round with **diagnostic logs attached** — three sessions, 1634
+lines, in the repo root as `ant-diagnostics-20260915-*.txt`. Where a log line
+settles something, it is quoted. That is the difference this round.
+
+## 46. Every hazard report fails to send — CRITICAL — FIXED
+
+**Reported:** `পাঠানো যায়নি: type '() => bool' is not a subtype of type '() =>
+FutureOr<DocumentReference<Map<String, dynamic>>>' of 'onTimeout'`
+
+**A regression introduced by the fix for item 27**, and the more embarrassing
+for having had three passing tests over it.
+
+`HazardReportService.submitReport` is declared `Future<void>` but returned
+`_db.collection(...).add(...)` directly — whose real type is
+`Future<DocumentReference<...>>`. Dart accepts the upcast at the signature, so
+it compiles; but `.timeout(d, onTimeout: ...)` type-checks its callback against
+the **runtime** type of the future it is attached to. The callback returned
+`bool`. Every single submission threw.
+
+The tests passed because the fake returned a genuine `Future<void>`, which
+cannot reproduce it. Nor can `Future<Object>` — `bool` satisfies `Object`. It
+takes a concrete unrelated type, which is what Firestore's really is.
+
+**Fixed two ways, both worth keeping.** `submitReport` is now `async`/`await`,
+so the returned future genuinely is `Future<void>`. And the call site uses bare
+`.timeout()` with `on TimeoutException`, which depends on nothing about what
+the service hands back — the property actually worth having. The fake now
+returns Firestore's real future shape, and reproduces the exact device error
+against the old code.
+
+## 47. The wake word fires about 5 times in 10 — and the logs say why
+
+**Reported:** "hey jarvis works 5 out of 10 times, across different accents,
+cadences, not as responsive as it should be."
+
+**The logs are the finding here.** Across the three sessions:
+
+| Peak score | Windows |
+| --- | --- |
+| 0.000–0.005 | 142 |
+| 0.018–0.024 | 4 |
+| detections | 14 |
+
+And the first line of every session: `[WakeWord] detection threshold set to
+0.05`. **The tester had already dragged the dial to its floor** — which is what
+someone does when it will not fire — and at 0.05 the 0.018–0.024 band sits
+uncomfortably close to the line. So the setting that makes it responsive is the
+same setting that will start firing on ordinary speech.
+
+This is the measurement Pack B asks for, arriving on its own. It says the
+placeholder model is the problem, not the threshold: `hey_jarvis_v0.1` is
+trained on synthetic English clips and is not tuned for these speakers. See
+item 24. A purpose-trained "Hey ANT" model is the fix; no threshold rescues it.
+
+**Do not just raise sensitivity further.** Below ~0.05 background noise starts
+to fire it, and an always-listening app that goes off by itself gets uninstalled.
+
+## 48. The map never gets a location fix
+
+**Reported:** "even though location is on, it says it cannot tell me where i
+am"; "full map shown at once, instead of closeup".
+
+**Confirmed in the logs**, seven times: `[Map] building — openStreetMap=false
+mapsConfigured=true myLocation=null`.
+
+Both complaints are one cause. With no fix the map has nothing to centre on, so
+it renders the city-wide fallback rather than a close-up, and "where am I"
+has no answer to give. Start at `_resolveLocation` in `dashboard_map_panel.dart`
+and at whether the location *permission* is ever actually requested — see item 50.
+
+## 49. The recognizer's stream dies constantly
+
+**Not reported by a tester — found in their logs.** 37 occurrences of
+`[Main] uncaught async error (handled, not fatal): Bad state: Cannot add new
+events after calling close` across three sessions.
+
+This is the known `google_speech` internal race that `main.dart`'s
+`PlatformDispatcher.onError` deliberately swallows. Swallowing it was right —
+it is not fatal and cannot be caught locally — but **37 times in 30 minutes is
+not the rare event that handler was written for**, and it is very likely behind
+some of the "it didn't hear me" reports. Worth establishing whether each one
+costs a listening session.
+
+## 50. Location permission is never asked for up front
+
+**Reported:** "app should ask for location right away when asking for mic
+permission too."
+
+Almost certainly the cause of item 48. Ask for both during onboarding, where
+there is already a spoken explanation of why the microphone is needed.
+
+## 51. The map does not open or close on command
+
+**Reported:** "map on koro doesnt open the map, in fact map does not auto open
+or auto close when route is asked to be cancelled"; "after saying cancel trip,
+ai thinks trip is cancelled, but map still renders previous route".
+
+**Partly a build-lag artefact, partly real.** Auto-close on cancel is covered by
+`ff4f452` and has five tests including an end-to-end one — but the tester is on
+that build, so it should have worked. Two candidates: the route is cleared from
+chat state while `NavigationController` still holds an active route, or `map on
+koro` is Banglish the matcher does not know (item 54) so nothing was ever
+cancelled. **Get a log of this one** — the state transitions are all printed.
+
+There is also no explicit "open the map" intent at all, in any language.
+
+## 52. Chat history is lost when the app closes
+
+**Reported:** "chat elements go away after closing app."
+
+`ChatState.messages` is in memory only. Nothing persists it. For a user who
+cannot see the screen, the transcript is the only record of what was agreed.
+
+## 53. The diagnostic log resets when the app closes — CRITICAL for testing
+
+**Reported:** "the report log lines also reset when the app is closed, which is
+why i lost a lot of valuable tester log data."
+
+Correct, and it is the single most costly item in this list, because it loses
+the evidence for everything else. `DiagnosticsLog` is an in-memory ring buffer;
+a force-close takes it.
+
+It needs to append to a file on disk and keep the last session or two across
+restarts. Note the tension with item 26: the app is *supposed* to be killable
+without loss, and this is the one thing that still is.
+
+## 54. Banglish is not understood
+
+**Reported:** "it cant handle a lot of banglish terms like 'trip cancel koro'";
+`map on koro`.
+
+Romanised Bangla is neither of the two vocabularies. Both matchers assume a
+sentence is Bangla script or English. This is very common in real speech in
+Dhaka and is a genuine gap rather than an edge case — `cancel`, `koro`, `on`,
+`off`, `dekhao` in Latin letters.
+
+## 55. Ambiguous and indirect requests are taken literally
+
+**Reported:** "i need to poop, where should i go" leads to it attempting to look
+for places; "asked to be taken to the closest bathroom, it lists instead of
+routing to the closest option"; "the app shouldnt act like only an assistive
+map, but also a guardian that provides counsel or assistance for ambiguous
+requests."
+
+Two distinct problems. **Listing instead of routing**: when the user asks for
+the *closest* thing, the answer is a route, not a menu. **Indirect phrasing**:
+"I need to poop" is a request for the nearest toilet, and the assistant should
+infer that rather than searching for the literal words.
+
+## 56. The assistant has no memory between turns
+
+**Reported:** "app should work like a normal chatbot, as in how conversational
+chatgpt and gemini is in speak mode, remembering context and informations/
+preferences."
+
+Gemini gets recent messages, but nothing accumulates across sessions — not the
+places they go, not the phrasings they use, not preferences stated in passing.
+
+## 57. Asking to alert the caretaker does nothing
+
+**Reported:** "user asking to alert caretaker doesnt do anything yet."
+
+No intent exists for it. The caretaker inbox now works in the other direction
+(item 28), so the plumbing is there; this is the user→caretaker direction with
+no command attached to it.
+
+## 58. The caretaker does not receive location
+
+**Reported:** "caretaker doesnt get location."
+
+`liveLocations/{uid}` is read by the Overwatch map and the rules allow the
+user's own device to write it — but check whether anything ever does. Module 8
+expects a background isolate that may not exist.
+
+## 59. No sound cue when the microphone opens
+
+**Reported:** "sound cue when mic is activated after hey jarvis or any
+autolistening."
+
+There is a haptic; there is no audible cue. A user in a noisy street with the
+phone in a pocket has nothing telling them it is listening.
+
+## 60. The mic does not reopen after the assistant asks a question
+
+**Reported:** "after ai asks a question, it should reopen mic."
+
+Auto-listen covers some flows but not a Gemini reply that ends in a question.
+
+## 61. The dashboard skip button is gone
+
+**Reported:** "skip button to dashboard gone."
+
+The ⏩ dev-skip on the first onboarding screen. Every pack except A depends on
+it. Check whether `dev_skip` is gated on a flag the release build no longer sets.
+
+## 62. Option narration should default to on, not be postponed
+
+**Reported:** "turn on narration of choices, do not postpone narration of
+choices."
+
+The default *is* on (item 42). Either the profile resumed with it off, or the
+question is being read as offering to postpone. Worth a look at the wording.
+
+## 63. On-device TTS quality varies by handset — and one tester has no Google voice
+
+**From the logs.** Two devices report
+`available engines=[com.google.android.tts]`; the third:
+
+```
+[Tts] available engines=[com.vivo.aiservice] default=com.vivo.aiservice
+[Tts] Google engine not available on this device — keeping default
+```
+
+That tester is hearing Vivo's own synthesiser for every word the app speaks.
+
+**Related and more important: Cloud TTS has never worked in any shipped build.**
+`dart_defines.local.json` carries no `CLOUD_TTS_API_KEY`, so `CloudTtsConfig`
+falls back to reusing `CLOUD_STT_API_KEY` — which was deliberately restricted to
+Speech-to-Text when it was created. Every synthesis request fails closed and
+drops to the device engine, silently, every time.
+
+**This is a console fix, not a code one:** enable the Cloud Text-to-Speech API on
+`ant-assistive-nav`, then either add that API to the existing key's restrictions
+or create a second key and set `CLOUD_TTS_API_KEY`. The release script should
+also check for it — it currently only requires the STT and Gemini keys, which is
+why this shipped unnoticed.

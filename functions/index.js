@@ -1049,19 +1049,19 @@ exports.resolveHazardZone = onCall(async (request) => {
  */
 /**
  * Records one month's already-extracted DMP crime figures and recomputes
- * the rolling multiplier. Split out from `ingestCrimeReport` (below) on
- * purpose: **Cloud Functions in this project cannot reach police.gov.bd at
- * all** — confirmed live, identically, from both `us-central1` and
- * `asia-south1` (`ECONNREFUSED` at the TCP level, not a bot-check page).
- * That's the site's own network-level access decision, not a bug to route
- * around — so rather than trying to evade it (a different network, a
- * proxy), the fetch+extract step runs from wherever genuinely has access
- * (this was verified working from outside Google Cloud), and only the
- * *recording* — the part that benefits from being a reliable, callable
- * endpoint — lives here. `ingestCrimeReport` still exists for if/when
- * Cloud Functions' access to the site changes (e.g. the user arranging a
- * static egress IP and asking the site to allow it), and calls this same
- * function so there's one real write path either way.
+ * the rolling multiplier.
+ *
+ * Split out from `ingestCrimeReport` when Cloud Functions could not reach the
+ * source at all, so the fetch could run from a network that could while the
+ * *recording* stayed a reliable callable endpoint. **That constraint is gone:**
+ * re-probed from inside a deployed function on 2026-09-16, `dmp.gov.bd`
+ * answers in ~260ms and `police.gov.bd` still times out, so ingestion moved
+ * back to DMP and runs end to end on the schedule again (see
+ * `lib/crime_report_ingestion.js`).
+ *
+ * This stays split anyway. The wall was real once and the site can put one
+ * back; keeping a callable write path means a month can always be recorded by
+ * hand from wherever has access, without redeploying anything.
  */
 async function recordCityTrendEntry({ period, dacoity, robbery, burglary, theft, kidnapping, totalCasesDMP, sourceTitle, sourceUrl }) {
   const breakdown = { dacoity, robbery, burglary, theft, kidnapping };
@@ -1193,6 +1193,9 @@ exports.recordCityCrimeMonth = onCall(async (request) => {
  * 12th of each month to safely land after that lag.
  */
 exports.scrapeDmpCrimeReports = onSchedule(
+  // The 12th, because DMP publishes the previous month partway through this
+  // one — August 2026 appeared on 9 September. Running on the 1st would
+  // reliably find nothing new and record the month before it.
   { schedule: "12 of month 09:00", timeZone: "Asia/Dhaka", secrets: ["GEMINI_API_KEY"] },
   async () => {
     const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -1206,8 +1209,12 @@ exports.scrapeDmpCrimeReports = onSchedule(
       console.log(`scrapeDmpCrimeReports: ingested ${result.period} — ` +
         `${result.pedestrianRelevantIncidents} pedestrian-relevant incidents citywide.`);
     } catch (err) {
-      console.error("scrapeDmpCrimeReports: ingestion failed — the archive page structure may have changed, " +
-        "or Gemini's extraction was malformed. cityTrend keeps its last successful value.", err);
+      // Left as a log rather than a retry or an alert: the multiplier keeps
+      // its last successful value, every route still scores, and the next
+      // month's run tries again. A failure here degrades currency, not safety.
+      console.error("scrapeDmpCrimeReports: ingestion failed — DMP's page structure or upload naming may have " +
+        "changed, the extraction may have been refused by its own validation, or the site may be walled off " +
+        "again. cityTrend keeps its last successful value.", err);
     }
   },
 );

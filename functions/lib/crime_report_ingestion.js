@@ -145,6 +145,49 @@ function monthIndexOf(label) {
   return 0;
 }
 
+/**
+ * Bangla month names as they appear in DMP upload filenames, with the
+ * spelling variants the site actually uses (আগস্ট / আগষ্ট).
+ */
+const BANGLA_MONTHS = [
+  "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
+  "জুলাই", "আগস্ট", "আগষ্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর",
+];
+
+/**
+ * Whether an upload filename is a crime-data scan rather than site furniture.
+ *
+ * Naming has changed three times across the archive — `April-2022.jpg`,
+ * `Crime-Data-April-2025.jpg`, `আগষ্ট-2026_page-0001-1.jpg` — and so has the
+ * folder: 2022 scans sit under `/uploads/2022/09/`, later ones go straight
+ * into `/uploads/`. So neither the path nor a fixed filename pattern is a
+ * reliable discriminator, and an earlier version that keyed on the folder
+ * silently found nothing on every page before 2025.
+ *
+ * A month name or the word "crime" is what every scan has and no piece of
+ * furniture does.
+ */
+function looksLikeCrimeScan(src) {
+  const name = decodeURIComponent(src).split("/").pop().toLowerCase();
+  if (/logo|webmail|icon|banner|avatar/.test(name)) return false;
+  if (name.includes("crime")) return true;
+  if (MONTH_NAMES.some((m) => name.includes(m))) return true;
+  return BANGLA_MONTHS.some((m) => decodeURIComponent(src).includes(m));
+}
+
+/**
+ * WordPress links a scaled copy on some pages and the original on others, and
+ * the scaled copies are not reliably still on disk — April 2022's page links
+ * `April-2022-864x380.jpg`, which 404s, while `April-2022.jpg` is there.
+ *
+ * Stripping the dimensions is therefore both the legibility fix and the
+ * availability fix: a downscaled crop of a dense Bangla table is what makes an
+ * extraction guess, and sometimes it is not fetchable at all.
+ */
+function stripScaledSuffix(src) {
+  return src.replace(/-\d+x\d+(\.(?:jpe?g|png))$/i, "$1");
+}
+
 /** The scanned table image on a monthly page. */
 async function findTableImage(monthPageUrl) {
   const cheerio = require("cheerio");
@@ -152,30 +195,20 @@ async function findTableImage(monthPageUrl) {
   if (!res.ok) throw new Error(`DMP month page returned HTTP ${res.status}`);
   const $ = cheerio.load(await res.text());
 
-  // `data-breeze` first: the site runs the Breeze lazy-loader, which moves the
-  // real URL out of `src` entirely — reading `src` alone finds nothing at all
-  // on a page that plainly has the image on it.
   const candidates = [];
   $("img").each((_, el) => {
     const el$ = $(el);
+    // `data-breeze` first: the site runs the Breeze lazy-loader on newer
+    // pages, which moves the real URL out of `src` entirely.
     const src = el$.attr("data-breeze") || el$.attr("src") || el$.attr("data-src") || "";
     if (!/wp-content\/uploads\/.*\.(jpe?g|png)/i.test(src)) return;
-    // Site furniture lives under dated upload folders and is not the scan:
-    // the logo is `/uploads/2017/08/dmp_logo-1-1.png`, and the table is
-    // published straight into `/uploads/`. Requiring a page-number suffix is
-    // the reliable half of that — every scan is `..._page-0001-1.jpg`.
-    if (/_page-\d+/i.test(src)) candidates.push(src);
+    if (!looksLikeCrimeScan(src)) return;
+    candidates.push(stripScaledSuffix(src));
   });
   if (candidates.length === 0) {
     throw new Error("No table image found on the DMP month page — markup or upload naming may have changed.");
   }
-
-  // WordPress publishes several scaled copies of the same scan
-  // (`-768x1085`, `-1087x1536`). The unsuffixed original is the largest, and
-  // legibility is the whole job here — a downscaled scan of a dense Bangla
-  // table is what makes an OCR pass guess.
-  const full = candidates.find((src) => !/-\d+x\d+\.(jpe?g|png)$/i.test(src));
-  return new URL(full || candidates[0], monthPageUrl).toString();
+  return new URL(candidates[0], monthPageUrl).toString();
 }
 
 /**

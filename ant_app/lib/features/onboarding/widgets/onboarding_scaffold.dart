@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/tester_build_config.dart';
 import '../../../core/localization/app_language.dart';
 import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
@@ -225,12 +226,17 @@ class _OnboardingScaffoldState extends ConsumerState<OnboardingScaffold> {
                 ),
               ),
         actions: [
-          // Development-only shortcut past the whole interview. Wrapped in
-          // `kDebugMode` so it is not merely hidden in release — the tree
-          // never contains it, and Dart's tree shaker drops the branch
-          // outright. See `OnboardingController.devSkipOnboarding`, which
-          // refuses to run in a release build even if reached.
-          if (kDebugMode)
+          // Shortcut past the whole interview, for developers and testers.
+          //
+          // Not merely hidden on a public build — the condition is a
+          // compile-time constant, so the tree never contains it and Dart's
+          // tree shaker drops the branch outright.
+          //
+          // `kDebugMode` alone was the whole of item 61: testers are given
+          // *release* builds, so the button was absent for precisely the
+          // people every testing pack expects to use it. See
+          // `TesterBuildConfig`.
+          if (kDebugMode || TesterBuildConfig.isTesterBuild)
             Semantics(
               button: true,
               label: 'Developer: skip onboarding with test data',

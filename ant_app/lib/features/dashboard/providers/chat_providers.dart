@@ -18,6 +18,7 @@ import '../../onboarding/models/disability_profile_enums.dart';
 import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../models/chat_message.dart';
+import '../services/chat_history_store.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 
 import '../../../core/services/destination_clarifier.dart';
@@ -35,10 +36,23 @@ class ChatState {
     this.pendingClarification,
     this.pendingPlaceSave,
     this.lastSettingChanged,
+    this.answerInvitations = 0,
   });
 
   final List<ChatMessage> messages;
   final bool isAssistantTyping;
+
+  /// Bumped each time the assistant finishes *asking* the user something and
+  /// the microphone should open for the answer — item 60.
+  ///
+  /// A counter rather than a flag: two questions in a row are two
+  /// invitations, and a bool would only change value on the first. The panel
+  /// owns the microphone and watches this; this notifier cannot open one.
+  ///
+  /// Bumped only *after* the question has finished being spoken, so the
+  /// recognizer is never opened underneath the app's own voice — which is
+  /// item 23, and the single easiest way to reintroduce it.
+  final int answerInvitations;
 
   /// Set when the AI Assistant's function calling decided the Passerby
   /// Helper or Hazard Report overlay should open — `ChatStreamPanel` (which
@@ -99,6 +113,7 @@ class ChatState {
     PendingPlaceSave? pendingPlaceSave,
     bool clearPlaceSave = false,
     String? lastSettingChanged,
+    int? answerInvitations,
   }) =>
       ChatState(
         messages: messages ?? this.messages,
@@ -112,6 +127,7 @@ class ChatState {
             clearClarification ? null : (pendingClarification ?? this.pendingClarification),
         pendingPlaceSave: clearPlaceSave ? null : (pendingPlaceSave ?? this.pendingPlaceSave),
         lastSettingChanged: lastSettingChanged ?? this.lastSettingChanged,
+        answerInvitations: answerInvitations ?? this.answerInvitations,
       );
 }
 
@@ -154,7 +170,53 @@ class ChatController extends Notifier<ChatState> {
 
     navigation.progress.addListener(onProgress);
     ref.onDispose(() => navigation.progress.removeListener(onProgress));
+    ref.onDispose(_history.dispose);
     return const ChatState();
+  }
+
+  late final ChatHistoryStore _history = ref.read(chatHistoryStoreProvider);
+
+  /// Saves the transcript on every state change — item 52.
+  ///
+  /// Hooked here rather than at each call site because there are twenty-eight
+  /// places that append a message, and the difference between this working
+  /// and this working *until somebody adds a twenty-ninth* is exactly whether
+  /// it is someone's job to remember. Writing is debounced inside the store,
+  /// so a burst of state changes is still one file write.
+  @override
+  set state(ChatState value) {
+    final before = super.state.messages;
+    super.state = value;
+    if (!identical(before, value.messages)) _rememberTranscript();
+  }
+
+  /// Whose transcript is on screen, so a save can be keyed to them and a
+  /// restore can refuse somebody else's.
+  String? _transcriptUid;
+
+  /// Brings back the conversation from last time — item 52.
+  ///
+  /// Called by the panel once it knows who is signed in. Idempotent, and it
+  /// never overwrites a conversation already in progress: a restore landing
+  /// on top of messages the user has already sent would be a worse bug than
+  /// the one it fixes.
+  Future<void> restoreHistory(String uid, Dashboard d) async {
+    if (_transcriptUid == uid) return;
+    _transcriptUid = uid;
+    final restored = await _history.load(uid);
+    if (restored.isEmpty) return;
+    if (state.messages.length > 1) return;
+    // The welcome line is re-added by `ensureWelcomeMessage` on a fresh
+    // start; dropping it here stops a second one accumulating on top of a
+    // restored transcript every single launch.
+    state = state.copyWith(messages: restored);
+  }
+
+  /// Persists the transcript. Debounced inside the store.
+  void _rememberTranscript() {
+    final uid = _transcriptUid;
+    if (uid == null) return;
+    _history.save(uid, state.messages);
   }
 
   /// Appended, never re-spoken — [NavigationController] said it as it
@@ -404,7 +466,7 @@ class ChatController extends Notifier<ChatState> {
       // it, but count the attempt so it cannot run forever.
       state = state.copyWith(pendingPlaceSave: turn.placeSave ?? filled);
     }
-    await _appendAssistantReply(turn.responseText, profile);
+    await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
     return true;
   }
 
@@ -451,7 +513,7 @@ class ChatController extends Notifier<ChatState> {
           state = state.copyWith(clearClarification: true);
           await _appendAssistantReply(d.clarifyGaveUp(pending.originalQuery), profile);
         } else {
-          await _appendAssistantReply(d.clarifyUnclear, profile);
+          await _appendAssistantReply(d.clarifyUnclear, profile, mayInviteAnswer: true);
         }
         return true;
 
@@ -520,6 +582,8 @@ class ChatController extends Notifier<ChatState> {
           '${d.routeSummary(via: choice.viaSummary, distanceMeters: choice.distanceMeters, durationSeconds: choice.durationSeconds)} '
           '${d.clarifyResolvedOfferSave(choice.destinationLabel)}',
           profile,
+          // Ends by offering to save the place, which is a yes/no question.
+          mayInviteAnswer: true,
         );
         _startNavigation(choice, profile);
 
@@ -531,6 +595,7 @@ class ChatController extends Notifier<ChatState> {
         await _appendAssistantReply(
           d.clarifyChooseOption(options.map((o) => o.spokenLabel).toList()),
           profile,
+          mayInviteAnswer: true,
         );
 
       case RoutePlanFailed(:final reason):
@@ -551,6 +616,7 @@ class ChatController extends Notifier<ChatState> {
               ? d.clarifyAskArea(pending.originalQuery)
               : d.clarifyAskLandmark(pending.originalQuery),
           profile,
+          mayInviteAnswer: true,
         );
     }
   }
@@ -603,7 +669,38 @@ class ChatController extends Notifier<ChatState> {
   /// the same rule `OnboardingController.setDeafHearing` already applies to
   /// spoken onboarding guidance (that profile flag means "show text and
   /// visuals instead of relying on audio").
-  Future<void> _appendAssistantReply(String text, UserProfile profile) async {
+  /// Whether a reply is the assistant asking the user something.
+  ///
+  /// Two signals, because neither covers the other. A pending clarification
+  /// or a pending place-save *is* a question by construction — the assistant
+  /// is holding a slot open and the next utterance is the answer to it. And a
+  /// free-text Gemini reply that ends in a question mark is a question with
+  /// no state attached to it at all, which is most of what item 60 is about:
+  /// "after ai asks a question, it should reopen mic".
+  ///
+  /// The mark is checked in both scripts. Bangla uses the Latin `?`, but a
+  /// reply can end on the danda or a full-width mark depending on what the
+  /// model emits, and a question the app fails to recognise as one is a
+  /// microphone that does not open.
+  bool _invitesAnAnswer(String text) {
+    if (state.pendingClarification != null || state.pendingPlaceSave != null) return true;
+    final trimmed = text.trimRight();
+    return trimmed.endsWith('?') || trimmed.endsWith('？');
+  }
+
+  Future<void> _appendAssistantReply(
+    String text,
+    UserProfile profile, {
+    /// Whether this reply may reopen the microphone when it turns out to be
+    /// a question. False for anything the user is not being asked to answer
+    /// — a caretaker's memo read aloud is not the app asking them something.
+    bool mayInviteAnswer = false,
+  }) async {
+    // A function whose confirmation is spoken by whatever it opens returns an
+    // empty string rather than talking over it — `record_caretaker_voice_memo`
+    // is one. Appending that would leave a blank bubble in the transcript,
+    // which for a user reading back through it says nothing happened.
+    if (text.isEmpty) return;
     state = state.copyWith(isAssistantTyping: true);
     await Future<void>.delayed(const Duration(milliseconds: 300));
     state = state.copyWith(
@@ -613,9 +710,34 @@ class ChatController extends Notifier<ChatState> {
         ChatMessage(sender: ChatSender.assistant, text: text, timestamp: DateTime.now()),
       ],
     );
-    if (!profile.isDeafOrHardOfHearing) {
-      unawaited(ref.read(ttsServiceProvider).speak(text, language: profile.language));
+
+    final invites = mayInviteAnswer && profile.voiceAutoListen && _invitesAnAnswer(text);
+    if (profile.isDeafOrHardOfHearing) {
+      // Nothing is spoken, so there is nothing to wait for. A deaf user with
+      // auto-listen on still gets the microphone — `voiceAutoListen` is a
+      // separate answer from `isDeafOrHardOfHearing` and some users set both.
+      if (invites) _inviteAnswer();
+      return;
     }
+    final speaking = ref.read(ttsServiceProvider).speak(text, language: profile.language);
+    if (!invites) {
+      unawaited(speaking);
+      return;
+    }
+    // Awaited only on the path that is about to open a microphone. Opening
+    // it under the question being asked is item 23 — the app transcribing
+    // its own narration — and this is the most obvious way to bring it back.
+    try {
+      await speaking;
+    } catch (e) {
+      debugPrint('[Chat] narration failed before reopening the mic: $e');
+    }
+    _inviteAnswer();
+  }
+
+  void _inviteAnswer() {
+    debugPrint('[Chat] the assistant asked something — inviting an answer');
+    state = state.copyWith(answerInvitations: state.answerInvitations + 1);
   }
 
   /// How long a chat message waits on a cached location fix before going on
@@ -768,7 +890,14 @@ class ChatController extends Notifier<ChatState> {
       if (turn.updatedProfile != null) {
         await ref.read(profileServiceProvider).saveProfile(turn.updatedProfile!);
       }
-      await _appendAssistantReply(turn.responseText, profile);
+      // Reachable when a local match produces `cancel_route` through the
+      // executor rather than through the shortcut above — kept so the two
+      // paths cannot disagree about what cancelling means.
+      if (turn.cancelsRoute) {
+        await _cancelRoute(profile, d);
+        return;
+      }
+      await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
       if (turn.overlayAction != null) {
         state = state.copyWith(
           pendingOverlayAction: turn.overlayAction,
@@ -796,7 +925,7 @@ class ChatController extends Notifier<ChatState> {
 
     final gemini = ref.read(geminiAssistantServiceProvider);
     if (gemini == null) {
-      await _appendAssistantReply(d.chatStubReply, profile);
+      await _appendAssistantReply(d.chatStubReply, profile, mayInviteAnswer: true);
       return;
     }
 
@@ -876,6 +1005,18 @@ class ChatController extends Notifier<ChatState> {
         await _runEmergency(profile);
         return;
       }
+      // Item 51. `cancel_route` was declared to the model and handled nowhere
+      // — the executor fell through to 'unknown function' and the route
+      // stayed on the map while the user was told something had happened.
+      // Handled here, instead of the reply, because `_cancelRoute` is the one
+      // thing that knows whether there was a journey to cancel, stops the
+      // narrator, and says the right sentence either way.
+      if (turn.cancelsRoute) {
+        debugPrint('[Chat] Gemini asked to cancel the route');
+        state = state.copyWith(isAssistantTyping: false);
+        await _cancelRoute(profile, d);
+        return;
+      }
       if (streaming) {
         // Reconcile with the final text (normally identical to the last
         // streamed chunk already shown) and speak it now — streaming only
@@ -885,7 +1026,7 @@ class ChatController extends Notifier<ChatState> {
           unawaited(ref.read(ttsServiceProvider).speak(turn.responseText, language: profile.language));
         }
       } else {
-        await _appendAssistantReply(turn.responseText, profile);
+        await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
       }
       if (turn.overlayAction != null) {
         state = state.copyWith(
@@ -917,7 +1058,7 @@ class ChatController extends Notifier<ChatState> {
       debugPrint('[Chat] Gemini call FAILED after ${stopwatch.elapsedMilliseconds}ms: $e');
       debugPrintStack(stackTrace: st, label: '[Chat] Gemini failure stack');
       final fallback = OfflineIntentMatcher.match(trimmed, profile.language) ?? d.chatStubReply;
-      await _appendAssistantReply(fallback, profile);
+      await _appendAssistantReply(fallback, profile, mayInviteAnswer: true);
     }
   }
 
@@ -926,8 +1067,9 @@ class ChatController extends Notifier<ChatState> {
   /// enough that the user has not yet decided nothing happened.
   static const Duration _stillWorkingAfter = Duration(seconds: 3);
 
-  /// Chips that are pure chat replies. [SuggestedChipAction.showScreenToPasserby]
-  /// and [SuggestedChipAction.reportHazard] open overlays instead — the
+  /// Chips that are pure chat replies. [SuggestedChipAction.showScreenToPasserby],
+  /// [SuggestedChipAction.reportHazard] and
+  /// [SuggestedChipAction.sendCaretakerVoiceMemo] open overlays instead — the
   /// dashboard screen handles those directly rather than routing them
   /// through here.
   Future<void> handleChip(SuggestedChip chip, UserProfile profile, String chipLabel) async {
@@ -941,14 +1083,26 @@ class ChatController extends Notifier<ChatState> {
         // question sitting in the recent-message history Gemini sees is
         // enough context for `request_route` to pick up a bare place name
         // on the very next turn (see `GeminiAssistantService._buildPrompt`).
-        await _appendAssistantReply(d.chatAskDestination, profile);
+        await _appendAssistantReply(d.chatAskDestination, profile, mayInviteAnswer: true);
       case SuggestedChipAction.scanBusSign:
         await _appendAssistantReply(d.chatStubBusScan, profile);
       case SuggestedChipAction.showScreenToPasserby:
       case SuggestedChipAction.reportHazard:
+      case SuggestedChipAction.sendCaretakerVoiceMemo:
+      case SuggestedChipAction.showMap:
+      case SuggestedChipAction.hideMap:
         break; // Handled by the screen — see above.
     }
   }
 }
+
+/// Keeps the chat transcript across restarts — item 52.
+final chatHistoryStoreProvider = Provider<ChatHistoryStore>((ref) {
+  final store = ChatHistoryStore();
+  // Whatever is still queued goes out before the container dies, so the last
+  // few messages of a session are not the ones that get lost.
+  ref.onDispose(store.flush);
+  return store;
+});
 
 final chatControllerProvider = NotifierProvider<ChatController, ChatState>(ChatController.new);

@@ -11,6 +11,8 @@
 /// Every redaction below keeps the shape and drops the content.
 library;
 
+import '../config/diagnostics_config.dart';
+
 /// A quoted transcript — `heard "..."`, `matched choice: "..."`.
 ///
 /// The quoted part is replaced with a word and character count. That is enough
@@ -67,6 +69,11 @@ String _tagFor(String value) {
 /// or `23.7461` loses its decimals to the digit rule and stops being
 /// recognisable as a coordinate at all.
 String redactLogLine(String line) {
+  // A build made for a known circle keeps what was said — see
+  // `DiagnosticsConfig`. Checked here and returning untouched, rather than
+  // threading a flag through each rule below, so there is exactly one place
+  // where raw and redacted part company.
+  if (DiagnosticsConfig.logRawTranscripts) return line;
   var out = line.replaceAllMapped(_quoted, (m) => _describeQuoted(m.group(1)!));
   out = out.replaceAll(_coordinate, '<coord>');
   out = out.replaceAllMapped(_uid, (m) => _tagFor(m.group(0)!));

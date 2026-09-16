@@ -10,7 +10,9 @@ import '../services/navigation_controller.dart';
 import '../services/route_planning_service.dart';
 import '../../features/guardian/providers/guardian_providers.dart';
 import '../services/emergency_service.dart';
+import '../services/earcon_service.dart';
 import '../services/haptics_service.dart';
+import '../services/location_permission_primer.dart';
 import '../services/stt_service.dart';
 import '../../core/providers/tts_providers.dart';
 import '../services/wake_word_service.dart';
@@ -52,6 +54,17 @@ final cloudSttServiceProvider = Provider<CloudSttService>((ref) {
 /// The three-pattern haptic language (Module 7). One instance, because the
 /// hazard-alarm throttle is state that has to be shared across every caller.
 final hapticsServiceProvider = Provider<HapticsService>((ref) => HapticsService());
+
+/// The tone that says the microphone is open — item 59.
+final earconServiceProvider = Provider<EarconService>((ref) {
+  final service = EarconService();
+  ref.onDispose(service.dispose);
+  return service;
+});
+
+/// Asks for location permission during onboarding — item 50.
+final locationPermissionPrimerProvider =
+    Provider<LocationPermissionPrimer>((ref) => LocationPermissionPrimer());
 
 final emergencyServiceProvider = Provider<EmergencyService>(
   (ref) => EmergencyService(

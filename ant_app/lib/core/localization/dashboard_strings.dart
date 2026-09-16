@@ -1,4 +1,5 @@
 import '../../features/dashboard/models/hazard_report.dart';
+import '../config/diagnostics_config.dart';
 import '../services/routing_service.dart' show ManeuverKind;
 import '../../features/onboarding/models/disability_profile_enums.dart';
 import 'app_language.dart';
@@ -182,7 +183,12 @@ class Dashboard {
   // Suggested chips
   String get chipRouteToWork => _t('Route to Work', 'কাজের পথ');
   String get chipScanBus => _t('Scan the next bus', 'বাসের নাম্বার দেখুন');
-  String get chipShowScreen => _t('Show screen to passerby', 'কাউকে স্ক্রিন দেখান');
+  /// Short enough to sit in a one-third-width cell without wrapping to five
+  /// lines. The full sentence is still what a screen reader announces — see
+  /// [chipShowScreenSemantics] and `SuggestedChip.semanticsLabelFor`.
+  String get chipShowScreen => _t('Show my screen', 'স্ক্রিন দেখান');
+  String get chipShowScreenSemantics =>
+      _t('Show my screen to a passer-by', 'কাউকে আমার স্ক্রিন দেখান');
   String get chipReportHazard => _t('Report a hazard', 'বিপদ জানান');
 
   // Map
@@ -971,18 +977,123 @@ class Dashboard {
       );
 
   // ---- Haptic strength (Module 7 step 3.1) --------------------------------
+  // ---- Remembering things (item 56) -----------------------------------------
+  /// Said out loud on purpose. A user who cannot see a screen has no other
+  /// way to know something about them was written down and kept, and being
+  /// told is the difference between a feature and a surprise.
+  String rememberedNote(String note) =>
+      _t("I'll remember that: $note", 'এটা মনে রাখব: $note');
+  String get forgotNote => _t("Forgotten — I won't bring that up again.",
+      'ভুলে গেছি — এটা আর বলব না।');
+  String get forgotNoteUnknown =>
+      _t("I don't have anything like that written down.", 'ওরকম কিছু আমার কাছে লেখা নেই।');
+
+  // ---- Asking for the map (item 51) -----------------------------------------
+  String get mapOpened => _t('Showing the map.', 'ম্যাপ দেখাচ্ছি।');
+  String get mapClosed => _t('Hiding the map.', 'ম্যাপ লুকিয়ে ফেলছি।');
+
+  // ---- Alerting the caretaker (item 57) -------------------------------------
+  String get alertCaretakerSent => _t(
+        "I've let your caretaker know, and sent them where you are.",
+        'আপনার দেখাশোনাকারীকে জানিয়ে দিয়েছি, আর আপনি কোথায় আছেন তাও পাঠিয়েছি।',
+      );
+  /// Says what to do instead, rather than only that it failed. Someone
+  /// standing in the street needs the next step, not a status code.
+  String get alertCaretakerNotPaired => _t(
+        "You don't have a caretaker paired yet, so there's nobody to tell. "
+            'Say "pair with my caretaker" and I\'ll walk you through it.',
+        'আপনার সাথে এখনো কোনো দেখাশোনাকারী যুক্ত নেই, তাই জানানোর কেউ নেই। '
+            '"দেখাশোনাকারী যুক্ত করো" বলুন, আমি দেখিয়ে দিচ্ছি।',
+      );
+  String get alertCaretakerFailed => _t(
+        "I couldn't reach your caretaker just now. If this is urgent, hold the Magic Button.",
+        'এখন আপনার দেখাশোনাকারীর কাছে পৌঁছাতে পারিনি। জরুরি হলে ম্যাজিক বাটন চেপে ধরুন।',
+      );
+
+  // ---- Sending to the caretaker ---------------------------------------------
+  String caretakerMessageSent(String message) =>
+      _t('Sent to your caretaker: "$message"', 'আপনার দেখাশোনাকারীকে পাঠিয়েছি: "$message"');
+  String get caretakerMessageEmpty => _t(
+        "What would you like me to tell them?",
+        'তাঁকে কী বলতে চান?',
+      );
+  String get caretakerMessageFailed => _t(
+        "I couldn't send that just now. If it's urgent, hold the Magic Button.",
+        'এখন পাঠাতে পারিনি। জরুরি হলে ম্যাজিক বাটন চেপে ধরুন।',
+      );
+
+  String get chipVoiceMemo => _t('Voice message', 'ভয়েস বার্তা');
+
+  // ---- Voice memo to the caretaker ------------------------------------------
+  /// Spoken before recording starts, so somebody who cannot see the screen
+  /// knows the microphone is open and roughly how long they have.
+  String get voiceMemoIntro => _t(
+        'Recording a voice message for your caretaker. Speak after the tone, and say "send" when you are done.',
+        'আপনার দেখাশোনাকারীর জন্য ভয়েস বার্তা রেকর্ড করছি। শব্দের পরে বলুন, শেষ হলে "পাঠাও" বলুন।',
+      );
+  String get voiceMemoRecording => _t('Recording…', 'রেকর্ড হচ্ছে…');
+  String voiceMemoSent(int seconds) => _t(
+        'Sent your caretaker a $seconds second voice message.',
+        'আপনার দেখাশোনাকারীকে $seconds সেকেন্ডের ভয়েস বার্তা পাঠিয়েছি।',
+      );
+  String get voiceMemoTooShort => _t(
+        "I didn't catch anything, so nothing was sent. Try again when you're ready.",
+        'কিছু শুনতে পাইনি, তাই কিছু পাঠানো হয়নি। প্রস্তুত হলে আবার চেষ্টা করুন।',
+      );
+  String get voiceMemoCancelled => _t('Cancelled — nothing was sent.', 'বাতিল করা হয়েছে — কিছু পাঠানো হয়নি।');
+  String get voiceMemoNoMic => _t(
+        'I need permission to use the microphone before I can record a message.',
+        'বার্তা রেকর্ড করতে মাইক্রোফোনের অনুমতি দরকার।',
+      );
+  String get voiceMemoSendButton => _t('Send', 'পাঠাও');
+  String get voiceMemoCancelButton => _t('Cancel', 'বাতিল');
+
+  // ---- Where am I (item 48) -------------------------------------------------
+  String locationHere(String place) =>
+      _t("You're near $place.", 'আপনি $place এর কাছে আছেন।');
+  String get locationUnknown => _t(
+        "I can't tell where you are right now — please check that location access is enabled.",
+        'আপনার অবস্থান জানতে পারছি না। লোকেশন চালু আছে কিনা দেখুন।',
+      );
+  /// The fix arrived; naming it did not. Worth distinguishing out loud from
+  /// [locationUnknown] — "I know where you are, I just can't name the road"
+  /// is a different thing to be told than "I have no idea where you are".
+  String get locationUnnamed => _t(
+        "I know where you are, but I couldn't find a name for this spot.",
+        'আপনি কোথায় আছেন জানি, তবে এই জায়গাটার নাম খুঁজে পেলাম না।',
+      );
+
   // ---- Diagnostics ---------------------------------------------------------
   String get settingsDiagnosticsSection => _t('Send a report to the developers', 'ডেভেলপারদের রিপোর্ট পাঠান');
-  String get settingsDiagnosticsHint => _t(
-        'Sends what the app did during this session, so a problem you hit can be found. '
-            'What you said, names, numbers and your location are replaced with their shape first — '
-            'never the actual words.',
-        'এই সেশনে অ্যাপ কী করেছে তা পাঠানো হয়, যাতে আপনার সমস্যা খুঁজে বের করা যায়। '
-            'আপনি যা বলেছেন, নাম, নম্বর ও আপনার অবস্থান — সবই আগে ঢেকে দেওয়া হয়, আসল কথা কখনো যায় না।',
-      );
+  /// Two versions, because the app must not describe a build it is not.
+  ///
+  /// A tester build keeps what was actually said (see `DiagnosticsConfig`),
+  /// and the person pressing this button cannot read the file to discover
+  /// that for themselves. Leaving the redaction promise in place on a raw
+  /// build would be worse than never having made it.
+  String get settingsDiagnosticsHint => DiagnosticsConfig.logRawTranscripts
+      ? _t(
+          'Sends what the app did during this session, so a problem you hit can be found. '
+              'In this test version it includes what you actually said, and any names, numbers '
+              'and locations that came up. Only send it to the ANT team.',
+          'এই সেশনে অ্যাপ কী করেছে তা পাঠানো হয়, যাতে আপনার সমস্যা খুঁজে বের করা যায়। '
+              'এই টেস্ট সংস্করণে আপনি যা বলেছেন, এবং যেসব নাম, নম্বর ও অবস্থান এসেছে, তাও এতে থাকে। '
+              'শুধু ANT টিমকেই পাঠাবেন।',
+        )
+      : _t(
+          'Sends what the app did during this session, so a problem you hit can be found. '
+              'What you said, names, numbers and your location are replaced with their shape first — '
+              'never the actual words.',
+          'এই সেশনে অ্যাপ কী করেছে তা পাঠানো হয়, যাতে আপনার সমস্যা খুঁজে বের করা যায়। '
+              'আপনি যা বলেছেন, নাম, নম্বর ও আপনার অবস্থান — সবই আগে ঢেকে দেওয়া হয়, আসল কথা কখনো যায় না।',
+        );
   String get settingsDiagnosticsButton => _t('Send report', 'রিপোর্ট পাঠান');
   String settingsDiagnosticsReady(int lines) =>
       _t('$lines lines of this session are ready to send.', 'এই সেশনের $lines লাইন পাঠানোর জন্য প্রস্তুত।');
+  String settingsDiagnosticsRecovered(int lines) => _t(
+        'Your previous session was saved too — $lines more lines will be included.',
+        'আপনার আগের সেশনও রাখা হয়েছে — আরও $lines লাইন এর সাথে যাবে।',
+      );
   String settingsDiagnosticsFailed(String error) =>
       _t('Could not build the report: $error', 'রিপোর্ট তৈরি করা যায়নি: $error');
 

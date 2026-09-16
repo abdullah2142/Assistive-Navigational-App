@@ -400,6 +400,39 @@ class RoutingService {
     return _geocodeCandidatesOsm(address, limit);
   }
 
+  /// What to call the spot at [location] — the answer to "where am I".
+  ///
+  /// The reverse of [geocode], and added for item 48: a tester asked where
+  /// they were and was told the app could not say. The location was there all
+  /// along (the logs show a fix within four seconds and 529 of them after
+  /// that) — there was simply nothing that could turn it into words, so the
+  /// assistant answered from the only thing it had, which was its own
+  /// ignorance.
+  ///
+  /// Coordinates are not an answer. Someone who cannot see the map needs a
+  /// road and an area, which is what [GeocodeCandidate.spokenLabel] reduces a
+  /// geocoder's full hierarchy to.
+  ///
+  /// Returns null rather than throwing when nothing is found: being unable to
+  /// name a spot is an ordinary thing to say out loud, not a failure.
+  Future<GeocodeCandidate?> describeLocation(LatLng location) async {
+    if (_preferGoogle) {
+      try {
+        // The same Geocoding SKU as a forward lookup, so it draws on the same
+        // allowance — reverse geocoding is not separately billed.
+        if (await _canSpend(BillableApi.geocoding)) {
+          final found = await _reverseGeocodeGoogle(location);
+          if (found != null) return found;
+        }
+      } on RoutingException catch (e) {
+        if (!_allowFallback) rethrow;
+        debugPrint('[Routing] Google reverse geocode failed (${e.reason}); trying Nominatim');
+      }
+      if (!_allowFallback) return null;
+    }
+    return _reverseGeocodeOsm(location);
+  }
+
   /// Every walking-mode alternative the backend offers between two points,
   /// ordered fastest-first — `RoutePlanningService` is what actually picks
   /// among these for safety.
@@ -701,6 +734,43 @@ class RoutingService {
           ),
         ),
     ];
+  }
+
+  Future<GeocodeCandidate?> _reverseGeocodeGoogle(LatLng location) async {
+    final uri = Uri.https('maps.googleapis.com', '/maps/api/geocode/json', {
+      'latlng': '${location.latitude},${location.longitude}',
+      'key': MapsConfig.apiKey,
+    });
+    final response = await _get(uri, headers: MapsConfig.androidRestrictionHeaders);
+    final status = response['status'] as String?;
+    if (status == 'ZERO_RESULTS') return null;
+    if (status != 'OK') throw RoutingException('reverse_geocode_failed:$status');
+    // Google orders reverse results most-specific first, which is the one
+    // worth saying: "Road 7, Dhanmondi" rather than "Dhaka Division".
+    final results = response['results'] as List<dynamic>? ?? const [];
+    if (results.isEmpty) return null;
+    final label = (results.first as Map<String, dynamic>)['formatted_address'] as String?;
+    if (label == null || label.isEmpty) return null;
+    return GeocodeCandidate(label: label, location: location);
+  }
+
+  Future<GeocodeCandidate?> _reverseGeocodeOsm(LatLng location) async {
+    final uri = Uri.https('nominatim.openstreetmap.org', '/reverse', {
+      'lat': '${location.latitude}',
+      'lon': '${location.longitude}',
+      'format': 'jsonv2',
+      // Street level. Nominatim's default walks up to the suburb, which is
+      // too coarse to be any use to somebody standing on a footpath.
+      'zoom': '18',
+    });
+    try {
+      final response = await _get(uri);
+      final label = response['display_name'] as String?;
+      if (label == null || label.isEmpty) return null;
+      return GeocodeCandidate(label: label, location: location);
+    } on RoutingException {
+      return null;
+    }
   }
 
   /// Google's **Routes API** (`v2:computeRoutes`), not the Directions API.

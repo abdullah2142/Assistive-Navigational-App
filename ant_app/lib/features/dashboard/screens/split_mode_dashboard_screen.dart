@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../guardian/providers/guardian_providers.dart';
+import '../../guardian/services/live_location_publisher.dart';
+import '../../onboarding/models/user_role.dart';
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/localization/onboarding_strings.dart';
 import '../../onboarding/models/user_profile.dart';
 import '../models/hazard_report.dart';
 import '../models/suggested_chip.dart';
 import '../widgets/chat_stream_panel.dart';
+import '../widgets/caretaker_voice_memo_overlay.dart';
 import '../widgets/crowdsource_reporting_hub.dart';
 import '../widgets/caretaker_inbox_listener.dart';
 import '../widgets/dashboard_map_panel.dart';
@@ -79,6 +83,48 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
 
   UserProfile get profile => widget.profile;
 
+  @override
+  void initState() {
+    super.initState();
+    _syncLocationPublishing();
+  }
+
+  @override
+  void didUpdateWidget(SplitModeDashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Pairing happens mid-session — "pair with my caretaker" is a chat
+    // command — so the publisher cannot be started once and forgotten.
+    if (oldWidget.profile.uid != profile.uid ||
+        oldWidget.profile.pairedUserId != profile.pairedUserId) {
+      _syncLocationPublishing();
+    }
+  }
+
+  /// Held rather than read back in [dispose]: `ref` is unsafe once the
+  /// widget is being unmounted, which is the only moment this is needed.
+  LiveLocationPublisher? _locationPublisher;
+
+  @override
+  void dispose() {
+    _locationPublisher?.stop();
+    super.dispose();
+  }
+
+  /// Item 58 — "caretaker doesnt get location".
+  ///
+  /// Nothing published this except the emergency sequence, so a caretaker
+  /// could see where someone was only once they had already triggered an
+  /// SOS. Started here because this screen is the disabled user's session:
+  /// it is on screen for as long as the app is being used by the person
+  /// whose location it is.
+  void _syncLocationPublishing() {
+    if (profile.role != UserRole.disabledUser) return;
+    final LiveLocationPublisher publisher =
+        _locationPublisher ?? ref.read(liveLocationPublisherProvider);
+    _locationPublisher = publisher;
+    publisher.start(uid: profile.uid, isPaired: profile.pairedUserId != null);
+  }
+
   Future<void> _handleOverlayChip(
     BuildContext context,
     SuggestedChipAction action,
@@ -106,6 +152,33 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
           mobilityAid: profile.mobilityAid,
           prefill: hazardPrefill,
         );
+      case SuggestedChipAction.sendCaretakerVoiceMemo:
+        final caretakerUid = profile.pairedUserId;
+        // The executor already refuses this when nobody is paired and says
+        // so; the guard is here because a profile can change between the
+        // call and the overlay opening.
+        if (caretakerUid == null) break;
+        await CaretakerVoiceMemoOverlay.show(
+          context,
+          disabledUserUid: profile.uid,
+          caretakerUid: caretakerUid,
+          strings: d,
+          language: profile.language,
+        );
+      // Item 51 — "map on koro doesnt open the map, in fact map does not auto
+      // open". It opened itself when a route was planned and closed when one
+      // was cleared, and between those two moments there was no way to ask
+      // for it at all, in any language. The button on the input row is no use
+      // to somebody who cannot see it.
+      case SuggestedChipAction.showMap:
+        if (!_mapVisible) setState(() => _mapVisible = true);
+      case SuggestedChipAction.hideMap:
+        if (_mapVisible) {
+          setState(() {
+            _mapVisible = false;
+            _mapFullScreen = false;
+          });
+        }
       case SuggestedChipAction.routeToWork:
       case SuggestedChipAction.scanBusSign:
         break; // Handled inside the chat panel itself.

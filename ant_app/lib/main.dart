@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/diagnostics/diagnostics_log.dart';
 import 'core/routing/app_root.dart';
+import 'core/services/recognizer_faults.dart';
 import 'core/theme/app_colors.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_resolver.dart';
@@ -23,6 +24,15 @@ void main() async {
   // Every line is redacted as it is recorded — see `log_redaction.dart`.
   diagnosticsLog.install();
 
+  // And then to disk, before Firebase gets a chance to log anything.
+  //
+  // In memory alone the log died with the app (item 53), which is how round 3
+  // lost most of what it learned: the sessions worth reporting are the ones a
+  // tester force-closed because the app was stuck, and that is precisely the
+  // exit that took the evidence with it. This keeps the last two runs on disk;
+  // the report sends both. It cannot throw — see `attachToDefaultDirectory`.
+  await diagnosticsLog.attachToDefaultDirectory();
+
   // Confirmed live: `google_speech`'s `EndlessStreamingService` can deliver
   // one last buffered gRPC response asynchronously just after `dispose()`
   // already closed its internal stream controller (`CloudSttService.stop`),
@@ -38,6 +48,19 @@ void main() async {
   // the only fix possible without patching the third-party package itself.
   PlatformDispatcher.instance.onError = (error, stack) {
     debugPrint('[Main] uncaught async error (handled, not fatal): $error');
+    // Item 49: swallowing it was right, ignoring it was not.
+    //
+    // Reading the tester logs line by line says this message is two
+    // different events. Twenty-eight of thirty-seven fired after the session
+    // had already ended cleanly and the transcript had already gone to
+    // Gemini — those cost nothing. Nine fired mid-utterance, and those leave
+    // `SttService` waiting on a stream that will never deliver and the caller
+    // awaiting a future that will never complete: a microphone shown as open
+    // and permanently deaf.
+    //
+    // `RecognizerFaults` hands it to the one object that can tell those two
+    // apart — the one that knows whether a session is currently live.
+    RecognizerFaults.instance.report(error);
     return true;
   };
 

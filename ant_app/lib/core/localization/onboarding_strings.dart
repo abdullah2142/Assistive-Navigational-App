@@ -192,18 +192,46 @@ class Onboarding {
         'Best if you cannot see the screen — you never have to guess what you may say.',
         'স্ক্রিন দেখতে না পেলে এটাই ভালো — কী বলা যাবে তা অনুমান করতে হবে না।',
       );
+  /// Item 62 — "turn on narration of choices, do not postpone narration of
+  /// choices".
+  ///
+  /// The reported sentence used to select the *opposite* option. `on request`
+  /// was an on-request synonym, `fuzzyMatchScore` accepts half a target's
+  /// words, and "turn **on**" is half of "**on** request" — so the most
+  /// natural way in English to ask for something to be enabled scored 0.5 for
+  /// switching it off and 0 for switching it on. Same defect as "Low vision"
+  /// selecting "No vision": a half-match on a shared word that carries none
+  /// of the meaning.
+  ///
+  /// Two halves to the fix. The ambiguous synonym is gone from the other
+  /// option, and the ways people actually say "enable this" are listed here,
+  /// so they win outright rather than merely tying.
   List<String> get optionNarrationAlwaysSynonyms => _bn
-      ? const ['প্রতিবার', 'পড়ে শোনাও', 'সবসময়', 'হ্যাঁ']
-      : const ['every time', 'read them', 'always', 'yes', 'read it out'];
+      ? const [
+          'প্রতিবার', 'পড়ে শোনাও', 'সবসময়', 'হ্যাঁ',
+          'চালু করো', 'চালু', 'পড়ো', 'শোনাও',
+        ]
+      : const [
+          'every time', 'read them', 'always', 'yes', 'read it out',
+          'turn it on', 'turn on', 'keep it on', 'switch it on', 'leave it on',
+          'read the choices', 'read the options', 'narrate', 'narration on',
+        ];
 
   String get optionNarrationOnRequestLabel => _t('Only when I ask', 'শুধু আমি চাইলে');
   String get optionNarrationOnRequestDescription => _t(
         'Quicker once you know the questions. Say "options" at any point to hear them.',
         'প্রশ্নগুলো জানা থাকলে দ্রুত হয়। যেকোনো সময় "বিকল্প" বললেই শুনতে পাবেন।',
       );
+  /// `on request` is deliberately absent — see
+  /// [optionNarrationAlwaysSynonyms]. Its only distinctive word is
+  /// "request", and the other one inverted the setting for anybody who said
+  /// "turn it on".
   List<String> get optionNarrationOnRequestSynonyms => _bn
-      ? const ['শুধু চাইলে', 'চাইলে', 'না', 'দরকার নেই']
-      : const ['only when i ask', 'when i ask', 'no', 'keyword', 'on request'];
+      ? const ['শুধু চাইলে', 'চাইলে', 'না', 'দরকার নেই', 'চুপ থাকো']
+      : const [
+          'only when i ask', 'when i ask', 'no', 'keyword',
+          'only if i ask', 'when i request', 'stay quiet',
+        ];
 
   /// Spoken in place of the option list when the user has asked for quiet.
   ///

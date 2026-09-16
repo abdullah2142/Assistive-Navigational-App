@@ -28,9 +28,17 @@ class AssistantTurn {
     this.clarification,
     this.placeSave,
     this.triggersEmergency = false,
+    this.cancelsRoute = false,
   });
 
   final String responseText;
+
+  /// True when the model asked to end the walk.
+  ///
+  /// A flag, not an applied change: cancelling stops the narrator and clears
+  /// the route from chat state, and the caller owns both. See
+  /// [triggersEmergency], which exists for the same reason.
+  final bool cancelsRoute;
 
   /// True when the model judged the user to be in danger.
   ///
@@ -144,7 +152,7 @@ class GeminiAssistantService {
   }) async {
     final contents = <Content>[
       ..._historyToContents(recentHistory),
-      Content.text(_buildPrompt(userText: userText, profile: profile, location: location)),
+      Content.text(buildPrompt(userText: userText, profile: profile, location: location)),
     ];
 
     final calls = <FunctionCall>[];
@@ -227,7 +235,18 @@ class GeminiAssistantService {
     return recent.map((m) => Content(m.sender == ChatSender.user ? 'user' : 'model', [TextPart(m.text)])).toList();
   }
 
-  String _buildPrompt({required String userText, required UserProfile profile, Position? location}) {
+  /// Static because it is pure — it reads nothing but its own arguments.
+  ///
+  /// That also makes it assertable, which matters more than it looks: the
+  /// prompt is the entire implementation of several reported behaviours (item
+  /// 55's indirect requests among them), and a rule quietly dropped from it
+  /// fails exactly like a deleted function, with nothing to catch it.
+  @visibleForTesting
+  static String buildPrompt({
+    required String userText,
+    required UserProfile profile,
+    Position? location,
+  }) {
     final bn = profile.language == AppLanguage.bangla;
     final locationLine = location == null
         ? 'Not available right now.'
@@ -246,6 +265,10 @@ User profile:
 - Snapshot-sharing permission for their caretaker: ${profile.snapshotConsent.name}
 - Paired with a caretaker: ${profile.pairedUserId != null}
 
+${profile.rememberedNotes.isEmpty ? '' : '''
+Things this user has told you about themselves before (kept across sessions — treat as true, and use them without being asked again):
+${profile.rememberedNotes.map((n) => '- $n').join('\n')}
+'''}
 Live location (may be stale or unavailable — never invent one if missing): $locationLine
 Current app state: safety-weighted walking-route planning is available (call request_route). Live camera hazard/bus-sign scanning and emergency auto-dispatch are separate modules that are not deployed yet — if asked for those, say so briefly and don't pretend to do them.
 
@@ -260,6 +283,17 @@ Rules:
 - If they are already on a route and want a different one ("another way", "I don't like this route"), call request_alternative_route.
 - If they say they have come off the route, ask to "re-route", or ask which way to go from here, call replan_route.
 - For a real emergency, tell them to use the physical Magic Button or call for help directly — you cannot dial or send messages on their behalf yet.
+- If they want their caretaker told something, call send_caretaker_message with what they want said, in their own words. If they want to be checked on but have nothing specific to pass on, call alert_caretaker. If they want to send their own voice, call record_caretaker_voice_memo.
+- If they ask where they are, what road or area this is, or say they are lost, call describe_current_location. Never guess a street name from the coordinates above.
+- If they ask to see, show, open, hide or close the map, call open_map or close_map. This is not a route request.
+- If they tell you something durable about themselves in passing — a preference, a limitation, a routine — call remember_about_me so it survives this conversation. If they ask you to forget something, call forget_about_me. Never claim to remember something without calling it.
+- You already have their earlier messages above, including from previous sessions. Use them: do not ask again for something they have already told you.
+
+Understanding what they actually need:
+- **Act on the need, not the words.** People say what is wrong, not what they want you to do about it. "I need to poop", "I'm bursting", "my stomach hurts" is a request for the nearest toilet — call request_route for a nearby toilet, do not search for those words as if they were a place name. "I'm thirsty", "I need to sit down", "my phone is dying", "I need medicine" are the same shape: work out the kind of place that solves it and route there.
+- **"The nearest X" is an answer, not a question.** If they ask for the closest or nearest anything, they have already told you which one they mean. Call request_route with the whole phrase including the word "nearest" — the route planner picks the closest one itself. Never read a list of options back to somebody who asked for the closest.
+- **You are a guardian, not only a map.** If somebody is unsure, uncomfortable or asking for advice, answer the question they asked before offering to take them anywhere. Not every problem is solved by walking somewhere, and offering a route to a person who asked whether it is safe to go out is not an answer.
+- **Ask only when it changes what you would do.** One short question, never a list of possibilities, and never when a sensible default exists. A person standing in a Dhaka street who has just told you they urgently need a toilet should be given a route, not a questionnaire.
 
 User's message: "$userText"
 ''';
@@ -430,6 +464,47 @@ User's message: "$userText"
       null,
     ),
     FunctionDeclaration(
+      'send_caretaker_message',
+      'Send the user\'s paired caretaker a written message in the user\'s own words. Call this '
+          'whenever they want something passed on — "tell my caretaker I will be home late", '
+          '"let my mum know I got there safely", "message my carer that I am skipping lunch". '
+          'Put what they want said into `message`, in their words and their language, not a '
+          'summary of it. If they have not said what to pass on yet, ask them first rather than '
+          'inventing it. For a bare "let them know I need them" with nothing to say, use '
+          'alert_caretaker instead; for danger or injury use trigger_emergency.',
+      Schema.object(properties: {
+        'message': Schema.string(
+          description: 'What the user wants said, in their own words.',
+        ),
+      }, requiredProperties: const ['message']),
+    ),
+    FunctionDeclaration(
+      'record_caretaker_voice_memo',
+      'Open the recorder so the user can send their caretaker a short message in their own '
+          'voice. Call this when they ask to record something, to send a voice message or voice '
+          'note, or to let their caretaker hear them say it. Use this rather than '
+          'send_caretaker_message whenever they have asked for their *voice* specifically — do '
+          'not transcribe it for them.',
+      null,
+    ),
+    FunctionDeclaration(
+      'alert_caretaker',
+      'Tell the user\'s paired caretaker that they want to be checked on, and send them the '
+          'user\'s current position. Call this when the user asks to let their caretaker, carer, '
+          'guardian or family know something, to alert or notify them, or says they want someone '
+          'told where they are. This is NOT an emergency — for danger, injury or a call for help, '
+          'use trigger_emergency instead.',
+      null,
+    ),
+    FunctionDeclaration(
+      'describe_current_location',
+      'Tell the user where they are right now, by name — the road and area they are standing in. '
+          'Call this whenever they ask where they are, what road or area this is, or say they are lost '
+          'or do not know where they have ended up. This does not plan a route and does not need a '
+          'destination; it answers the question "where am I".',
+      null,
+    ),
+    FunctionDeclaration(
       'request_route',
       'Plan a safety-checked walking route from the user\'s current location to a named destination and show it '
           'on the dashboard map. Call this whenever the user asks to go somewhere, be taken somewhere, or asks '
@@ -455,6 +530,44 @@ User's message: "$userText"
           'say to cancel or stop the trip, or that they are no longer going. This is not '
           'request_alternative_route (same destination, different road) and not replan_route (same '
           'destination, new starting point) — it abandons the journey entirely.',
+      null,
+    ),
+    FunctionDeclaration(
+      'remember_about_me',
+      'Write down something the user has told you about themselves that is worth keeping for '
+          'later — a preference, a limitation, a routine, a name they use for someone. Call this '
+          'when they say something durable about themselves in passing ("I can\'t manage stairs", '
+          '"I hate crowded markets", "my daughter picks me up on Fridays"), or when they ask you '
+          'outright to remember something. Do NOT call it for one-off requests, for anything '
+          'already in their profile above, or for where they want to go right now.',
+      Schema.object(properties: {
+        'note': Schema.string(
+          description: 'One short sentence, written from their point of view, e.g. '
+              '"Cannot manage stairs" or "Prefers quiet routes".',
+        ),
+      }, requiredProperties: const ['note']),
+    ),
+    FunctionDeclaration(
+      'forget_about_me',
+      'Remove something previously remembered about the user. Call this whenever they ask you to '
+          'forget, drop or stop keeping something. Pass a few words of the note to remove; pass '
+          'nothing at all only if they ask you to forget everything.',
+      Schema.object(properties: {
+        'note': Schema.string(description: 'Part of the note to remove.'),
+      }),
+    ),
+    FunctionDeclaration(
+      'open_map',
+      'Show the map on the dashboard. Call this when the user asks to see, show or open the map '
+          '— including in romanised Bangla ("map on koro", "map dekhao"). It does not plan or '
+          'change a route and needs no destination.',
+      null,
+    ),
+    FunctionDeclaration(
+      'close_map',
+      'Hide the map on the dashboard, giving the space back to the chat. Call this when the user '
+          'asks to close, hide or put away the map ("map off koro", "map bondho koro"). This does '
+          'not cancel their journey — for that, use cancel_route.',
       null,
     ),
     FunctionDeclaration(

@@ -2,11 +2,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// A disabled user's most recent position, read from `liveLocations/{uid}`.
 ///
-/// Nothing writes this document yet — the background isolate that publishes
-/// real GPS + battery updates is `08_module_plan_virtual_guardian.md`
-/// (Module 8). This model and [LiveLocationService] establish the read-side
-/// contract the Overwatch Map is built against, so Module 8 only has to
-/// start writing matching documents, not touch this UI.
+/// Written by `LiveLocationPublisher` while the disabled user has the app
+/// open and a caretaker paired, and by the emergency sequence regardless.
+/// That comment used to say nothing wrote it at all, which stayed true for
+/// long enough to become item 58 — "caretaker doesnt get location".
+///
+/// [batteryPercent] is still unwritten: it needs a battery plugin this app
+/// does not depend on. It is optional here and the publisher merges rather
+/// than replaces, so whatever eventually writes it will not be clobbered.
 class LiveLocation {
   const LiveLocation({
     required this.uid,

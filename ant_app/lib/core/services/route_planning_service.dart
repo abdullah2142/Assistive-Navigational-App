@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'destination_clarifier.dart';
@@ -100,6 +102,16 @@ class RoutePlanningService {
   final RoutingService _routing;
   final RouteSafetyService _safety;
 
+  /// What to call where the user is standing — item 48's "where am I".
+  ///
+  /// A passthrough rather than a reach into `RoutingService` from the
+  /// executor: this is already the seam every test injects to keep the
+  /// network out, and answering "where am I" should not need a second one.
+  Future<String?> describeLocation(LatLng location) async {
+    final found = await _routing.describeLocation(location);
+    return found?.spokenLabel;
+  }
+
   Future<RoutePlanResult> plan({
     required String destinationQuery,
     required LatLng origin,
@@ -122,12 +134,37 @@ class RoutePlanningService {
       final candidates =
           DestinationClarifier.distinctOptions(await _routing.geocodeCandidates(destinationQuery));
       if (candidates.isEmpty) return const RoutePlanFailed('destination_not_found');
-      if (candidates.length > 1) return RoutePlanAmbiguous(candidates);
-      destination = candidates.single.location;
+      // Item 55 — "asked to be taken to the closest, example: bathroom, it
+      // lists instead of routing to a closest option".
+      //
+      // The clarification loop was doing its job: three bathrooms geocode to
+      // three distinct places, so it asked which one. But the user had
+      // already answered that — *the closest* — and reading three options
+      // back to somebody who has just said they need a toilet is the wrong
+      // thing to do with having understood them perfectly.
+      //
+      // Only when they actually said so. Picking silently for a user who did
+      // not ask for the nearest is the failure the clarification loop was
+      // built to stop: walking a blind person to whichever candidate scored
+      // highest, with no way to tell it went wrong until they arrive
+      // somewhere else.
+      if (candidates.length > 1 && DestinationClarifier.wantsNearest(destinationQuery)) {
+        final nearest = DestinationClarifier.nearestTo(origin, candidates)!;
+        debugPrint('[RoutePlanning] "nearest" asked for — routing to '
+            '"${nearest.spokenLabel}" instead of listing ${candidates.length} options');
+        destination = nearest.location;
+        label ??= nearest.spokenLabel;
+      } else if (candidates.length > 1) {
+        return RoutePlanAmbiguous(candidates);
+      } else {
+        destination = candidates.single.location;
+      }
       // The geocoder's own description is more useful to say back than the
       // raw query — "Ibn Sina Hospital, Dhanmondi" confirms *which* place
-      // was understood, where echoing "the hospital" confirms nothing.
-      label ??= candidates.single.spokenLabel;
+      // was understood, where echoing "the hospital" confirms nothing. Doubly
+      // so for a "nearest" request, where the user never named a place at all
+      // and the label is the only thing telling them where they are headed.
+      if (candidates.length == 1) label ??= candidates.single.spokenLabel;
     }
 
     final candidates = await _routing.walkingRoutes(origin: origin, destination: destination);

@@ -6,6 +6,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import '../localization/app_language.dart';
 import 'cloud_stt_service.dart';
+import 'recognizer_faults.dart';
 import 'locale_preference.dart';
 import 'wake_word_service.dart';
 
@@ -21,9 +22,54 @@ import 'wake_word_service.dart';
 /// deliberately not implemented for the same reason (needs a Picovoice
 /// account); every mic button in the app is push-to-talk instead.
 class SttService {
-  SttService({WakeWordService? wakeWord, CloudSttService? cloudStt})
+  SttService({WakeWordService? wakeWord, CloudSttService? cloudStt, RecognizerFaults? faults})
       : _wakeWord = wakeWord,
-        _cloudStt = cloudStt;
+        _cloudStt = cloudStt,
+        _faults = faults ?? RecognizerFaults.instance {
+    _unlistenFaults = _faults.listen(_onRecognizerFault);
+  }
+
+  final RecognizerFaults _faults;
+  VoidCallback? _unlistenFaults;
+
+  /// When the session currently in progress opened.
+  ///
+  /// A fault arriving within [_faultGrace] of a session starting cannot be
+  /// about *that* session — it is the tail of the previous one, delivered
+  /// late from a stream that is already gone. Tearing down the new session
+  /// on the strength of the old one's death would turn a harmless log line
+  /// into a microphone that closes the instant it opens. In the tester logs
+  /// the gap between a fault and the next session start is never under ten
+  /// seconds, so this only has to be wide enough to cover the overlap.
+  DateTime? _sessionStartedAt;
+  static const Duration _faultGrace = Duration(seconds: 1);
+
+  /// Item 49 — the recognizer's stream dies out of band.
+  ///
+  /// Not catchable where it happens: `google_speech` throws it from inside
+  /// its own zone after its controller is closed, so it reaches
+  /// `PlatformDispatcher.onError` and nothing else. Swallowing it was right
+  /// while it was believed to be harmless; the tester logs show that nine of
+  /// thirty-seven fired mid-utterance, leaving this service listening to a
+  /// stream that will never deliver and the caller awaiting a future that
+  /// will never complete. The microphone stays *shown as open* and is
+  /// permanently deaf, which is very likely behind some of the standing "it
+  /// didn't hear me" reports.
+  ///
+  /// Stopping is the whole fix: `stop()` already completes both pending
+  /// completers, so `listenOnce` returns and the ordinary auto-listen and
+  /// wake-word paths open a fresh session by themselves.
+  void _onRecognizerFault() {
+    final pending = _sessionDone ?? _cloudSessionDone;
+    if (pending == null || pending.isCompleted) return;
+    final startedAt = _sessionStartedAt;
+    if (startedAt != null && DateTime.now().difference(startedAt) < _faultGrace) {
+      debugPrint('[Stt] ignoring a stream fault that arrived as this session opened');
+      return;
+    }
+    _faults.noteSessionLost();
+    unawaited(stop());
+  }
 
   /// How long to wait after this app finishes speaking before opening a
   /// microphone.
@@ -294,6 +340,7 @@ class SttService {
     final startWindow = initialSilence ?? _initialSilenceTimeout;
     final done = Completer<void>();
     _cloudSessionDone = done;
+    _sessionStartedAt = DateTime.now();
     Timer? silenceTimer;
     Timer? ceilingTimer;
     var heardSpeech = false;
@@ -418,6 +465,7 @@ class SttService {
     final localeId = await _resolveLocaleId(language);
     final done = Completer<void>();
     _sessionDone = done;
+    _sessionStartedAt = DateTime.now();
     await _speech.listen(
       onResult: (result) => onResult(result.recognizedWords, result.finalResult),
       listenOptions: SpeechListenOptions(
@@ -493,5 +541,13 @@ class SttService {
       pending.complete();
     }
     _cloudSessionDone = null;
+    _sessionStartedAt = null;
+  }
+
+  /// Releases the fault subscription. One `SttService` lives for the life of
+  /// the app, so this matters to tests rather than to the app.
+  void dispose() {
+    _unlistenFaults?.call();
+    _unlistenFaults = null;
   }
 }

@@ -1,7 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 
+import 'dart:async';
+
 import '../../features/dashboard/models/hazard_report.dart';
+import '../../features/guardian/models/guardian_alert.dart';
+import '../../features/guardian/services/alert_service.dart';
+import '../../features/guardian/services/communication_service.dart';
 import '../../features/dashboard/models/suggested_chip.dart';
 import '../../features/onboarding/models/disability_profile_enums.dart';
 import '../../features/onboarding/models/saved_place.dart';
@@ -29,6 +35,7 @@ class _AppliedCall {
     this.clarification,
     this.placeSave,
     this.triggersEmergency = false,
+    this.cancelsRoute = false,
   });
   final UserProfile profile;
   final Map<String, Object?> resultForModel;
@@ -50,6 +57,14 @@ class _AppliedCall {
 
   /// Set when the model called `trigger_emergency`.
   final bool triggersEmergency;
+
+  /// Set when the model called `cancel_route`.
+  ///
+  /// A flag rather than an applied change, for the same reason as
+  /// [triggersEmergency]: cancelling means stopping the narrator and clearing
+  /// the route from chat state, and neither of those is this executor's to
+  /// touch. The caller owns both and already has one implementation of it.
+  final bool cancelsRoute;
 }
 
 /// What a function name + args actually *does* — profile mutation, overlay
@@ -69,13 +84,53 @@ class FunctionCallExecutor {
     PairingService? pairingService,
     RoutePlanningService? routePlanning,
     RouteSafetyService? routeSafety,
+    AlertService? alertService,
+    CommunicationService? communicationService,
+    Future<Position?> Function()? freshLocation,
   })  : _injectedPairing = pairingService,
         _injectedRoutePlanning = routePlanning,
-        _injectedRouteSafety = routeSafety;
+        _injectedRouteSafety = routeSafety,
+        _injectedAlerts = alertService,
+        _injectedCommunications = communicationService,
+        _freshLocation = freshLocation ?? _defaultFreshLocation;
 
   final PairingService? _injectedPairing;
   final RoutePlanningService? _injectedRoutePlanning;
   final RouteSafetyService? _injectedRouteSafety;
+  final AlertService? _injectedAlerts;
+  final CommunicationService? _injectedCommunications;
+
+  /// How to get a *current* fix, as opposed to the cached one every call is
+  /// handed. Injectable so a test can answer without a platform channel.
+  final Future<Position?> Function() _freshLocation;
+
+  /// Beyond this, a cached fix is not an answer to "where am I".
+  ///
+  /// Every chat message is handed `Geolocator.getLastKnownPosition()` — a
+  /// cheap cached fix, which is the right trade for almost everything here.
+  /// It is the wrong one for this question. A walking user covers about 1.4
+  /// metres a second, so a two-minute-old fix can be most of a block away,
+  /// and confidently naming the wrong road to somebody who cannot check it
+  /// against what they can see is worse than admitting we do not know.
+  static const _cachedFixIsStaleAfter = Duration(seconds: 60);
+
+  static Future<Position?> _defaultFreshLocation() async {
+    try {
+      // Dart-side timeout as well as the platform one. `LocationSettings.
+      // timeLimit` is enforced platform-side and does nothing when the
+      // channel itself is unresponsive — the trap four separate hangs in
+      // this app have already come from.
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      ).timeout(const Duration(seconds: 10));
+    } catch (e) {
+      debugPrint('[Assistant] fresh location lookup failed: $e');
+      return null;
+    }
+  }
 
   // Built on first use, not in the constructor. Each default reaches for
   // `FirebaseFirestore.instance`/`FirebaseFunctions.instance`, which throws
@@ -86,6 +141,9 @@ class FunctionCallExecutor {
   late final PairingService _pairing = _injectedPairing ?? PairingService();
   late final RoutePlanningService _routePlanning = _injectedRoutePlanning ?? RoutePlanningService();
   late final RouteSafetyService _routeSafety = _injectedRouteSafety ?? RouteSafetyService();
+  late final AlertService _alerts = _injectedAlerts ?? AlertService();
+  late final CommunicationService _communications =
+      _injectedCommunications ?? CommunicationService();
 
   Future<AssistantTurn> execute({
     required String name,
@@ -110,6 +168,7 @@ class FunctionCallExecutor {
       clarification: applied.clarification,
       placeSave: applied.placeSave,
       triggersEmergency: applied.triggersEmergency,
+      cancelsRoute: applied.cancelsRoute,
     );
   }
 
@@ -287,6 +346,28 @@ class FunctionCallExecutor {
     if (name == 'remove_place' && result['ok'] != true) {
       return Dashboard.of(language).savedPlaceUnknown;
     }
+    if ((name == 'send_caretaker_message' || name == 'record_caretaker_voice_memo') &&
+        result['ok'] != true) {
+      final d = Dashboard.of(language);
+      return switch (result['error']) {
+        'not_paired' => d.alertCaretakerNotPaired,
+        'no_message' => d.caretakerMessageEmpty,
+        _ => d.caretakerMessageFailed,
+      };
+    }
+    if (name == 'forget_about_me' && result['ok'] != true) {
+      return Dashboard.of(language).forgotNoteUnknown;
+    }
+    if (name == 'alert_caretaker' && result['ok'] != true) {
+      final d = Dashboard.of(language);
+      return result['error'] == 'not_paired' ? d.alertCaretakerNotPaired : d.alertCaretakerFailed;
+    }
+    if (name == 'describe_current_location' && result['ok'] != true) {
+      final d = Dashboard.of(language);
+      // Two different things to be told, and the difference matters to
+      // somebody deciding whether to go and turn location back on.
+      return result['error'] == 'no_location' ? d.locationUnknown : d.locationUnnamed;
+    }
     if (name == 'resolve_hazard' && result['ok'] != true) {
       if (result['error'] == 'no_hazard') return Dashboard.of(language).hazardResolveNothingToClear;
       return bn
@@ -384,6 +465,18 @@ class FunctionCallExecutor {
         return bn ? 'স্ক্রিন দেখাচ্ছি।' : 'Showing your screen now.';
       case 'open_hazard_report':
         return bn ? 'বিপদ জানানোর ফর্ম খুলছি।' : 'Opening the hazard report form.';
+      case 'remember_about_me':
+        return Dashboard.of(language).rememberedNote(result['note'] as String? ?? '');
+      case 'forget_about_me':
+        return Dashboard.of(language).forgotNote;
+      case 'open_map':
+        return Dashboard.of(language).mapOpened;
+      case 'close_map':
+        return Dashboard.of(language).mapClosed;
+      // Spoken by the caller's own cancel path, which is the only thing that
+      // knows whether there was a route to cancel in the first place.
+      case 'cancel_route':
+        return '';
       case 'resolve_hazard':
         return Dashboard.of(language).hazardResolvedConfirmation;
       case 'save_place':
@@ -393,6 +486,19 @@ class FunctionCallExecutor {
         );
       case 'remove_place':
         return Dashboard.of(language).savedPlaceRemoved(result['label'] as String? ?? '');
+      case 'describe_current_location':
+        return Dashboard.of(language).locationHere(result['place'] as String? ?? '');
+      case 'alert_caretaker':
+        return Dashboard.of(language).alertCaretakerSent;
+      case 'send_caretaker_message':
+        // Read back verbatim. A blind user cannot check what was sent on
+        // their behalf against a screen, and this app mis-transcribes often
+        // enough (items 46, 54) that hearing it is the only way to catch it.
+        return Dashboard.of(language).caretakerMessageSent(result['message'] as String? ?? '');
+      // The recorder speaks for itself the moment it opens — anything said
+      // here would talk over it. Present so the switch stays total.
+      case 'record_caretaker_voice_memo':
+        return '';
       default:
         return bn ? 'ঠিক আছে।' : 'Done.';
     }
@@ -419,6 +525,14 @@ class FunctionCallExecutor {
         return _applySavePlace(args, profile, location);
       case 'remove_place':
         return _applyRemovePlace(args, profile);
+      case 'describe_current_location':
+        return _applyDescribeLocation(profile, location);
+      case 'alert_caretaker':
+        return _applyAlertCaretaker(profile, location);
+      case 'send_caretaker_message':
+        return _applySendCaretakerMessage(args, profile);
+      case 'record_caretaker_voice_memo':
+        return _applyRecordVoiceMemo(profile);
       case 'pair_with_caretaker':
         if (profile.pairedUserId != null) {
           return _AppliedCall(profile, const {'ok': false, 'error': 'already_paired'}, null);
@@ -477,6 +591,32 @@ class FunctionCallExecutor {
       // on one implementation and one cancel window. Nothing is sent here.
       case 'trigger_emergency':
         return _AppliedCall(profile, const {'ok': true}, null, triggersEmergency: true);
+
+      // Item 51 — "after saying cancel trip, ai thinks trip is cancelled, but
+      // map still renders previous route".
+      //
+      // `cancel_route` has been declared to Gemini all along and had no case
+      // here, so a model-issued cancellation fell through to `default` and
+      // came back as 'unknown function' while the route stayed on the map.
+      // Only the *local* match path ever cancelled anything — which is why
+      // this has five passing tests and still failed on a device: the tester
+      // said "trip cancel koro", the local matcher does not speak Banglish
+      // (item 54), so it went to Gemini, and Gemini's answer was dropped.
+      case 'cancel_route':
+        return _AppliedCall(profile, const {'ok': true}, null, cancelsRoute: true);
+
+      // Item 51's other half: there was no way to ask for the map at all, in
+      // any language. It opens itself when a route is planned and closes when
+      // one is cleared, and between those two moments the user had no say.
+      case 'remember_about_me':
+        return _applyRememberNote(args, profile);
+      case 'forget_about_me':
+        return _applyForgetNote(args, profile);
+
+      case 'open_map':
+        return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.showMap);
+      case 'close_map':
+        return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.hideMap);
 
       case 'open_passerby_helper':
         return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.showScreenToPasserby);
@@ -551,6 +691,196 @@ class FunctionCallExecutor {
     if (_labelIsNotAName.any((p) => lower == p)) return true;
     // "a place i go to frequently" and friends — the request restated.
     return _labelIsNotAName.any((p) => lower.contains(p)) && lower.split(RegExp(r'\s+')).length >= 2;
+  }
+
+  /// Item 57 — "user asking to alert caretaker doesnt do anything yet".
+  ///
+  /// There was no intent for it. Module 8 built the caretaker's receiving
+  /// half, so the Alert Center and the Overwatch map were both watching, and
+  /// the only thing that ever wrote to them was the Magic Button — which is
+  /// an emergency, not a way of saying "please check on me".
+  ///
+  /// Recorded as [GuardianAlertType.userRequested] rather than reusing the
+  /// Magic Button's type: a caretaker who cannot tell an emergency from a
+  /// calm request will learn to discount both.
+  ///
+  /// The position rides along with the alert. A caretaker told that someone
+  /// wants them and not told where they are has been given half a message.
+  Future<_AppliedCall> _applyAlertCaretaker(UserProfile profile, Position? location) async {
+    if (profile.pairedUserId == null) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'not_paired'}, null);
+    }
+    final ok = await _alerts.createAlert(
+      disabledUserUid: profile.uid,
+      type: GuardianAlertType.userRequested,
+      lat: location?.latitude,
+      lng: location?.longitude,
+    );
+    if (!ok) return _AppliedCall(profile, const {'ok': false, 'error': 'failed'}, null);
+    if (location != null) {
+      // So the Overwatch map has somewhere to point the moment the caretaker
+      // opens it, rather than whatever the last publish left behind.
+      unawaited(_alerts.publishLocation(
+        disabledUserUid: profile.uid,
+        lat: location.latitude,
+        lng: location.longitude,
+      ));
+    }
+    return _AppliedCall(profile, const {'ok': true}, null);
+  }
+
+  /// Item 56 — "remembering context and informations/preferences".
+  ///
+  /// The recent transcript now survives a restart (item 52), which covers the
+  /// last few turns. A conversation window is not memory though: anything
+  /// said nine turns ago is gone, and the things worth keeping are exactly
+  /// the ones said once, in passing, and never repeated.
+  ///
+  /// Kept as plain sentences on the profile, so they persist with everything
+  /// else the user has told this app and are handed back to the model in its
+  /// prompt.
+  _AppliedCall _applyRememberNote(Map<String, Object?> args, UserProfile profile) {
+    final note = (args['note'] as String?)?.trim() ?? '';
+    if (note.isEmpty) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'no_note'}, null);
+    }
+    // Case-insensitive, because the model will not phrase it identically
+    // twice and a list with the same fact three times in it spends prompt on
+    // saying one thing.
+    final lower = note.toLowerCase();
+    if (profile.rememberedNotes.any((n) => n.toLowerCase() == lower)) {
+      return _AppliedCall(profile, {'ok': true, 'note': note}, null);
+    }
+    // Oldest out. An unbounded list grows into the prompt, and a prompt that
+    // grows every turn eventually costs more than the reply it buys.
+    final kept = [...profile.rememberedNotes, note];
+    final trimmed = kept.length > UserProfile.maxRememberedNotes
+        ? kept.sublist(kept.length - UserProfile.maxRememberedNotes)
+        : kept;
+    return _AppliedCall(
+      profile.copyWith(rememberedNotes: trimmed),
+      {'ok': true, 'note': note},
+      null,
+    );
+  }
+
+  /// The other half, and not optional.
+  ///
+  /// Anything that remembers what somebody said about themselves has to be
+  /// able to forget it on request. This app holds a disabled user's health,
+  /// household and movements; "stop keeping that" must be a thing they can
+  /// say out loud, in the same breath they said it in.
+  _AppliedCall _applyForgetNote(Map<String, Object?> args, UserProfile profile) {
+    final query = (args['note'] as String?)?.trim().toLowerCase() ?? '';
+    if (query.isEmpty) {
+      // "Forget everything" — the whole list goes.
+      if (profile.rememberedNotes.isEmpty) {
+        return _AppliedCall(profile, const {'ok': false, 'error': 'nothing_to_forget'}, null);
+      }
+      return _AppliedCall(profile.copyWith(rememberedNotes: const []), const {'ok': true}, null);
+    }
+    final remaining =
+        profile.rememberedNotes.where((n) => !n.toLowerCase().contains(query)).toList();
+    if (remaining.length == profile.rememberedNotes.length) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'nothing_to_forget'}, null);
+    }
+    return _AppliedCall(profile.copyWith(rememberedNotes: remaining), const {'ok': true}, null);
+  }
+
+  /// Sending the caretaker something in the user's own words.
+  ///
+  /// The other direction of Module 8. `CommunicationService` was already
+  /// direction-agnostic — `_send` takes `fromUid` and `toUid` — and
+  /// `firestore.rules` already allowed the disabled user to create these,
+  /// and the caretaker's hub already draws received messages with a
+  /// different arrow from sent ones. The only thing missing was any way for
+  /// the user to say one.
+  ///
+  /// The message text is pulled out by Gemini rather than by
+  /// `LocalIntentMatcher`, deliberately. Extracting free text from an
+  /// arbitrary sentence is exactly what that matcher refuses to do, because
+  /// a wrong local guess here does not fail visibly — it sends somebody's
+  /// caretaker half a sentence.
+  Future<_AppliedCall> _applySendCaretakerMessage(
+    Map<String, Object?> args,
+    UserProfile profile,
+  ) async {
+    final caretakerUid = profile.pairedUserId;
+    if (caretakerUid == null) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'not_paired'}, null);
+    }
+    final message = (args['message'] as String?)?.trim() ?? '';
+    if (message.isEmpty) {
+      // Nothing is sent and the question is asked instead. An empty memo
+      // arriving on a caretaker's phone is worse than no memo.
+      return _AppliedCall(profile, const {'ok': false, 'error': 'no_message'}, null);
+    }
+    try {
+      await _communications.sendMemo(
+        disabledUserUid: profile.uid,
+        fromUid: profile.uid,
+        toUid: caretakerUid,
+        text: message,
+      );
+      return _AppliedCall(profile, {'ok': true, 'message': message}, null);
+    } catch (e) {
+      debugPrint('[Assistant] send_caretaker_message failed: $e');
+      return _AppliedCall(profile, const {'ok': false, 'error': 'failed'}, null);
+    }
+  }
+
+  /// Opens the recorder. The sending itself happens there, because the audio
+  /// does not exist yet at the point this call is made.
+  _AppliedCall _applyRecordVoiceMemo(UserProfile profile) {
+    if (profile.pairedUserId == null) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'not_paired'}, null);
+    }
+    return _AppliedCall(
+      profile,
+      const {'ok': true},
+      SuggestedChipAction.sendCaretakerVoiceMemo,
+    );
+  }
+
+  /// Item 48 — "even though location is on, it says it cannot tell me where
+  /// i am".
+  ///
+  /// The triage put this down to the map never getting a fix. The logs say
+  /// otherwise: 529 fixes against 7 nulls, and every null inside the first
+  /// four seconds of a session, which is just the wait for a first fix. The
+  /// position was always there. What was missing was any way for the
+  /// assistant to *say* it — there was no function for this, so the model
+  /// answered the only way a model can when it has no tool and no knowledge,
+  /// which is to say it cannot know.
+  Future<_AppliedCall> _applyDescribeLocation(UserProfile profile, Position? location) async {
+    // The cached fix is used only when it is recent enough to still be true.
+    // Otherwise — and when there is none at all, which is every device that
+    // has not had a fix since it was last restarted — ask for a real one.
+    // This is the second half of why the tester was told the app could not
+    // say where they were: even with a function to call, a null cached
+    // position would have produced exactly that sentence.
+    var fix = location;
+    if (fix == null || DateTime.now().difference(fix.timestamp) > _cachedFixIsStaleAfter) {
+      fix = await _freshLocation() ?? fix;
+    }
+    if (fix == null) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'no_location'}, null);
+    }
+    try {
+      // Bounded, like every other network call on a path someone is standing
+      // still waiting for. An unanswered reverse geocode must become "I
+      // couldn't name it" rather than silence.
+      final place = await _routePlanning
+          .describeLocation(LatLng(fix.latitude, fix.longitude))
+          .timeout(const Duration(seconds: 8));
+      if (place == null || place.isEmpty) {
+        return _AppliedCall(profile, const {'ok': false, 'error': 'no_name'}, null);
+      }
+      return _AppliedCall(profile, {'ok': true, 'place': place}, null);
+    } catch (e) {
+      debugPrint('[Assistant] describe_current_location failed: $e');
+      return _AppliedCall(profile, const {'ok': false, 'error': 'no_name'}, null);
+    }
   }
 
   _AppliedCall _applySavePlace(Map<String, Object?> args, UserProfile profile, Position? location) {

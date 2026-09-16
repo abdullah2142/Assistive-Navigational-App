@@ -1849,6 +1849,21 @@ announcement, the arrival or the SOS down with it.
 
 # Round 3 — reported 15 September 2026
 
+> **Tester builds now log what was actually said.** `LOG_RAW_TRANSCRIPTS=true`
+> is passed by `release_google_build.sh`, so the diagnostics file from a
+> tester build contains voice transcripts, names, numbers, coordinates and
+> account ids in full rather than their shape. Asked for deliberately: the
+> testers are a known circle, and several open questions cannot be answered
+> from redacted lines — item 54's script question most of all, where
+> `heard "<4 words, 17 chars>"` cannot say whether romanised Bangla came back
+> as Latin or as Bangla script.
+>
+> A build made without the flag redacts exactly as before, and both the report
+> header and the in-app tile say which kind of build produced the file.
+> **Treat a round-4 log as personal data**: it is a blind user's speech, their
+> disability answers, their family's phone numbers and their location, and the
+> person who sends it cannot read it to see what they are sending.
+
 Two testers, on build `ff4f452` (14 Sep, 01:54). **Nothing committed after that build
 is in their hands**, so anything below that a later commit already addresses is
 marked as such rather than re-investigated.
@@ -1910,86 +1925,387 @@ item 24. A purpose-trained "Hey ANT" model is the fix; no threshold rescues it.
 **Do not just raise sensitivity further.** Below ~0.05 background noise starts
 to fire it, and an always-listening app that goes off by itself gets uninstalled.
 
-## 48. The map never gets a location fix
+**Assessed again and deliberately not coded around.** This is the one item in
+round 3 with no code fix available: the dial is already at its floor, the
+measurement the dial exists to produce has been taken, and it says the model is
+wrong rather than the threshold. Anything done here instead — widening the
+band, adding a second confirmation pass, smoothing the score — trades false
+negatives for false positives on an always-listening microphone, which is the
+worse failure of the two. **It needs a purpose-trained "Hey ANT" model**, and
+until there is one the mic button and auto-listen are the paths that work.
+
+## 48. "It cannot tell me where I am" — FIXED, and the triage above was wrong
 
 **Reported:** "even though location is on, it says it cannot tell me where i
 am"; "full map shown at once, instead of closeup".
 
-**Confirmed in the logs**, seven times: `[Map] building — openStreetMap=false
-mapsConfigured=true myLocation=null`.
+**The original triage here said the map never gets a location fix. It does.**
+That reading came from counting the seven `myLocation=null` lines and not the
+ones around them:
 
-Both complaints are one cause. With no fix the map has nothing to centre on, so
-it renders the city-wide fallback rather than a close-up, and "where am I"
-has no answer to give. Start at `_resolveLocation` in `dashboard_map_panel.dart`
-and at whether the location *permission* is ever actually requested — see item 50.
+| | 1500 | 1513 | 1533 |
+| --- | --- | --- | --- |
+| `myLocation=null` | 0 | 2 | 5 |
+| `myLocation=LatLng(...)` | 0 | 36 | 493 |
+| first fix after session start | — | 32s | 4.9s |
 
-## 49. The recognizer's stream dies constantly
+529 fixes against 7 nulls, and **every null is inside the first few seconds of
+a session** — which is a cold start waiting on a first fix, not a failure.
+`_resolveLocation` already requests permission, already bounds the call
+Dart-side, and already recentres from both `initState` and `onMapCreated`.
+There was never anything wrong with it.
+
+**The actual cause: there was no function for it.** The assistant's tool list
+had fourteen entries and not one of them reported where the user was. A model
+asked "where am I" with no tool for it and no knowledge of it answers the only
+way it can, which is to say it cannot know. The map was never involved.
+
+**Fixed** by adding `describe_current_location`, end to end:
+
+- `RoutingService.describeLocation` — reverse geocoding, which this app has
+  never had. Google first (same Geocoding SKU, so the same allowance),
+  Nominatim `/reverse` at `zoom=18` as the fallback. Coordinates are not an
+  answer to somebody who cannot see a map, so the result goes through
+  `GeocodeCandidate.spokenLabel` and comes out as "Road 7, Dhanmondi".
+- Declared to Gemini, **and** matched locally — it is asked while standing
+  still and disoriented, and a 1.5-to-29-second round trip is the wrong answer
+  to that. Romanised Bangla is in the list from the start (`kothay achi`).
+- **A fresh fix when the cached one will not do.** This is the half a bench
+  cannot see. Every chat message is handed `getLastKnownPosition()`, which is
+  null on a phone that has not had a fix since it rebooted and stale on one
+  that has been in a pocket — so without this, the fix for item 48 would have
+  reproduced item 48. A cached fix older than 60 seconds is refused and a real
+  one requested: a walking user covers ~1.4 m/s, and confidently naming the
+  wrong road to somebody who cannot check it is worse than admitting we do not
+  know.
+
+"I know where you are but cannot name this spot" and "I have no idea where you
+are" are deliberately different sentences. Only one of them should send
+somebody into their settings.
+
+**Covered by:** `test/where_am_i_test.dart`, 21 tests — including that being
+lost and frightened still raises an emergency rather than reciting a street
+name, and that a geocoder which never answers does not leave the user in
+silence.
+
+**Still open from this item:** "full map shown at once, instead of closeup" is
+a separate question about the initial camera and is not addressed here.
+
+## 49. The recognizer's stream dies constantly — MEASURED AND HANDLED
 
 **Not reported by a tester — found in their logs.** 37 occurrences of
 `[Main] uncaught async error (handled, not fatal): Bad state: Cannot add new
 events after calling close` across three sessions.
 
-This is the known `google_speech` internal race that `main.dart`'s
-`PlatformDispatcher.onError` deliberately swallows. Swallowing it was right —
-it is not fatal and cannot be caught locally — but **37 times in 30 minutes is
-not the rare event that handler was written for**, and it is very likely behind
-some of the "it didn't hear me" reports. Worth establishing whether each one
-costs a listening session.
+**"Worth establishing whether each one costs a listening session" — it is now
+established, and the answer is a quarter of them.** Correlating every one of
+the 37 against the surrounding lines:
 
-## 50. Location permission is never asked for up front
+| | |
+| --- | --- |
+| Fired **after** the session ended cleanly and the transcript had gone to Gemini | **28** |
+| Fired **mid-utterance**, partials still arriving, no final ever delivered | **9** |
+
+The 28 cost nothing — they are the tail of a stream nobody is waiting on:
+
+```
+15:23:06.519  [Stt] cloud session ending (silence)
+15:23:06.530  [Chat] -> Gemini: "<7 words, 35 chars>"
+15:23:06.893  [Main] uncaught async error ... Cannot add new events
+15:23:07.965  [Chat] <- Gemini ... (reply arrived normally)
+```
+
+The 9 are a real defect, and worse than "one lost utterance":
+
+```
+15:26:49.376  [PasserbyOverlay] heard "<1 word, 3 chars>" (isFinal=false)
+15:26:50.094  [PasserbyOverlay] heard "<1 word, 4 chars>" (isFinal=false)
+15:26:54.707  [Main] uncaught async error ... Cannot add new events
+15:27:07.555  [CloudStt] continuous listening started      <- 13s later
+```
+
+`CloudSttService._listening` stays true, `_resultSub` stays attached to a dead
+stream, and `SttService`'s completer is never completed — so `listenOnce` never
+returns. **The microphone is shown as open and is permanently deaf**, with no
+final result, no error and nothing said. That is very likely behind some of the
+standing "it didn't hear me" reports.
+
+**Fixed** with `RecognizerFaults`, a bus from the global handler to the one
+object that can tell the two cases apart — the one that knows whether a
+session is live. On a fault with a session pending, `SttService.stop()` runs,
+which already completes both completers, so `listenOnce` returns and the
+ordinary auto-listen and wake-word paths open a fresh session by themselves.
+
+Two guards worth keeping:
+
+- **Matched on the message, not the type.** It is a `StateError`, which is far
+  too broad to act on; tearing down a working microphone on the wrong error
+  would be worse than the bug.
+- **A one-second grace after a session opens.** A fault arriving that soon
+  cannot be about the session that just started — it is the previous one's
+  tail, arriving late. Without this, a harmless log line would close a
+  microphone the instant it opened. In the logs the gap is never under ten
+  seconds, so the window only has to cover the overlap.
+
+The app now also counts faults and lost sessions separately and prints both, so
+the next round measures this instead of somebody correlating timestamps by hand.
+
+**Covered by:** `test/recognizer_fault_test.dart`, 9 tests.
+
+**Not fixed:** the underlying race is inside `google_speech` and still happens.
+This makes it recoverable, not absent.
+
+## 50. Location permission is never asked for up front — FIXED
 
 **Reported:** "app should ask for location right away when asking for mic
 permission too."
 
-Almost certainly the cause of item 48. Ask for both during onboarding, where
-there is already a spoken explanation of why the microphone is needed.
+**Not the cause of item 48** — that turned out to be a missing function, not a
+missing permission — but real on its own and worth fixing for exactly the
+reason the tester gives.
 
-## 51. The map does not open or close on command
+Nothing asked for location anywhere in onboarding. The *microphone* prompt
+appears on the very first screen, because narrating and then listening is the
+first thing this app does and `SpeechToText.initialize()` triggers the prompt
+as a side effect. Location was requested only by `DashboardMapPanel`, on the
+map's first build — so the user met a second, unexplained system dialog some
+minutes later on a screen about something else, and anyone who dismissed it
+then had no route, no "where am I" and no caretaker tracking, with nothing
+said about why.
+
+**Fixed** with `LocationPermissionPrimer`, fired from `chooseRole`.
+
+Three decisions worth keeping:
+
+- **At role selection, not on the first screen.** That is the earliest point
+  at which this is known to be a *disabled user's* device. A caretaker's phone
+  never needs its own location — the Overwatch map shows where the person they
+  care for is, which comes from that person's device. Asking a caretaker for a
+  permission nothing will ever use is a privacy cost for no benefit, so this
+  is asked one screen later than it could be in exchange for not asking half
+  the users at all.
+- **Not awaited.** Onboarding must not stall behind a system dialog. The
+  request is fired and the flow moves on, exactly as the microphone's already
+  does.
+- **Bounded, and never throws.** `Geolocator` needs a Dart-side timeout as
+  well as a platform one — the trap four separate hangs in this app have come
+  from. A permission primer must never be the reason onboarding fails.
+
+A user who says no is not blocked from finishing. They are told later, by the
+feature that needed it, in words about that feature.
+
+**Covered by:** `test/location_permission_prime_test.dart`, 7 tests.
+
+## 51. The map does not open or close on command — FIXED
 
 **Reported:** "map on koro doesnt open the map, in fact map does not auto open
 or auto close when route is asked to be cancelled"; "after saying cancel trip,
 ai thinks trip is cancelled, but map still renders previous route".
 
-**Partly a build-lag artefact, partly real.** Auto-close on cancel is covered by
-`ff4f452` and has five tests including an end-to-end one — but the tester is on
-that build, so it should have worked. Two candidates: the route is cleared from
-chat state while `NavigationController` still holds an active route, or `map on
-koro` is Banglish the matcher does not know (item 54) so nothing was ever
-cancelled. **Get a log of this one** — the state transitions are all printed.
+**One report, two independent failures, and the second only reachable through
+the first.** Neither candidate in the original triage was it.
 
-There is also no explicit "open the map" intent at all, in any language.
+**`cancel_route` was declared to Gemini and handled nowhere.** The executor had
+no case for it, so a model-issued cancellation fell through to `default`,
+came back as `{'ok': false, 'error': 'unknown function'}`, and the route stayed
+on the map. Only the *local* match path ever cancelled anything — which is
+exactly why this had five passing tests and still failed on a device. The
+tester said "trip cancel koro"; the local matcher does not speak Banglish (item
+54), so it went to Gemini; and Gemini's answer was dropped on the floor. Fix
+the Banglish alone and this would still have been broken for every phrasing the
+local matcher does not know.
 
-## 52. Chat history is lost when the app closes
+**And the map could not be asked for at all**, in any language. It opened
+itself when a route was planned and closed when one was cleared, and between
+those two moments the only control was a button on the chat input row — no use
+to somebody who cannot see it.
+
+**Fixed:**
+
+- `cancel_route` now has an executor case, carried back as
+  `AssistantTurn.cancelsRoute` — a flag rather than an applied change, exactly
+  like `triggersEmergency`, because cancelling stops the narrator and clears
+  chat state and neither belongs to the executor. Both the model path and the
+  local path converge on the caller's one `_cancelRoute`, which is the only
+  thing that knows whether there was a journey to cancel.
+- New `open_map` / `close_map` intents, declared to Gemini and matched locally,
+  in English, romanised Bangla (`map on koro`, `map off koro`) and Bangla.
+- Banglish added to the cancel vocabulary: `trip cancel koro`, `cancel koro`,
+  `trip bondho koro`.
+- Hiding is matched before showing, and the map matchers run before the cancel
+  matchers: "close the map" and "map off koro" both carry words the cancel
+  vocabulary reaches for, and hiding a panel is not abandoning a journey.
+
+**Covered by:** `test/map_and_cancel_intents_test.dart`, 20 tests.
+
+## 52. Chat history is lost when the app closes — FIXED
 
 **Reported:** "chat elements go away after closing app."
 
-`ChatState.messages` is in memory only. Nothing persists it. For a user who
-cannot see the screen, the transcript is the only record of what was agreed.
+`ChatState.messages` was in memory and nothing wrote it anywhere. For a user
+who cannot see the screen the transcript is not decoration: it is the only
+record of what was agreed — which of three similarly-named places got picked,
+what the caretaker said, what the app claimed it had done.
 
-## 53. The diagnostic log resets when the app closes — CRITICAL for testing
+**Fixed** with `ChatHistoryStore`, a JSON file in the app support directory.
+No new dependency: `path_provider` is already here for the diagnostics log, and
+`shared_preferences` is not in this project.
+
+- **Stored whole, and never uploaded.** Deliberately unlike the diagnostics
+  log, which redacts on the way in because it is written to be *sent*. This one
+  is read back by the person who said it, on the phone they said it on, so
+  redacting it would destroy the only thing it is for.
+- **Keyed to a uid, and refuses to load another account's.** A caretaker and
+  the person they care for sharing a handset is ordinary during testing, and a
+  transcript surfacing under the wrong account would be a disclosure rather
+  than a glitch.
+- **Capped at 200 messages, keeping the tail** — the end of the conversation is
+  what somebody goes back to check.
+- **Saved from an override of the `state` setter**, not from each call site.
+  There are twenty-eight places that append a message, and the difference
+  between this working and this working *until somebody adds a twenty-ninth* is
+  whether it is anyone's job to remember.
+- **Coalesced per event-loop turn rather than behind a timer.** A timer batches
+  more, and leaves a live one behind whenever the app closes between the last
+  message and the write — which is the exact moment this feature exists for. It
+  also failed `dashboard_route_panel_test` as a pending timer, which is the
+  same fact showing up early.
+
+**Covered by:** `test/chat_history_test.dart`, 11 tests.
+
+## 53. The diagnostic log resets when the app closes — FIXED
 
 **Reported:** "the report log lines also reset when the app is closed, which is
 why i lost a lot of valuable tester log data."
 
-Correct, and it is the single most costly item in this list, because it loses
-the evidence for everything else. `DiagnosticsLog` is an in-memory ring buffer;
-a force-close takes it.
+Correct, and it was the single most costly item in this list, because it lost
+the evidence for everything else.
 
-It needs to append to a file on disk and keep the last session or two across
-restarts. Note the tension with item 26: the app is *supposed* to be killable
-without loss, and this is the one thing that still is.
+**Fixed.** `DiagnosticsLog` now appends to disk as well as to memory, and keeps
+the previous run's file alongside the current one. `writeReport` sends both.
 
-## 54. Banglish is not understood
+The details that matter:
+
+- **Where.** `getApplicationSupportDirectory()`, not temp. The OS is free to
+  sweep temp whenever it likes, and a log whose whole purpose is surviving
+  until a tester gets round to sending it cannot live somewhere that gets
+  cleared. The *export* still goes to temp — that one is meant to be handed to
+  the share sheet and forgotten.
+- **When.** Batched within one turn of the event loop, then `flush()`ed. Once
+  flush returns the bytes belong to the kernel, and a force-stop — which is
+  exactly how these sessions end — cannot take them. A timer would have traded
+  away the last seconds before the force-close, which is the part worth having.
+- **Redaction is unchanged and still happens on the way in.** The file is now
+  the thing that outlives the app, so it is also the thing that would carry a
+  leak; there is a test asserting a transcript, a phone number and a
+  coordinate do not reach it.
+- **Two runs is the budget.** Each launch rotates, so a tester always has the
+  run they are in plus the one before it. A phone is not a log server, and the
+  run before last is not what they are reporting. A session file over 512KB
+  rotates too, keeping the end rather than the beginning.
+- The settings tile now says how many lines were recovered, so a tester can
+  see that the session they force-closed is included rather than reporting it
+  from memory.
+
+Note the tension with item 26: the app is *supposed* to be killable without
+loss, and this was the one place where being killable was costing us the thing
+we needed most.
+
+**Covered by:** `test/diagnostics_log_test.dart`, 25 tests — 8 new ones that
+abandon the log object without closing it, which is what a force-stop actually
+looks like, and then check a fresh one can still find the lines.
+
+## 54. Banglish is not understood — FIXED
 
 **Reported:** "it cant handle a lot of banglish terms like 'trip cancel koro'";
 `map on koro`.
 
-Romanised Bangla is neither of the two vocabularies. Both matchers assume a
-sentence is Bangla script or English. This is very common in real speech in
-Dhaka and is a genuine gap rather than an edge case — `cancel`, `koro`, `on`,
-`off`, `dekhao` in Latin letters.
+Romanised Bangla is neither of the two vocabularies — both matchers assumed a
+sentence was Bangla script or English — and it is how people in Dhaka actually
+talk to a phone.
 
-## 55. Ambiguous and indirect requests are taken literally
+The first response was to add literal Banglish phrases to each vocabulary as
+each intent was touched. **An audit of nineteen realistic utterances against
+that approach matched ten**, and the misses were not scattered. They were one
+grammatical rule, one missing vocabulary, and one thing considerably worse
+than a miss.
+
+### The rule that generalises
+
+Bangla makes a command by attaching a verb meaning "do it" to a content word:
+
+```
+  cancel koro       cancel + do-it
+  map on koro       map on + do-it
+  lekha boro koro   writing big + do-it
+  sahajjo koro      help + do-it
+```
+
+The auxiliary carries no intent — it is the Bangla equivalent of "please",
+present in almost every spoken command and meaningful in none of them. So
+`banglish.dart` strips it, and `X koro` then matches whatever `X` already
+matched, **for every vocabulary in the app at once, including ones written
+later that never think about Banglish**.
+
+Two properties worth keeping:
+
+- **Whole words, never substrings.** `kor` lives inside plenty of ordinary
+  words, and this codebase has been bitten three times by substring matching —
+  "no" in "know", "male" in "female", `না` in নারায়ণগঞ্জ.
+- **A second pass, only on a miss.** The utterance is tried as spoken first.
+  Stripping can therefore only ever *add* a match, never change or remove one,
+  which matters in a matcher that fires emergencies and cancels journeys.
+
+It is a suffix rule, not a transliterator. No attempt is made to convert
+Bangla to English or to guess meaning: a wrong guess in a matcher that fires
+real actions is far worse than a miss that falls through to Gemini.
+
+### The vocabulary that was missing, and why it was the urgent part
+
+**The emergency words had no romanised form at all.** `bachao` — the single
+most likely thing a frightened Bangla speaker says — matched nothing, and
+neither did `sahajjo koro`. Every other Banglish miss costs a round trip to
+Gemini and then works; this one cost the SOS, and with no signal it cost it
+outright, because `OfflineIntentMatcher` had no romanised forms either.
+
+Both are now listed, in their common spellings, along with romanised distress
+context — and, in the same change, **romanised refusals**. Adding the cries
+without them would have meant `sahajjo lagbe na` ("I don't need help") newly
+firing an SOS, which is the one direction this vocabulary must never move in.
+
+Routing also had no Banglish whatever, and is the most-used intent in the app.
+Bangla puts the verb last (`hospital e jabo`) so the English prefix pattern
+could never reach it however many phrasings it listed; there is now a
+destination-first pattern beside the existing Bangla-script one.
+
+### Two defects the audit turned up on the way
+
+- **`jabo na` was strong-listed in the cancel vocabulary**, so "office e jabo
+  na" — a statement about a journey nobody started — cancelled whatever route
+  was running. Its English twin "i am not going" has always been *weak* and
+  bounded by sentence length. Moved to match.
+- **An empty target list in the recall pass matched everything.**
+  `[].every(...)` is vacuously true, so a candidate with no Bangla spelling
+  matched unconditionally and every utterance in the app became a hazard
+  report. Caught by the existing tests within a minute, but the guard now
+  lives in the matcher rather than in the data, because the trap was set for
+  whoever adds the next entry rather than for the one who found it.
+
+**The audit now matches 22 of 23.** The remaining miss is `cancel kor`, where
+stripping leaves a bare "cancel" that is deliberately not a route cancellation.
+
+**Covered by:** `test/banglish_test.dart`, 33 tests.
+
+**Not done:** phrase hints. `placeNameHints` already biases the recognizer
+toward saved place names, and the same mechanism could bias it toward common
+Banglish command words so they are transcribed this way in the first place.
+Held back deliberately — see the note in item 63's neighbourhood about script:
+a `bn-BD` session transcribes even English into Bangla script (which is why
+`হেল্প` sits beside `help` in the emergency list), so which script Banglish
+actually arrives in depends on the session language, and hinting the wrong one
+would make things worse. One raw tester log now answers that.
+
+## 55. Ambiguous and indirect requests are taken literally — FIXED
 
 **Reported:** "i need to poop, where should i go" leads to it attempting to look
 for places; "asked to be taken to the closest bathroom, it lists instead of
@@ -1997,64 +2313,295 @@ routing to the closest option"; "the app shouldnt act like only an assistive
 map, but also a guardian that provides counsel or assistance for ambiguous
 requests."
 
-Two distinct problems. **Listing instead of routing**: when the user asks for
-the *closest* thing, the answer is a route, not a menu. **Indirect phrasing**:
-"I need to poop" is a request for the nearest toilet, and the assistant should
-infer that rather than searching for the literal words.
+Two distinct problems, fixed in two different places.
 
-## 56. The assistant has no memory between turns
+### Listing instead of routing — code
+
+The clarification loop was doing exactly what it was built for: three bathrooms
+geocode to three distinct places, so it asked which one. But the user had
+already answered that — *the closest* — and reading three options back to
+somebody who has just said they urgently need a toilet is the wrong thing to do
+with having understood them perfectly.
+
+`RoutePlanningService.plan` now checks for a "nearest" marker in the query and,
+when it finds one, routes to the candidate closest to the user instead of
+returning `RoutePlanAmbiguous`. Distance is a real haversine — a degree of
+longitude in Dhaka is about 102km against 111km for latitude, so subtracting
+coordinates would pick the wrong one.
+
+**Narrow on purpose.** Without an explicit "nearest", it still asks. Picking
+silently for a user who did not ask for the nearest is precisely the failure the
+clarification loop exists to prevent: walking a blind person to whichever
+candidate scored highest, with no way to notice until they arrive somewhere
+else. Romanised Bangla markers (`kachakachi`, `kache`) are in from the start.
+
+### Indirect phrasing and counsel — the prompt
+
+The system prompt is the implementation here, and it gained a section:
+
+- **Act on the need, not the words.** People say what is wrong, not what they
+  want done about it. "I need to poop" is a request for the nearest toilet, not
+  a place search for those words; "I'm thirsty", "my phone is dying", "I need to
+  sit down" are the same shape.
+- **"The nearest X" is an answer, not a question** — pass the whole phrase to
+  `request_route` and let the planner pick; never read a list back.
+- **You are a guardian, not only a map** — answer the question that was asked
+  before offering to take anyone anywhere. Not every problem is solved by
+  walking somewhere.
+- **Ask only when it changes what you would do** — one short question, never a
+  list, never when a sensible default exists.
+
+`buildPrompt` is now static and `@visibleForTesting`, so these rules are
+asserted. The prompt is the entire implementation of several reported
+behaviours, and a rule quietly dropped from it fails exactly like a deleted
+function, with nothing to catch it.
+
+**Covered by:** `test/nearest_destination_test.dart`, 20 tests.
+
+## 56. The assistant has no memory between turns — FIXED
 
 **Reported:** "app should work like a normal chatbot, as in how conversational
 chatgpt and gemini is in speak mode, remembering context and informations/
 preferences."
 
-Gemini gets recent messages, but nothing accumulates across sessions — not the
-places they go, not the phrasings they use, not preferences stated in passing.
+Two halves, and **the first came free with item 52**. `recentHistory` is built
+from `ChatState.messages`, and those are now restored from disk at launch — so
+the last turns of the previous session reach the model with no further work.
 
-## 57. Asking to alert the caretaker does nothing
+A conversation window is not memory, though. It is eight turns wide, anything
+before that is gone, and the things worth keeping — "I can't manage stairs",
+"my daughter picks me up on Fridays" — are exactly the ones said once, in
+passing, and never repeated.
+
+**Fixed** with `UserProfile.rememberedNotes` and two functions,
+`remember_about_me` and `forget_about_me`. Notes persist with everything else
+the user has told this app and are handed back in the prompt.
+
+- **Plain sentences, not structured fields.** The onboarding answers already
+  cover everything this app can act on mechanically; this is for everything
+  else, and the user should not have to know what the app has a field for.
+- **Capped at 20, oldest out.** An unbounded list grows into the prompt, and a
+  prompt that grows every turn eventually costs more than the reply it buys.
+- **Deduplicated case-insensitively** — the model will not phrase a fact
+  identically twice, and a list holding one fact three times spends prompt on
+  saying one thing.
+- **Said out loud when kept.** Somebody who cannot see a screen has no other way
+  to know something about them was written down; being told is the difference
+  between a feature and a surprise.
+- **Forgetting is not optional.** This app holds a disabled user's health,
+  household and movements. "Stop keeping that" has to be sayable out loud, in
+  the same breath they said it in — hence `forget_about_me`, including a bare
+  "forget everything".
+- The prompt also tells the model not to ask again for what it already has, and
+  never to claim it remembers something without calling the function.
+
+**Covered by:** `test/assistant_memory_test.dart`, 15 tests.
+
+## 57. Asking to alert the caretaker does nothing — FIXED
 
 **Reported:** "user asking to alert caretaker doesnt do anything yet."
 
-No intent exists for it. The caretaker inbox now works in the other direction
-(item 28), so the plumbing is there; this is the user→caretaker direction with
-no command attached to it.
+Exactly right, and the gap was on the sending side only. Module 8 built the
+receiving half, so the Alert Center and the Overwatch map were both watching —
+and the only thing that ever wrote to either was the Magic Button.
 
-## 58. The caretaker does not receive location
+**Fixed** with `alert_caretaker`, declared to Gemini and matched locally. It
+raises a **`GuardianAlertType.userRequested`** alert, deliberately a new type
+rather than reusing `magicButton`: those mean genuinely different things on the
+caretaker's side — one is an emergency that has already rung round the family,
+the other is somebody asking calmly to be checked on — and showing the second
+as the first teaches a caretaker to discount both. The position rides along, so
+the Overwatch map has somewhere to point when they open it.
 
-**Reported:** "caretaker doesnt get location."
+Two ordering constraints, both tested:
 
-`liveLocations/{uid}` is read by the Overwatch map and the rules allow the
-user's own device to write it — but check whether anything ever does. Module 8
-expects a background isolate that may not exist.
+- Emergency is matched first, so "help me I've fallen, tell my caretaker" stays
+  an SOS and is not downgraded into a notification because it contains "tell".
+- The local match is bounded to **two extra words**. "Alert my caretaker" is a
+  request to raise a flag; "tell my caretaker I will be home late" is a message
+  with content, and matching it here would raise the flag and drop every word
+  the user wanted passed on. Anything longer goes to Gemini and
+  `send_caretaker_message` — see the new item below.
 
-## 59. No sound cue when the microphone opens
+With nobody paired it says how to pair rather than "sorry, I couldn't do that",
+which is worthless to someone standing in the street.
+
+**Covered by:** `test/alert_caretaker_test.dart`, 17 tests.
+
+## 58. The caretaker does not receive location — FIXED (foreground)
+
+**Reported:** "caretaker doesnt get location." The first line of the report.
+
+**Nothing ever wrote the document.** `AlertService.publishLocation` had exactly
+one caller, in the emergency sequence, so a caretaker could see where somebody
+was *after* they had triggered an SOS and at no other time — which is the one
+moment it is already too late to be useful as reassurance. Everything else had
+been in place since Module 2: the Overwatch map reads it, `LiveLocation` parses
+it, the rules allow it.
+
+**Fixed** with `LiveLocationPublisher`, started by the dashboard for as long as
+the disabled user has the app open.
+
+- **Only when paired.** Nobody can read the document otherwise, and writing a
+  blind user's position to a server no one is watching is a privacy cost with
+  nothing on the other side of it — the more so while item 35 stands and
+  unpairing does not exist.
+- **Two throttles.** A 25m distance filter keeps a phone on a table from
+  writing at all; a 30-second floor bounds what an urban GPS wandering either
+  side of that filter can spend. The first fix goes out immediately, so a
+  caretaker opening their app sees something current.
+- Re-evaluated when the profile changes, because pairing happens mid-session —
+  "pair with my caretaker" is a chat command.
+
+**This is not the background isolate Module 8 describes**, and is not pretending
+to be. It publishes in the foreground and stops when the app does, which is an
+honest half: the caretaker sees a position with a timestamp, and a stale
+timestamp reads as stale rather than as a lie. Genuine background tracking is
+separate work with its own battery, permission and consent questions.
+
+**Covered by:** `test/live_location_publisher_test.dart`, 8 tests.
+
+## 59. No sound cue when the microphone opens — FIXED
 
 **Reported:** "sound cue when mic is activated after hey jarvis or any
 autolistening."
 
-There is a haptic; there is no audible cue. A user in a noisy street with the
-phone in a pocket has nothing telling them it is listening.
+There was a haptic and nothing audible. A haptic is the right cue for a phone
+in a hand and no cue at all for one in a pocket or a bag, which is where a
+blind user walking with a cane keeps it. Since the wake word only fires about
+half the time (item 47), "did it hear me" is a question the user is asking
+constantly, and the app had no answer for it.
 
-## 60. The mic does not reopen after the assistant asks a question
+**Fixed** with `EarconService`, played from `_beginListening` — the single
+funnel every mic entry point already goes through, so the button, the wake
+word and auto-listen all get it without three copies of the logic.
+
+- **The tone is generated, not shipped.** No audio asset, no `pubspec` entry,
+  no licence to track, nothing to fall out of sync with a build. The app
+  already has `wrapPcm16AsWav` for voice memos, and a two-tone chirp is a few
+  lines of arithmetic. A raised-cosine envelope keeps it from clicking — a
+  click is what a cheap speaker reproduces best, and would be the loudest part
+  of the cue.
+- **Rising means open, falling means closed.** Direction rather than timbre:
+  two tones that differ only in colour are indistinguishable on a phone
+  speaker in a Dhaka street.
+- The closing tone plays **only on a manual mic-off**. A session that ends
+  because the user finished speaking is followed by the assistant's reply,
+  which is its own confirmation; a tone in front of it would be noise.
+
+**It is deliberately not awaited, and the first version was wrong about this.**
+Awaiting it put audio playback on the critical path of opening the microphone,
+so a device where the audio plugin stalls or is missing got no microphone at
+all — caught by `chat_mic_button_test`, which went from a session count of one
+to zero. In an app whose most repeated complaint is some form of "it didn't
+hear me", a cue that can prevent listening is worse than no cue.
+
+The tone therefore overlaps the first moments of the session. That is an
+acceptable trade here where it would not be for narration (item 23): a 160ms
+pure sine is not speech and no recognizer turns it into words, whereas the app
+reading a sentence aloud into its own microphone genuinely did.
+
+**Covered by:** `test/earcon_test.dart`, 6 tests — including that the cue is
+under 250ms, since it is latency paid on every single utterance.
+
+## 60. The mic does not reopen after the assistant asks a question — FIXED
 
 **Reported:** "after ai asks a question, it should reopen mic."
 
-Auto-listen covers some flows but not a Gemini reply that ends in a question.
+Worse than the triage above says. `UserProfile.voiceAutoListen` was read by the
+onboarding screens and by the settings toggle and **by nothing on the dashboard
+at all** — so the microphone reopened after no chat reply whatsoever, question
+or not. A user asked "which one did you mean?" had to go and find the mic
+button to answer, which is the one thing somebody who cannot see the screen
+should never have to do mid-conversation.
 
-## 61. The dashboard skip button is gone
+**Fixed** with an `answerInvitations` counter on `ChatState`. The controller
+decides *when*; `ChatStreamPanel` owns the microphone and acts on it.
+
+- **A counter, not a flag.** Two questions in a row are two invitations, and a
+  bool only changes value on the first.
+- **What counts as a question** is two signals, because neither covers the
+  other. A pending clarification or place-save *is* a question by
+  construction — the assistant is holding a slot open and the next utterance
+  is the answer to it. A free-text Gemini reply ending in a question mark is a
+  question with no state attached, which is most of what was reported.
+- **Raised only after the question has finished being spoken.** This is the
+  delicate part: the reply is normally spoken with `unawaited`, and on this
+  path alone it is awaited, because opening the recognizer underneath the app's
+  own voice is item 23 and the easiest way to bring it back.
+- **A caretaker's memo never invites.** Their caretaker asking them something
+  is not the app asking them something, and the answer does not belong to this
+  microphone.
+- A Deaf user still gets the microphone, with nothing to wait for.
+  `voiceAutoListen` and `isDeafOrHardOfHearing` are separate answers and some
+  users set both — being unable to hear the question does not mean being
+  unable to speak the answer.
+
+**Covered by:** `test/reopen_mic_after_question_test.dart`, 7 tests. The fake
+`TtsService` there deliberately takes time to speak: one that returns instantly
+cannot tell "waited for narration" from "did not wait", which is the whole
+property under test.
+
+## 61. The dashboard skip button is gone — FIXED
 
 **Reported:** "skip button to dashboard gone."
 
-The ⏩ dev-skip on the first onboarding screen. Every pack except A depends on
-it. Check whether `dev_skip` is gated on a flag the release build no longer sets.
+**`kDebugMode` was answering the wrong question.** The ⏩ shortcut is wrapped in
+it, which is exactly right for a store build — the tree never contains it and
+the tree shaker drops the branch — and exactly wrong for the people who need
+it, because testers are given *release* builds through App Distribution. The
+control every pack except A begins with did not exist for them, and
+`devSkipOnboarding` would have refused to run even if it had.
 
-## 62. Option narration should default to on, not be postponed
+The question is not "was this compiled in debug mode" but "is this build going
+to a tester or to the public", and those are different things that happened to
+coincide until the app started being distributed.
+
+**Fixed** with `TesterBuildConfig.isTesterBuild`
+(`--dart-define=TESTER_BUILD=true`), which `release_google_build.sh` now
+passes. It changes nothing on a public build: the default is false, the
+condition is still a compile-time constant, and the branch is still dropped.
+The button's condition and the controller's guard use the same expression so
+they cannot drift into one being reachable and the other refusing.
+
+**Covered by:** `test/tester_build_flags_test.dart`. That file checks the
+*script*, not the code — every test here runs in debug mode, where the button
+is present no matter what the flag says, so only a check against the build
+script can catch the artifact being wrong while the code is right. Which is
+precisely what this bug was.
+
+## 62. Option narration should default to on — FIXED, and it was not the wording
 
 **Reported:** "turn on narration of choices, do not postpone narration of
 choices."
 
-The default *is* on (item 42). Either the profile resumed with it off, or the
-question is being read as offering to postpone. Worth a look at the wording.
+The default really is on, the screen really does narrate its own options, and
+the wording was fine. **The tester's own sentence selected the opposite
+option** — and so did every other natural way of saying "enable this":
+
+| Said | Selected |
+| --- | --- |
+| `turn on narration of choices` | Only when I ask |
+| `turn it on` | Only when I ask |
+| `keep it on` | Only when I ask |
+
+`on request` was a synonym for the quiet option. `fuzzyMatchScore` accepts half
+a target's words, and "turn **on**" is half of "**on** request" — so an
+enable-phrase scored 0.5 for disabling and 0.0 for enabling. The distinctive
+word in "on request" is *request*; "on" carries none of the meaning and is the
+most common enable-word in English.
+
+This is the same defect that made "Low vision" select "No vision": a half-match
+on a word shared by both answers, decided by list order.
+
+**Fixed** in two halves — the ambiguous synonym is gone, and the ways people
+actually say "enable this" are listed on the other option so they win outright
+rather than merely tying.
+
+**Covered by:** `test/option_narration_wording_test.dart`, 20 tests across both
+languages. One of them is general rather than case-by-case: **every** synonym
+of either option must select its own option outright, so a future addition that
+half-matches the other is caught rather than left to list order.
 
 ## 63. On-device TTS quality varies by handset — and one tester has no Google voice
 
@@ -2076,6 +2623,113 @@ drops to the device engine, silently, every time.
 
 **This is a console fix, not a code one:** enable the Cloud Text-to-Speech API on
 `ant-assistive-nav`, then either add that API to the existing key's restrictions
-or create a second key and set `CLOUD_TTS_API_KEY`. The release script should
-also check for it — it currently only requires the STT and Gemini keys, which is
-why this shipped unnoticed.
+or create a second key and set `CLOUD_TTS_API_KEY`.
+
+**The script half is done.** `release_google_build.sh` now warns loudly when
+`CLOUD_TTS_API_KEY` is absent, and `verify_apk` checks it reached the artifact
+when it is set. A warning rather than a hard failure, deliberately: the console
+work cannot be done from the build script, and testers being two builds behind
+is the more expensive problem of the two. **The console steps are still
+outstanding and are the whole of what makes Cloud TTS work.**
+
+---
+
+## 64. The user can send their caretaker a message — NEW, BUILT
+
+**Requested directly:** "user should have a feature to send text or voice memos
+back to caretaker."
+
+The other direction of Module 8, and most of it was already there pointing the
+wrong way. `CommunicationService._send` has always taken `fromUid` and `toUid`;
+`firestore.rules` has always allowed `request.auth.uid == disabledUserUid` to
+create a message; and the caretaker's hub already draws a received message with
+a different arrow from a sent one, and can already play a voice memo. **No rules
+change and no caretaker-side change was needed.** Every existing caller simply
+passed the caretaker as the sender.
+
+Two intents, split on a principle rather than for convenience:
+
+**`send_caretaker_message(message)` — Gemini only, never matched locally.**
+Extracting free text from an arbitrary sentence is exactly what
+`LocalIntentMatcher` refuses to do, because a wrong guess there does not fail
+visibly — it sends somebody's caretaker half a sentence. The reply reads the
+message back verbatim: a blind user cannot check what was sent on their behalf
+against a screen, and this app mis-transcribes often enough (items 46, 54) that
+hearing it is the only chance to catch it. An empty message is not sent; the
+question is asked instead.
+
+**`record_caretaker_voice_memo` — matched locally as well.** Safe here in a way
+the written memo is not, because there is no free text in the sentence: the
+message has not been spoken yet, the recorder is what collects it.
+
+### Why a recording at all, when speech could be transcribed
+
+Because this app mis-hears people constantly, and the caretaker is the one
+person for whom being misquoted matters. A recording cannot be
+mis-transcribed, and it carries the thing a transcript throws away, which is
+how the person sounded.
+
+### Why not the existing `VoiceMemoRecorderDialog`
+
+That one is the *caretaker's*: a small `AlertDialog` with Record, Stop and Send
+buttons, driven by reading the screen. Handing it to a blind user means asking
+them to find three small targets in sequence with nothing spoken and no way to
+tell whether the microphone is open. `CaretakerVoiceMemoOverlay` is the same
+recording with the interaction turned inside out:
+
+- **Says what it is doing before the microphone opens, and waits.** Starting
+  the recorder under its own narration is item 23 all over again — the app
+  recording itself.
+- **Buzzes when recording actually starts.** This is item 59's cue applied to
+  the one surface being built; a user with the phone in a pocket has nothing
+  else to go on.
+- **The whole screen is the send button.** One target the size of the display
+  needs no aiming, which is the only kind that works without sight. Cancel is a
+  full-width button, and the back gesture cancels too rather than leaving a
+  microphone open behind a dismissed dialog.
+- **Stops itself at 20 seconds and sends what it has**, so somebody who walks
+  off mid-sentence still gets their message delivered. The cap also keeps the
+  base64 WAV well under Firestore's 1MiB document limit, which is why this is
+  8kHz mono and not something better.
+
+With nobody paired, the recorder never opens — recording twenty seconds of
+somebody's voice and *then* discovering there is nowhere to send it is the
+wrong order to find that out in.
+
+**Covered by:** `test/caretaker_messaging_test.dart`, 20 tests.
+
+### How the user reaches it
+
+Originally by key phrase only, which for a blind user means not at all — there
+was nothing to discover. There is now **a fifth chip**, and it appears only
+once a caretaker is paired: a chip that is always present and fails for most
+users costs a permanent row of space and reads to a screen reader as available
+before explaining that it cannot work. The assistant still answers the request
+at any time by saying how to pair.
+
+Five chips in pairs would be three rows, and a third row of chips eats the chat
+above it. So **the second row holds three**. It is the second that widens, not
+the first, because position is what this grid exists to make learnable —
+somebody who has learned that "report a hazard" is bottom-left still finds it
+there.
+
+Rendering that revealed what the assertions did not: `Show screen to passerby`
+wrapped to six lines in a one-third-width cell and made the chip block twice as
+tall as before, which defeats the point of staying at two rows. The printed
+label is now `Show my screen`; the full sentence is still what a screen reader
+announces, via a new `SuggestedChip.semanticsLabelFor`. A cell has a width; a
+spoken label does not.
+
+**The map button was also restyled** to match the mic and send buttons — same
+circle, same 48dp, same family. It was a bare `IconButton` sitting between two
+filled circles, so it read as decoration rather than as the third control on
+the row. On/off is still carried three ways (filled vs outlined icon, circle
+colour, semantics label), because colour alone is not a state indicator.
+
+**Covered by:** `test/chat_input_controls_test.dart` (8) and the new group in
+`test/dashboard_chips_test.dart`.
+
+**Not done:** the caretaker gets no notification of an incoming message — it
+appears in the Communication Hub when they next look. Their inbox is a panel,
+not a push. That is the same gap on their side that item 28 fixed on the
+user's, and it wants the same treatment.

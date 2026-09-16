@@ -14,10 +14,23 @@ import '../localization/app_language.dart';
 class OfflineIntentMatcher {
   OfflineIntentMatcher._();
 
-  static const _help = ['help', 'সাহায্য'];
-  static const _stop = ['stop', 'থাম', 'থামুন'];
-  static const _whereAmI = ['where am i', 'kothay achi', 'আমি কোথায়'];
-  static const _emergency = ['emergency', 'জরুরি'];
+  // Romanised Bangla alongside both scripts — item 54.
+  //
+  // This matcher is the last thing standing when there is no signal, so a
+  // word missing here is missing with no Gemini behind it to catch the fall.
+  // `bachao` was absent from every vocabulary in the app, which meant a
+  // frightened Bangla speaker with no connection got the generic "assistant
+  // unavailable" reply rather than the one sentence that tells them what to
+  // press.
+  static const _help = ['help', 'sahajjo', 'shahajjo', 'সাহায্য'];
+  static const _stop = ['stop', 'thamo', 'thamun', 'bondho', 'থাম', 'থামুন'];
+  static const _whereAmI = [
+    'where am i', 'kothay achi', 'ami kothay', 'আমি কোথায়', 'কোথায় আছি',
+  ];
+  static const _emergency = [
+    'emergency', 'sos', 'bachao', 'bachaw', 'banchao', 'joruri', 'bipode',
+    'জরুরি', 'বাঁচাও',
+  ];
 
   /// Returns a canned reply if [rawText] matches a known safety keyword, or
   /// `null` if nothing matched (caller should fall back to a generic

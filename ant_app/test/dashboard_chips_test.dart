@@ -12,6 +12,8 @@ import 'package:ant_app/features/dashboard/models/suggested_chip.dart';
 import 'package:ant_app/features/dashboard/widgets/suggested_chip_row.dart';
 
 void main() {
+  _fifthChip();
+
   final strings = Dashboard.of(AppLanguage.english);
 
   Widget host(double width, {double textScale = 1.0}) => MaterialApp(
@@ -173,4 +175,143 @@ double _contrast(Color a, Color b) {
       0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b);
   final la = luminance(a), lb = luminance(b);
   return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+}
+
+// ---------------------------------------------------------------------------
+// The fifth chip — the caretaker voice message.
+//
+// Added because the feature was reachable only by already knowing a phrase to
+// say, which for a blind user means not reachable at all. A chip is the only
+// discoverable surface this dashboard has.
+//
+// Five chips in pairs would be three rows, and a third row of chips eats the
+// chat above it — the part users actually read. So the fifth joins the second
+// row. It is the *second* row that widens rather than the first, because
+// position is the thing this layout exists to make learnable: somebody who
+// has learned where "report a hazard" is should still find it there.
+void _fifthChip() {
+  final strings = Dashboard.of(AppLanguage.english);
+
+  Widget host(List<SuggestedChip> chips, {double width = 720}) => MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: width,
+              child: SuggestedChipRow(chips: chips, strings: strings, onTap: (_) {}),
+            ),
+          ),
+        ),
+      );
+
+  /// Chip labels grouped by the row they render on, top row first.
+  ///
+  /// Grouped by the *cell*, not by the label inside it. Labels wrap to
+  /// different numbers of lines and sit centred in a stretched cell, so two
+  /// chips side by side in the same row have different text tops — grouping
+  /// on those reports three rows where there are two.
+  List<List<String>> rowsOf(WidgetTester tester, List<SuggestedChip> chips) {
+    final byTop = <double, List<String>>{};
+    for (final chip in chips) {
+      final label = chip.labelFor(strings);
+      final cell = find.ancestor(of: find.text(label), matching: find.byType(InkWell)).first;
+      byTop.putIfAbsent(tester.getRect(cell).top.roundToDouble(), () => []).add(label);
+    }
+    final tops = byTop.keys.toList()..sort();
+    return [for (final t in tops) byTop[t]!];
+  }
+
+  group('who gets the chip', () {
+    test('nobody, until a caretaker is paired', () {
+      // A chip that is always there and fails for most users is worse than no
+      // chip: it costs a row of space permanently, and for a screen-reader
+      // user it reads as available and then explains it cannot work.
+      final chips = suggestedChipsFor(caretakerPaired: false);
+      expect(chips, kDefaultSuggestedChips);
+      expect(chips.map((c) => c.action),
+          isNot(contains(SuggestedChipAction.sendCaretakerVoiceMemo)));
+    });
+
+    test('once paired, it appears', () {
+      final chips = suggestedChipsFor(caretakerPaired: true);
+      expect(chips, hasLength(5));
+      expect(chips.last.action, SuggestedChipAction.sendCaretakerVoiceMemo);
+    });
+
+    test('and it is labelled in both languages', () {
+      expect(kVoiceMemoChip.labelFor(Dashboard.of(AppLanguage.english)), 'Voice message');
+      expect(kVoiceMemoChip.labelFor(Dashboard.of(AppLanguage.bangla)), isNotEmpty);
+    });
+  });
+
+  group('where it goes', () {
+    test('five chips are two rows, not three', () {
+      expect(SuggestedChipRow.rowSizesFor(5), [2, 3]);
+    });
+
+    test('four chips are unchanged', () {
+      // The layout this replaced. Nothing about the existing dashboard moves.
+      expect(SuggestedChipRow.rowSizesFor(4), [2, 2]);
+    });
+
+    testWidgets('the fifth joins the second row', (tester) async {
+      final chips = suggestedChipsFor(caretakerPaired: true);
+      await tester.pumpWidget(host(chips));
+      await tester.pumpAndSettle();
+
+      final rows = rowsOf(tester, chips);
+      expect(rows, hasLength(2), reason: 'a third row would eat the chat above it');
+      expect(rows.first, hasLength(2));
+      expect(rows.last, hasLength(3));
+    });
+
+    testWidgets('the four existing chips do not move rows', (tester) async {
+      // The whole reason the second row is the one that widens.
+      final chips = suggestedChipsFor(caretakerPaired: true);
+      await tester.pumpWidget(host(chips));
+      await tester.pumpAndSettle();
+
+      final rows = rowsOf(tester, chips);
+      expect(rows.first, [strings.chipRouteToWork, strings.chipScanBus]);
+      expect(rows.last.take(2), [strings.chipShowScreen, strings.chipReportHazard]);
+    });
+
+    testWidgets('each row still fills the width, in equal cells', (tester) async {
+      final chips = suggestedChipsFor(caretakerPaired: true);
+      await tester.pumpWidget(host(chips));
+      await tester.pumpAndSettle();
+
+      double cellWidth(String label) => tester
+          .getSize(find.ancestor(of: find.text(label), matching: find.byType(InkWell)).first)
+          .width;
+
+      final top = [strings.chipRouteToWork, strings.chipScanBus].map(cellWidth).toList();
+      final bottom = [strings.chipShowScreen, strings.chipReportHazard, strings.chipVoiceMemo]
+          .map(cellWidth)
+          .toList();
+
+      expect(top.first, closeTo(top.last, 0.5), reason: 'equal cells within a row');
+      expect(bottom[0], closeTo(bottom[1], 0.5));
+      expect(bottom[1], closeTo(bottom[2], 0.5));
+      // A row of three has narrower cells than a row of two — that is the
+      // trade being made, and it should be visible rather than accidental.
+      expect(bottom.first, lessThan(top.first));
+      // Both rows span the same total width.
+      expect(top.reduce((a, b) => a + b) + 10, closeTo(bottom.reduce((a, b) => a + b) + 20, 1));
+    });
+
+    testWidgets('every chip keeps a 48dp touch target on a narrow phone', (tester) async {
+      // The cells get narrower; the targets must not get shorter.
+      final chips = suggestedChipsFor(caretakerPaired: true);
+      await tester.pumpWidget(host(chips, width: 320));
+      await tester.pumpAndSettle();
+
+      for (final chip in chips) {
+        final size = tester.getSize(find
+            .ancestor(of: find.text(chip.labelFor(strings)), matching: find.byType(InkWell))
+            .first);
+        expect(size.height, greaterThanOrEqualTo(48),
+            reason: '${chip.labelFor(strings)} is aimed at by feel');
+      }
+    });
+  });
 }

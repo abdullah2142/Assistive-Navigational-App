@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
 import '../localization/app_language.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
+
 import 'routing_service.dart';
 import 'voice_matching.dart';
 
@@ -240,6 +242,64 @@ class DestinationClarifier {
       if (kept.length == max) break;
     }
     return kept;
+  }
+
+  /// Ways of saying "whichever one is nearest" — item 55.
+  ///
+  /// **Reported:** "a lot of times when asked to be taken to the closest,
+  /// example: bathroom, it lists instead of routing to a closest option."
+  ///
+  /// Exactly right, and the clarification loop was doing its job: three
+  /// bathrooms geocode to three distinct places, so it asked which. But the
+  /// user already answered that — *the closest one* — and reading three
+  /// options back to somebody who has just said they need a toilet is the
+  /// wrong response to have understood them perfectly.
+  ///
+  /// Romanised Bangla is in the list from the start (item 54).
+  static const _nearestMarkers = [
+    'nearest', 'closest', 'nearby', 'near me', 'close by', 'close to me',
+    'around here', 'near here', 'anywhere near', 'any nearby',
+    'kachakachi', 'kache', 'sobcheye kache', 'nikot',
+    'সবচেয়ে কাছের', 'কাছের', 'কাছাকাছি', 'নিকটতম', 'আশেপাশে',
+  ];
+
+  /// Whether [query] asks for the nearest of something rather than a
+  /// particular one.
+  static bool wantsNearest(String query) {
+    final lower = query.toLowerCase();
+    return _nearestMarkers.any(lower.contains);
+  }
+
+  /// The candidate closest to [origin].
+  ///
+  /// Used instead of asking, when the user has already said which one they
+  /// mean by saying "the nearest". Returns null for an empty list so the
+  /// caller's own not-found path still runs.
+  static GeocodeCandidate? nearestTo(LatLng origin, List<GeocodeCandidate> candidates) {
+    if (candidates.isEmpty) return null;
+    var best = candidates.first;
+    var bestMeters = metersBetweenPoints(origin, best.location);
+    for (final candidate in candidates.skip(1)) {
+      final meters = metersBetweenPoints(origin, candidate.location);
+      if (meters < bestMeters) {
+        best = candidate;
+        bestMeters = meters;
+      }
+    }
+    return best;
+  }
+
+  static double metersBetweenPoints(LatLng a, LatLng b) {
+    const earthRadius = 6371008.8;
+    double rad(double d) => d * math.pi / 180;
+    final dLat = rad(b.latitude - a.latitude);
+    final dLng = rad(b.longitude - a.longitude);
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.sin(dLng / 2) *
+            math.sin(dLng / 2) *
+            math.cos(rad(a.latitude)) *
+            math.cos(rad(b.latitude));
+    return 2 * earthRadius * math.asin(math.min(1, math.sqrt(h)));
   }
 
   static double _metersBetween(GeocodeCandidate a, GeocodeCandidate b) {

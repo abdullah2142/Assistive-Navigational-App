@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../localization/app_language.dart';
+import 'banglish.dart';
 import 'voice_matching.dart';
 
 /// A function call [LocalIntentMatcher] is confident enough about to run
@@ -82,6 +83,30 @@ class LocalIntentMatcher {
   /// comparative can never reach a setting the user was not already
   /// talking about.
   static LocalIntent? match(String rawText, AppLanguage language, {String? recentSetting}) {
+    final direct = _matchExactly(rawText, language, recentSetting: recentSetting);
+    if (direct != null) return direct;
+
+    // Item 54, the general case. Bangla makes a command by attaching a verb
+    // meaning "do it" to a content word — `cancel koro`, `lekha boro koro`,
+    // `sahajjo koro` — and that auxiliary carries no intent, so removing it
+    // lets `X koro` match whatever `X` already matched. One rule, every
+    // vocabulary in the app, including ones written later that never think
+    // about Banglish. See `banglish.dart`.
+    //
+    // Second, and only on a miss. Stripping can then only ever *add* a
+    // match, never change or remove one — which matters in a matcher that
+    // fires emergencies, cancels journeys and changes settings.
+    if (!hasBanglishImperative(rawText)) return null;
+    final stripped = stripBanglishImperatives(rawText);
+    if (stripped == rawText.trim()) return null;
+    final found = _matchExactly(stripped, language, recentSetting: recentSetting);
+    if (found != null) {
+      debugPrint('[Intent] banglish: "$rawText" -> "$stripped" matched ${found.name}');
+    }
+    return found;
+  }
+
+  static LocalIntent? _matchExactly(String rawText, AppLanguage language, {String? recentSetting}) {
     final text = rawText.trim();
     if (text.isEmpty) return null;
     final lower = text.toLowerCase();
@@ -113,6 +138,24 @@ class LocalIntentMatcher {
         // is not what was asked.
         // Before `_matchRouteChange`: "cancel the route" contains "the
         // route", and before `_matchRoute` for the same reason.
+        // Before the route matchers: "where am I" is a question about here,
+        // not a request to be taken anywhere, and `_matchRoute` has a
+        // "where" in its vocabulary. After emergency, which is checked
+        // first — a user who says they are lost and frightened wants help,
+        // not a street name.
+        _matchWhereAmI(lower, text) ??
+        // After emergency, deliberately. "Tell my caretaker I've fallen" is
+        // an emergency that happens to name a caretaker, and it must not be
+        // downgraded into a notification because of the word "tell".
+        // Before `_matchAlertCaretaker`: "send my caretaker a voice message"
+        // contains "send my caretaker", and raising a flag is not what was
+        // asked for.
+        // Before the cancel matchers: "map off koro" and "close the map" both
+        // contain words the cancel vocabulary reaches for, and hiding a panel
+        // is not abandoning a journey.
+        _matchMapVisibility(lower, text) ??
+        _matchVoiceMemo(lower, text) ??
+        _matchAlertCaretaker(lower, text) ??
         _matchCancelRoute(lower, text) ??
         _matchRouteChange(lower, text) ??
         _matchRoute(lower, text, bn) ??
@@ -136,10 +179,26 @@ class LocalIntentMatcher {
   /// the miss is a round trip to Gemini of between 1.5 and 29 seconds — and
   /// often a failure at the end of it, since a model given "People of the
   /// hazard" has no better chance than the matcher did.
+  /// Romanised Bangla goes in the `en` list, not a third one — item 54.
+  ///
+  /// Banglish is Latin letters, so `containsAllNear`'s edit-distance rule
+  /// applies to it exactly as it does to English, and that is precisely what
+  /// its unstable spelling needs: `bondo`/`bondho`, `dekhao`/`dekhaw`,
+  /// `jayga`/`jaiga` are near-misses of one another by construction. The
+  /// Bangla-script list stays an exact match, for the reason given below.
+  ///
+  /// This is also why the Banglish content words live *here* rather than in
+  /// the exact matchers above — the recall pass is the one place in this file
+  /// that already tolerates spelling, and enumerating romanisations in a
+  /// substring matcher is what does not scale.
   static const _mishearable = <({String intent, List<String> en, List<String> bn})>[
     (intent: 'open_hazard_report', en: ['hazard'], bn: ['বিপদ']),
     (intent: 'open_hazard_report', en: ['report', 'problem'], bn: ['সমস্যা', 'জানাও']),
+    (intent: 'open_hazard_report', en: ['bipod', 'report'], bn: []),
+    (intent: 'open_hazard_report', en: ['bipod', 'janao'], bn: []),
     (intent: 'open_passerby_helper', en: ['show', 'screen'], bn: ['স্ক্রিন', 'দেখাও']),
+    (intent: 'open_passerby_helper', en: ['screen', 'dekhao'], bn: []),
+    (intent: 'open_passerby_helper', en: ['screen', 'dekhan'], bn: []),
   ];
 
   /// A forgiving match on a long utterance is a coincidence, not a command.
@@ -167,8 +226,19 @@ class LocalIntentMatcher {
       // letters does not transfer to a script where a single code point is a
       // vowel sign, and a wrong "near miss" there would be a command the user
       // never gave.
-      if (containsAllNear(lowered, candidate.en) ||
-          candidate.bn.every((t) => words.any((w) => w.contains(t)))) {
+      // An empty target list must never match.
+      //
+      // `[].every(...)` is vacuously true, so a candidate with no Bangla
+      // spelling — which every romanised entry has, since Banglish is Latin
+      // and belongs in `en` — matched *every utterance in the app*. Caught
+      // immediately by the existing tests ("it's getting dark outside"
+      // returning `open_hazard_report`), but it would have been a silent
+      // catastrophe in a matcher that opens overlays, and the trap is set for
+      // whoever adds the next entry rather than for the one that found it.
+      final enMatches = candidate.en.isNotEmpty && containsAllNear(lowered, candidate.en);
+      final bnMatches = candidate.bn.isNotEmpty &&
+          candidate.bn.every((t) => words.any((w) => w.contains(t)));
+      if (enMatches || bnMatches) {
         debugPrint('[Intent] misheard-recall matched ${candidate.intent} in "$text"');
         return LocalIntent(candidate.intent, const {});
       }
@@ -186,8 +256,27 @@ class LocalIntentMatcher {
   /// reliably reach for the language their app is set to, and a `bn-BD`
   /// recognizer transcribes a shouted English "help" in Bangla script —
   /// hence `হেল্প` alongside `help`.
+  /// Romanised Bangla is listed here in full, and it is the most consequential
+  /// part of item 54.
+  ///
+  /// This vocabulary was English-or-Bangla-script only. `bachao` — the single
+  /// most likely thing a frightened Bangla speaker says — matched nothing,
+  /// and neither did `sahajjo koro`. Every other Banglish miss in this file
+  /// costs a round trip to Gemini and then works; this one costs the SOS, and
+  /// with no signal it costs it outright, because `OfflineIntentMatcher` had
+  /// no romanised forms either.
+  ///
+  /// Spellings are enumerated rather than fuzzed. Emergency matching is a
+  /// substring test on the raw utterance, deliberately — it runs first and
+  /// cannot afford the ambiguity of a near-match — so each common
+  /// romanisation is written out. There is no standard orthography for these
+  /// words: `bachao`, `bachaw` and `banchao` are all ordinary ways of writing
+  /// the same one.
   static const _emergencyStrong = [
     'emergency', 'sos', 'save me', 'help help', 'i am in danger', "i'm in danger",
+    'bachao', 'bachaw', 'banchao', 'banchaw', 'bacao',
+    'bipode porechi', 'bipode porsi', 'bipode achi', 'bipod e porechi',
+    'joruri obostha', 'jaruri obostha', 'joruri obostha',
     'বাঁচাও', 'বাঁচান', 'বিপদে পড়েছি', 'জরুরি অবস্থা', 'হেল্প হেল্প',
   ];
 
@@ -201,6 +290,10 @@ class LocalIntentMatcher {
   /// carry the decision alone.
   static const _emergencyWeak = [
     'help me', 'i need help', 'need help', 'call for help', 'help',
+    // Romanised, item 54. Weak rather than strong for exactly the reason
+    // above: `sahajjo` is as ordinary a word in Bangla as "help" is in
+    // English, and carries the decision no better.
+    'sahajjo', 'shahajjo', 'sahajyo', 'shahajyo', 'sahajo',
     'সাহায্য করো', 'সাহায্য করুন', 'সাহায্য', 'হেল্প',
   ];
 
@@ -262,6 +355,12 @@ class LocalIntentMatcher {
     // Lost and frightened. A blind user who does not know where they are is
     // the specific case this app exists for, and it was silent.
     'know where', 'where i am', 'where am i', 'no idea where',
+    // Romanised, item 54. These make a weak cry into a confident one, so a
+    // Banglish speaker describing what is wrong gets the same answer a
+    // Bangla-script or English speaker already got.
+    'bipod', 'bipode', 'voy', 'bhoy', 'pore gechi', 'pore gesi', 'atke',
+    'rokto', 'betha', 'byatha', 'police', 'ambulance', 'keu nei',
+    'hariye gechi', 'hariye gesi', 'jani na kothay', 'parchi na', 'parsi na',
     'পারছি না', 'পাচ্ছি না', 'বিপদ', 'ভয়', 'পড়ে গেছি', 'আটকে', 'রক্ত',
     'ব্যথা', 'পিছু', 'ধরেছে', 'মারছে', 'পুলিশ', 'অ্যাম্বুলেন্স', 'কেউ নেই',
     'নিয়ে যাচ্ছে', 'টানছে', 'কোথায় আছি', 'হারিয়ে', 'জানি না কোথায়',
@@ -282,6 +381,12 @@ class LocalIntentMatcher {
     "don't need help", 'do not need help', 'dont need help', 'no help needed',
     "don't need any help", 'not an emergency', 'no emergency', 'false alarm',
     "i'm fine", 'im fine', 'i am fine', "i'm okay", 'i am okay', 'im ok',
+    // Romanised, and added in the same change as the romanised cries above.
+    // Adding the cry without the refusal would mean "sahajjo lagbe na" — "I
+    // don't need help" — newly firing an SOS, which is the one direction this
+    // vocabulary must never move in.
+    'sahajjo lagbe na', 'shahajjo lagbe na', 'sahajjo dorkar nei',
+    'dorkar nei', 'bipod nei', 'thik achi', 'thik asi', 'amar kichu hoyni',
     'সাহায্য লাগবে না', 'সাহায্য দরকার নেই', 'দরকার নেই', 'বিপদ নেই', 'ঠিক আছি',
   ];
 
@@ -813,11 +918,18 @@ class LocalIntentMatcher {
 
   static const _textContext = [
     'text', 'texts', 'font', 'fonts', 'letters', 'letter', 'size', 'words', 'writing',
-    'print', 'type', 'লেখা', 'ফন্ট', 'আকার', 'হরফ',
+    'print', 'type',
+    // Romanised, item 54 — `lekha` is "writing", `okkhor`/`horof` are
+    // "letters". Context words rather than anchors, exactly like their
+    // English and Bangla-script counterparts: on their own they say nothing
+    // about making anything bigger.
+    'lekha', 'lekhar', 'font', 'okkhor', 'horof', 'akar',
+    'লেখা', 'ফন্ট', 'আকার', 'হরফ',
   ];
 
   static const _biggerPhrase = VoicePhrase(
     anchors: ['bigger', 'larger', 'increase', 'enlarge', 'big', 'large', 'zoom in',
+      'boro', 'borro', 'baraw', 'barao', 'bararo',
       'বড়', 'বাড়াও', 'বাড়ান'],
     context: _textContext,
     requireContext: true,
@@ -825,6 +937,7 @@ class LocalIntentMatcher {
   );
   static const _smallerPhrase = VoicePhrase(
     anchors: ['smaller', 'decrease', 'reduce', 'shrink', 'small', 'zoom out',
+      'choto', 'chota', 'komao', 'koman', 'kom',
       'ছোট', 'কমাও', 'কমান'],
     context: _textContext,
     requireContext: true,
@@ -1050,7 +1163,15 @@ class LocalIntentMatcher {
     'cancel my trip', 'stop the trip', 'stop the route', 'stop navigation',
     'stop navigating', 'end the trip', 'end navigation', 'forget the route',
     'never mind the route',
+    // Romanised Bangla — item 54, and the sentence that was actually
+    // reported. `trip cancel koro` reached none of the above, so it went to
+    // Gemini, whose `cancel_route` the executor then dropped (item 51). One
+    // report, two independent failures, and the second only reachable
+    // through the first.
+    'trip cancel koro', 'trip cancel', 'cancel koro', 'route cancel koro',
+    'trip bondho koro', 'trip bondo koro', 'jawa bondho koro',
     'ট্রিপ বাতিল', 'যাত্রা বাতিল', 'পথ বাতিল', 'পথ দেখানো বন্ধ', 'নেভিগেশন বন্ধ',
+    'ট্রিপ বন্ধ করো', 'বাতিল করো',
   ];
 
   /// Bare negations — "I'm not going". A cancellation only when that is
@@ -1065,6 +1186,14 @@ class LocalIntentMatcher {
   /// Both were answered by cancelling the user's route.
   static const _cancelRouteWeak = [
     'i am not going', "i'm not going", 'im not going', 'no longer going',
+    // Weak, not strong, and that distinction is the whole reason this list
+    // exists. "jabo na" is "I won't go" — a cancellation on its own, and an
+    // ordinary clause inside "office e jabo na" ("I'm not going to the
+    // office"), which is a statement about a journey nobody started.
+    // Strong-listing it cancelled a live route on that sentence. Its English
+    // twin "i am not going" has been weak here since before Banglish was
+    // considered at all.
+    'jabo na', 'jabona', 'jabo nah', 'jete chai na',
     'যাব না', 'যাবো না',
   ];
 
@@ -1078,6 +1207,142 @@ class LocalIntentMatcher {
   /// sometimes the whole point and sometimes an aside cannot be matched on
   /// its presence alone.
   static const int _maxCancelExtraWords = 1;
+
+  /// "Where am I" — item 48.
+  ///
+  /// Matched locally as well as through Gemini because it is asked while
+  /// standing still in the street, disoriented, and a 1.5-to-29-second round
+  /// trip is the wrong answer to that. Romanised Bangla is in the list from
+  /// the start (item 54): `kothay achi` is how this is actually said in
+  /// Dhaka, and neither vocabulary contained it.
+  ///
+  /// Kept to phrases that ask about *here*. A bare "where" belongs to half
+  /// the sentences in this app.
+  static const _whereAmI = [
+    'where am i', 'where i am right now', 'where are we', 'whereabouts am i',
+    'what road is this', 'what street is this', 'what area is this',
+    'which road is this', 'which street is this', 'which area is this',
+    'what road am i on', 'what street am i on', 'where have i ended up',
+    'tell me where i am', 'say where i am',
+    // Romanised Bangla, item 54.
+    'kothay achi', 'ami kothay', 'amra kothay', 'ei jayga kon', 'kon jaygay achi',
+    'kothay ache', 'ami kothay achi',
+    // Bangla script.
+    'আমি কোথায়', 'কোথায় আছি', 'আমরা কোথায়', 'এটা কোন জায়গা',
+    'এটা কোন রাস্তা', 'কোন রাস্তায় আছি', 'কোন এলাকায় আছি',
+  ];
+
+  /// "Let my caretaker know" — item 57.
+  ///
+  /// Every phrase here pairs an *act of telling* with the person being told.
+  /// Neither half alone is enough: "alert" on its own belongs to the
+  /// emergency vocabulary, and "caretaker" on its own is most of what
+  /// somebody says while pairing one.
+  static const _alertCaretaker = [
+    'alert my caretaker', 'alert my carer', 'alert the caretaker',
+    'alert my guardian', 'alert my caregiver',
+    'tell my caretaker', 'tell my carer', 'tell my guardian',
+    'let my caretaker know', 'let my carer know', 'let my guardian know',
+    'notify my caretaker', 'notify my carer', 'notify my guardian',
+    'message my caretaker', 'contact my caretaker', 'inform my caretaker',
+    'tell my caretaker where i am', 'send my location to my caretaker',
+    // Romanised Bangla, item 54.
+    'caretaker ke janao', 'caretaker ke bolo', 'amar caretaker ke janao',
+    'guardian ke janao', 'caretaker ke khobor dao',
+    // Bangla script.
+    'দেখাশোনাকারীকে জানাও', 'দেখাশোনাকারীকে বলো', 'দেখাশোনাকারীকে খবর দাও',
+    'আমার দেখাশোনাকারীকে জানাও', 'অভিভাবককে জানাও',
+  ];
+
+  /// Asking for the map — item 51.
+  ///
+  /// There was no intent for this in any language. The map opened itself when
+  /// a route was planned and closed when one was cleared, and between those
+  /// two moments the only control was a button on the input row, which is no
+  /// use to somebody who cannot see it.
+  ///
+  /// Romanised Bangla is first-class here because the reported phrase was
+  /// `map on koro` (item 54).
+  static const _showMap = [
+    'show the map', 'show map', 'open the map', 'open map', 'see the map',
+    'bring up the map', 'map please', 'let me see the map', 'display the map',
+    'map on koro', 'map on', 'map dekhao', 'map dekha',
+    'ম্যাপ দেখাও', 'ম্যাপ খোলো', 'ম্যাপ চালু করো', 'মানচিত্র দেখাও',
+  ];
+
+  static const _hideMap = [
+    'hide the map', 'hide map', 'close the map', 'close map', 'put the map away',
+    'get rid of the map', 'i dont need the map', 'turn off the map',
+    // Both the full form and what is left after `koro` is stripped, and both
+    // spellings of `bondho`: the second pass hands the matcher "map bondo",
+    // so that is what has to be in the list for it to land.
+    'map off koro', 'map off', 'map bondho koro', 'map bondho', 'map bondo',
+    'map lukao', 'map sorao',
+    'ম্যাপ লুকাও', 'ম্যাপ বন্ধ করো', 'ম্যাপ সরাও', 'মানচিত্র বন্ধ',
+  ];
+
+  static LocalIntent? _matchMapVisibility(String lower, String text) {
+    // Hiding is checked first: "close the map" contains "the map", and
+    // several show-phrases are substrings of hide-phrases.
+    if (_hideMap.any((p) => lower.contains(p) || text.contains(p))) {
+      return const LocalIntent('close_map', {});
+    }
+    if (_showMap.any((p) => lower.contains(p) || text.contains(p))) {
+      return const LocalIntent('open_map', {});
+    }
+    return null;
+  }
+
+  /// "Record a voice message for my caretaker".
+  ///
+  /// Safe to match locally in a way the *written* memo is not: there is no
+  /// free text to pull out of the sentence, because the message has not been
+  /// spoken yet — the recorder is what collects it.
+  static const _voiceMemo = [
+    'voice message', 'voice memo', 'voice note', 'record a message',
+    'record a note', 'record something', 'send a recording',
+    'let them hear', 'in my own voice', 'record my voice',
+    // Romanised Bangla, item 54.
+    'voice message pathao', 'voice bartha', 'record koro', 'record kore pathao',
+    // Bangla script.
+    'ভয়েস বার্তা', 'ভয়েস মেসেজ', 'রেকর্ড করো', 'রেকর্ড করে পাঠাও',
+  ];
+
+  static LocalIntent? _matchVoiceMemo(String lower, String text) {
+    if (_voiceMemo.any((p) => lower.contains(p) || text.contains(p))) {
+      return const LocalIntent('record_caretaker_voice_memo', {});
+    }
+    return null;
+  }
+
+  /// How much may be said around the phrase before it stops being a bare
+  /// request and starts being a message with content in it.
+  ///
+  /// "Alert my caretaker" is a request to raise a flag. "Tell my caretaker
+  /// I will be late home" is a message, and matching it here would raise the
+  /// flag and drop every word the user actually wanted passed on. Pulling
+  /// free text out of an arbitrary sentence is exactly what this matcher
+  /// refuses to do — see the class comment — so anything with content on it
+  /// is left for Gemini and `send_caretaker_message`.
+  static const int _maxAlertExtraWords = 2;
+
+  static LocalIntent? _matchAlertCaretaker(String lower, String text) {
+    final spokenWords = _words(text).length;
+    for (final phrase in _alertCaretaker) {
+      if (!lower.contains(phrase) && !text.contains(phrase)) continue;
+      if (spokenWords - _words(phrase).length <= _maxAlertExtraWords) {
+        return const LocalIntent('alert_caretaker', {});
+      }
+    }
+    return null;
+  }
+
+  static LocalIntent? _matchWhereAmI(String lower, String text) {
+    if (_whereAmI.any((p) => lower.contains(p) || text.contains(p))) {
+      return const LocalIntent('describe_current_location', {});
+    }
+    return null;
+  }
 
   static LocalIntent? _matchCancelRoute(String lower, String text) {
     if (_cancelRouteStrong.any((p) => lower.contains(p) || text.contains(p))) {
@@ -1134,6 +1399,53 @@ class LocalIntentMatcher {
         }
       }
     }
+    // Romanised Bangla — item 54. Routing had no Banglish coverage at all,
+    // and it is the single most-used intent in the app.
+    //
+    // Checked regardless of the app's language setting, unlike the Bangla
+    // branch above. Banglish is Latin script, so it arrives from an English
+    // recognizer session as readily as a Bangla one, and somebody with the
+    // app in English still says "hospital e jabo".
+    final blMatch = _routeBanglishPattern.firstMatch(lower);
+    if (blMatch != null && !_isNegatedBanglish(lower)) {
+      // One group per alternative; whichever one participated is the
+      // destination. Reading only the first two silently dropped the
+      // "amake X niye chalo" shape, which is the commonest of the three.
+      final destination = _tidyDestination(
+          blMatch.group(1) ?? blMatch.group(2) ?? blMatch.group(3) ?? '');
+      if (destination.isNotEmpty && destination.length <= 40 && !_isVagueDestination(destination)) {
+        return LocalIntent('request_route', {'destination': destination});
+      }
+    }
     return null;
+  }
+
+  /// "hospital e jabo", "amake Gulshan niye chalo".
+  ///
+  /// Two shapes, because Bangla puts the verb last and the postposition on
+  /// the destination. The first alternative catches destination-then-verb
+  /// (`X e jabo`, `X jete chai`); the second catches the carry-me forms where
+  /// the verb phrase trails the destination (`amake X niye chalo`).
+  ///
+  /// The optional `e`/`te`/`ey` is the locative postposition — "to" — and is
+  /// dropped from the captured destination by `_tidyDestination` if it
+  /// survives, since no geocoder wants it.
+  static final _routeBanglishPattern = RegExp(
+    r'(?:^|\b)(?:amake\s+|amay\s+)?'
+    r'(?:(.+?)\s+(?:e|te|ey|ete)?\s*(?:jabo|jabo ami|jete chai|jete chai ami|jabo na ki|jete hobe)'
+    r'|(?:niye\s+(?:chalo|jao|jan|cholo)\s+)(.+)'
+    r'|(.+?)\s+niye\s+(?:chalo|jao|jan|cholo))',
+    caseSensitive: false,
+  );
+
+  /// Bangla negates after the verb, so a refusal sits at the end — "jabo na"
+  /// is "will not go", and it is a literal prefix-match of "jabo".
+  ///
+  /// The same defect the Bangla-script branch has its own guard for; without
+  /// this, telling the app you are *not* going somewhere starts walking you
+  /// there.
+  static bool _isNegatedBanglish(String lower) {
+    const negations = ['jabo na', 'jabona', 'jete chai na', 'jabo nah', 'lagbe na', 'dorkar nei'];
+    return negations.any(lower.contains);
   }
 }

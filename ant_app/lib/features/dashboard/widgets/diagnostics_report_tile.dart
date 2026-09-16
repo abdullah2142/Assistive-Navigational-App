@@ -62,6 +62,14 @@ class _DiagnosticsReportTileState extends State<DiagnosticsReportTile> {
           d.settingsDiagnosticsReady(diagnosticsLog.length),
           style: theme.textTheme.labelSmall?.copyWith(color: theme.hintColor),
         ),
+        // Item 53: the session worth reporting is usually the one that ended
+        // badly, and it is over by the time the tester gets here. Saying so
+        // is what stops them reporting from memory instead.
+        if (diagnosticsLog.recoveredLines > 0)
+          Text(
+            d.settingsDiagnosticsRecovered(diagnosticsLog.recoveredLines),
+            style: theme.textTheme.labelSmall?.copyWith(color: theme.hintColor),
+          ),
         const SizedBox(height: 10),
         SizedBox(
           width: double.infinity,

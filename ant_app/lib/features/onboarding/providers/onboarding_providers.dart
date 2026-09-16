@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/tester_build_config.dart';
 import '../../../core/localization/app_language.dart';
 import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
@@ -319,6 +320,16 @@ class OnboardingController extends Notifier<OnboardingState> {
         await _startCaretakerPairing(user.uid);
       } else {
         _goTo(OnboardingStep.userPairingCodeEntry);
+        // Item 50 — "app should ask for location right away when asking for
+        // mic permission too". The microphone was asked for on the first
+        // screen as a side effect of narrating and listening; location was
+        // not asked for anywhere in onboarding at all, and turned up as an
+        // unexplained dialog on the dashboard minutes later.
+        //
+        // Fired after `_goTo` and deliberately not awaited: onboarding must
+        // not stall behind a system dialog. Asked only of a disabled user —
+        // a caretaker's own phone never needs its location.
+        unawaited(ref.read(locationPermissionPrimerProvider).prime());
       }
     } catch (e) {
       _failCurrentStep(e);
@@ -654,8 +665,11 @@ class OnboardingController extends Notifier<OnboardingState> {
   /// populated so the Magic Button and Passerby surfaces have something to
   /// show.
   Future<void> devSkipOnboarding() async {
-    if (!kDebugMode) {
-      debugPrint('[Onboarding] devSkipOnboarding ignored — not a debug build.');
+    // Mirrors the condition that draws the button, so the two cannot drift
+    // into a state where one is reachable and the other refuses. Item 61:
+    // testers run release builds, where `kDebugMode` alone said no.
+    if (!kDebugMode && !TesterBuildConfig.isTesterBuild) {
+      debugPrint('[Onboarding] devSkipOnboarding ignored — not a debug or tester build.');
       return;
     }
     _stopCurrentScreenVoice();

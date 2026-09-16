@@ -509,6 +509,9 @@ class _StubPlanning implements RoutePlanningService {
       );
 
   @override
+  Future<String?> describeLocation(LatLng location) async => 'Road 7, Dhanmondi';
+
+  @override
   Future<RoutePlanResult> plan({
     required String destinationQuery,
     required LatLng origin,

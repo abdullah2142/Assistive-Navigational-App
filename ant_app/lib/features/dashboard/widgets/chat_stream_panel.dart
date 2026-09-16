@@ -10,6 +10,7 @@ import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/background_listening_service.dart';
 import '../../../core/services/emergency_channel.dart';
 import '../../../core/services/dhaka_places.dart';
+import '../../../core/services/earcon_service.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/services/wake_word_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -97,9 +98,15 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     // on the first visit to settings.
     ref.read(hapticsServiceProvider).intensity = widget.profile.hapticIntensity;
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => ref.read(chatControllerProvider.notifier).ensureWelcomeMessage(Dashboard.of(widget.profile.language)),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final d = Dashboard.of(widget.profile.language);
+      final controller = ref.read(chatControllerProvider.notifier);
+      // Item 52 — the transcript comes back before the welcome line does, so
+      // a restored conversation is not preceded by a greeting that implies
+      // nothing happened before it.
+      await controller.restoreHistory(widget.profile.uid, d);
+      controller.ensureWelcomeMessage(d);
+    });
     if (widget.profile.wakeWordEnabled) _startWakeWordListening();
   }
 
@@ -252,6 +259,13 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
       // `SttService.stop()` completes the pending session's completer, so
       // the `listenOnce` below returns and its `finally` clears both flags.
       await _stt.stop();
+      // The falling half of item 59's pair. Deliberately only on a manual
+      // close: a session that ends because the user finished speaking is
+      // followed by the assistant's reply, which is its own confirmation —
+      // a tone in front of it would be noise. A session the user closed by
+      // hand has nothing else to confirm it, and "is it still listening?"
+      // is unanswerable without sight.
+      unawaited(ref.read(earconServiceProvider).play(Earcon.stopped));
       return;
     }
     await _beginListening(d);
@@ -279,6 +293,24 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
         return;
       }
       setState(() => _listening = true);
+      // Item 59 — "sound cue when mic is activated after hey jarvis or any
+      // autolistening". There was a haptic and nothing audible, which is the
+      // right cue for a phone in a hand and no cue at all for one in a
+      // pocket, which is where a blind user walking with a cane keeps it.
+      //
+      // Started here and deliberately **not awaited**. Awaiting it was the
+      // first version and it was wrong: it put audio playback on the
+      // critical path of opening the microphone, so a device where the audio
+      // plugin stalls or is missing gets no microphone at all. In an app
+      // whose most repeated complaint is some form of "it didn't hear me",
+      // a cue that can prevent listening is worse than no cue.
+      //
+      // The tone therefore overlaps the first moments of the session. That
+      // is an acceptable trade where narration would not be (item 23): a
+      // 160ms pure sine is not speech, and no recognizer turns it into
+      // words, whereas the app reading a sentence aloud into its own
+      // microphone genuinely did.
+      unawaited(ref.read(earconServiceProvider).play(Earcon.listening));
       await _stt.listenOnce(
         language: widget.profile.language,
         // The main mic: anything can be said into it, and a destination is
@@ -321,6 +353,26 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     final chatState = ref.watch(chatControllerProvider);
     final d = Dashboard.of(widget.profile.language);
     _scrollToEnd();
+
+    // Item 60 — "after ai asks a question, it should reopen mic".
+    //
+    // Auto-listen was a setting with no reader on this screen: `profile
+    // .voiceAutoListen` was consulted by onboarding and by the settings
+    // toggle, and by nothing on the dashboard at all. So the microphone
+    // reopened after no chat reply whatever, question or not, and a user who
+    // was asked "which one did you mean?" had to find the mic button to
+    // answer — which is the one thing someone who cannot see the screen
+    // should never have to do mid-conversation.
+    //
+    // The controller decides *when* (after the question has finished being
+    // spoken, so the recognizer never opens under the app's own voice) and
+    // this decides *whether the microphone is free* — `_beginListening`'s
+    // own guards refuse if a session is already running.
+    ref.listen(chatControllerProvider.select((s) => s.answerInvitations), (previous, next) {
+      if (previous == null || next <= previous) return;
+      if (_listening || _startingListen) return;
+      unawaited(_beginListening(Dashboard.of(widget.profile.language)));
+    });
 
     ref.listen(chatControllerProvider.select((s) => s.pendingOverlayAction), (previous, next) {
       if (next == null) return;
@@ -365,7 +417,9 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: SuggestedChipRow(
-            chips: kDefaultSuggestedChips,
+            // The voice-message chip only exists once there is somebody to
+            // send one to — see `suggestedChipsFor`.
+            chips: suggestedChipsFor(caretakerPaired: widget.profile.pairedUserId != null),
             strings: d,
             onTap: (chip) => _handleChip(chip, d),
           ),
@@ -383,18 +437,45 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
           child: Row(
             children: [
               if (widget.onToggleMap != null) ...[
+                // Shaped like the mic and the send button, not like a bare
+                // app-bar icon.
+                //
+                // It sits between two filled circles and was a flat glyph, so
+                // it read as decoration rather than as the third control on
+                // the row — the one a sighted companion reaches for first.
+                // A filled circle of the same family says "this is a button
+                // of the same kind", which is most of what makes a row of
+                // controls scannable at a glance or at low vision.
+                //
+                // The on/off state is still carried three ways over, because
+                // colour alone is not a state indicator: the icon stays
+                // filled-vs-outlined, the circle changes colour, and the
+                // semantics label says show or hide.
                 Semantics(
                   button: true,
                   label: widget.mapVisible ? d.mapHideSemantics : d.mapShowSemantics,
-                  child: IconButton(
-                    icon: Icon(widget.mapVisible ? Icons.map_rounded : Icons.map_outlined),
-                    // Beside the mic and the send button rather than in the
-                    // app bar's far corner, which is the furthest point on
-                    // the screen from a thumb that is already on this row.
-                    onPressed: widget.onToggleMap,
+                  child: Material(
+                    color: widget.mapVisible ? AppColors.primary : AppColors.primaryLight,
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      // Beside the mic and the send button rather than in the
+                      // app bar's far corner, which is the furthest point on
+                      // the screen from a thumb that is already on this row.
+                      onTap: widget.onToggleMap,
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Icon(
+                          widget.mapVisible ? Icons.map_rounded : Icons.map_outlined,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 8),
               ],
               Semantics(
                 button: true,

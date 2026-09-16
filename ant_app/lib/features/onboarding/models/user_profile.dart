@@ -33,6 +33,7 @@ class UserProfile {
     this.onboardingComplete = false,
     this.themePreference = ThemePreference.light,
     this.passerbyHelperMessages = const [],
+    this.rememberedNotes = const [],
     this.language = AppLanguage.english,
     this.snapshotConsent = SnapshotConsentPreference.askEachTime,
     this.wakeWordEnabled = false,
@@ -109,6 +110,32 @@ class UserProfile {
   // onboarding so the "Show Screen" overlay has ready-to-use options
   // tailored to this person instead of a generic default set.
   final List<String> passerbyHelperMessages;
+
+  /// Things the user has told the assistant about themselves in passing —
+  /// item 56.
+  ///
+  /// **Reported:** "app should work like a normal chatbot, as in how
+  /// conversational chatgpt and gemini is in speak mode, remembering context
+  /// and informations/preferences."
+  ///
+  /// The recent transcript now survives a restart (item 52) and covers the
+  /// last few turns, but a conversation window is not memory: anything said
+  /// nine turns ago is gone, and the things worth keeping — "I use a
+  /// wheelchair", "I can't manage stairs", "my daughter picks me up on
+  /// Fridays" — are exactly the things said once, in passing, and never
+  /// repeated.
+  ///
+  /// Deliberately plain sentences rather than structured fields. The point is
+  /// that the user does not have to know what the app has a field for; the
+  /// onboarding answers already cover everything this app can act on
+  /// mechanically, and this is for everything else.
+  ///
+  /// Capped at [maxRememberedNotes] — an unbounded list grows into the
+  /// prompt, and a prompt that grows every turn eventually costs more than
+  /// the reply.
+  final List<String> rememberedNotes;
+
+  static const int maxRememberedNotes = 20;
 
   // UI display language — chosen on the very first onboarding screen,
   // before role selection, since a Bangla-only reader needs to understand
@@ -206,6 +233,7 @@ class UserProfile {
         'onboardingComplete': onboardingComplete,
         'themePreference': themePreference.name,
         'passerbyHelperMessages': passerbyHelperMessages,
+        'rememberedNotes': rememberedNotes,
         'language': language.name,
         'snapshotConsent': snapshotConsent.name,
         'wakeWordEnabled': wakeWordEnabled,
@@ -240,6 +268,8 @@ class UserProfile {
         themePreference: ThemePreference.fromFirestore(json['themePreference'] as String?),
         passerbyHelperMessages:
             (json['passerbyHelperMessages'] as List<dynamic>? ?? []).map((m) => m as String).toList(),
+        rememberedNotes:
+            (json['rememberedNotes'] as List<dynamic>? ?? []).whereType<String>().toList(),
         language: AppLanguage.fromFirestore(json['language'] as String?),
         snapshotConsent: SnapshotConsentPreference.fromFirestore(json['snapshotConsent'] as String?),
         wakeWordEnabled: json['wakeWordEnabled'] as bool? ?? false,
@@ -290,6 +320,7 @@ class UserProfile {
     bool? onboardingComplete,
     ThemePreference? themePreference,
     List<String>? passerbyHelperMessages,
+    List<String>? rememberedNotes,
     AppLanguage? language,
     SnapshotConsentPreference? snapshotConsent,
     bool? wakeWordEnabled,
@@ -320,6 +351,7 @@ class UserProfile {
         onboardingComplete: onboardingComplete ?? this.onboardingComplete,
         themePreference: themePreference ?? this.themePreference,
         passerbyHelperMessages: passerbyHelperMessages ?? this.passerbyHelperMessages,
+        rememberedNotes: rememberedNotes ?? this.rememberedNotes,
         language: language ?? this.language,
         snapshotConsent: snapshotConsent ?? this.snapshotConsent,
         wakeWordEnabled: wakeWordEnabled ?? this.wakeWordEnabled,

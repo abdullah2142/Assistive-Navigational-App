@@ -13,6 +13,8 @@
 // to. So it is redacted **on the way in** — a buffer that holds raw text and
 // cleans it at export is one bug away from shipping the lot.
 
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -171,6 +173,154 @@ void main() {
       log.uninstall();
       debugPrint = original;
       expect(log.length, 1);
+    });
+  });
+
+  // Item 53 — reported: "the report log lines also reset when the app is
+  // closed, which is why i lost a lot of valuable tester log data".
+  //
+  // The sessions worth reporting are the ones a tester force-closed because
+  // the app was stuck, and that exit took the evidence with it. Every test
+  // here abandons the log object without closing it — which is what a
+  // force-stop actually looks like — and then checks a fresh one can still
+  // find the lines.
+  group('surviving the app being killed', () {
+    late Directory dir;
+
+    setUp(() => dir = Directory.systemTemp.createTempSync('ant-diag-test'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    Future<DiagnosticsLog> launch({int maxSessionBytes = 512 * 1024}) async {
+      final log = DiagnosticsLog(maxSessionBytes: maxSessionBytes);
+      await log.attachToDirectory(dir);
+      return log;
+    }
+
+    test('a line written before the kill is still there on the next launch', () async {
+      final first = await launch();
+      first.add('[WakeWord] DETECTED (score=0.783)');
+      await first.flush();
+      // No detach, no close: the process simply stops existing.
+
+      final second = await launch();
+      final report = await second.renderReport();
+      expect(report, contains('[WakeWord] DETECTED (score=0.783)'),
+          reason: 'this is the whole of item 53');
+      expect(report, contains('the previous session'));
+      await second.detach();
+    });
+
+    test('the recovered lines are counted, so the tester is told they exist', () async {
+      final first = await launch();
+      for (var i = 0; i < 5; i++) {
+        first.add('line$i');
+      }
+      await first.flush();
+
+      final second = await launch();
+      // Five lines plus the session banner the first launch wrote.
+      expect(second.recoveredLines, 6);
+      expect(second.length, 0, reason: 'nothing of the old session is in memory');
+      await second.detach();
+    });
+
+    test('this session and the one before it both reach the report', () async {
+      final first = await launch();
+      first.add('[Map] from the session that crashed');
+      await first.flush();
+
+      final second = await launch();
+      second.add('[Map] from the session sending the report');
+      final report = await second.renderReport();
+      expect(report, contains('from the session that crashed'));
+      expect(report, contains('from the session sending the report'));
+      expect(report.indexOf('that crashed'), lessThan(report.indexOf('sending the report')),
+          reason: 'oldest first, or the file reads backwards');
+      await second.detach();
+    });
+
+    test('two sessions are kept and the third pushes the first out', () async {
+      // Each launch rotates, so what a tester sees is always the run they are
+      // in plus the one before it. Two runs is the budget: a tester's phone is
+      // not a log server, and the run before last is not what they are
+      // reporting.
+      for (final marker in ['oldest', 'middle']) {
+        final log = await launch();
+        log.add('[Test] $marker');
+        await log.flush();
+      }
+      final newest = await launch();
+      newest.add('[Test] newest');
+      final report = await newest.renderReport();
+      expect(report, contains('newest'));
+      expect(report, contains('middle'));
+      expect(report, isNot(contains('oldest')));
+      await newest.detach();
+    });
+
+    test('redaction reaches the file, not just the buffer', () async {
+      // The file is the thing that now outlives the app, so this is where
+      // getting redaction wrong would actually cost someone something.
+      final log = await launch();
+      log.add('[OnboardingVoice] heard (final): "আমি একাই হাঁটি"');
+      log.add('[Emergency] messaging +8801711111111');
+      log.add('[Map] fix at 23.746100, 90.374200');
+      await log.flush();
+
+      final onDisk = File('${dir.path}/${DiagnosticsLog.currentFileName}').readAsStringSync();
+      expect(onDisk, isNot(contains('একাই')));
+      expect(onDisk, isNot(contains('01711111111')));
+      expect(onDisk, isNot(contains('23.7461')));
+      expect(onDisk, contains('3 words'));
+      expect(onDisk, contains('<coord>'));
+      await log.detach();
+    });
+
+    test('a line logged before the file is open is not lost and not doubled', () async {
+      // `main` installs the logger and only then awaits the filesystem;
+      // Firebase init logs in between. Those lines have to land exactly once.
+      final log = DiagnosticsLog();
+      log.add('[Main] logged before the file existed');
+      final attaching = log.attachToDirectory(dir);
+      log.add('[Main] logged while the file was opening');
+      await attaching;
+      await log.flush();
+
+      final onDisk = File('${dir.path}/${DiagnosticsLog.currentFileName}').readAsStringSync();
+      expect('before the file existed'.allMatches(onDisk).length, 1);
+      expect('while the file was opening'.allMatches(onDisk).length, 1);
+      await log.detach();
+    });
+
+    test('a long session rotates rather than growing without bound', () async {
+      final log = await launch(maxSessionBytes: 400);
+      for (var i = 0; i < 60; i++) {
+        log.add('[Test] a line long enough to push the file past its cap $i');
+        await log.flush();
+      }
+      final current = File('${dir.path}/${DiagnosticsLog.currentFileName}').lengthSync();
+      final previous = File('${dir.path}/${DiagnosticsLog.previousFileName}').lengthSync();
+      expect(current, lessThan(2000));
+      expect(previous, lessThan(2000));
+      final report = await log.renderReport();
+      expect(report, contains('line long enough to push the file past its cap 59'),
+          reason: 'the end of the session is the part being reported');
+      await log.detach();
+    });
+
+    test('a directory that cannot be used does not take the app down', () async {
+      // A logger must never be the reason the app fails to start.
+      final log = DiagnosticsLog();
+      final blocked = File('${dir.path}/not-a-directory')..writeAsStringSync('x');
+      await log.attachToDirectory(Directory('${blocked.path}/nested'));
+      expect(log.isPersisting, isFalse);
+
+      log.add('[Test] still recording');
+      expect(log.length, 1);
+      final report = await log.renderReport();
+      expect(report, contains('still recording'));
+      expect(report, contains('not written to disk'),
+          reason: 'a silent failure would read as a quiet session');
     });
   });
 }

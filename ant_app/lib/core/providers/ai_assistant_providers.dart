@@ -1,11 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/onboarding/providers/onboarding_providers.dart';
-import '../config/groq_config.dart';
+import '../config/gemini_config.dart';
 import '../services/background_listening_service.dart';
 import '../services/cloud_stt_service.dart';
 import '../services/function_call_executor.dart';
-import '../services/groq_assistant_service.dart';
+import '../services/gemini_assistant_service.dart';
 import '../services/navigation_controller.dart';
 import '../services/route_planning_service.dart';
 import '../../features/guardian/providers/guardian_providers.dart';
@@ -102,17 +102,12 @@ final functionCallExecutorProvider = Provider<FunctionCallExecutor>((ref) {
   );
 });
 
-/// `null` when [GroqConfig.isConfigured] is false — callers must check
+/// `null` when [GeminiConfig.isConfigured] is false — callers must check
 /// that flag first (same pattern as `MapsConfig.isConfigured`) rather than
 /// force-unwrap this.
-///
-/// Provider name kept as `geminiAssistantServiceProvider` (superseded from
-/// Gemini to Groq's `qwen/qwen3.8-27b`, see `GroqConfig.chatModel`) so every
-/// consumer — `chat_providers.dart` chief among them — needed no changes
-/// beyond this file.
-final geminiAssistantServiceProvider = Provider<GroqAssistantService?>((ref) {
-  if (!GroqConfig.isConfigured) return null;
-  return GroqAssistantService(apiKey: GroqConfig.apiKey, executor: ref.watch(functionCallExecutorProvider));
+final geminiAssistantServiceProvider = Provider<GeminiAssistantService?>((ref) {
+  if (!GeminiConfig.isConfigured) return null;
+  return GeminiAssistantService(apiKey: GeminiConfig.apiKey, executor: ref.watch(functionCallExecutorProvider));
 });
 
 

@@ -989,6 +989,9 @@ class ChatController extends Notifier<ChatState> {
     final myTurn = _turnGeneration;
     bool superseded() => _turnGeneration != myTurn;
 
+    int lastSpokenIndex = 0;
+    final punct = RegExp(r'[.!?।\n]');
+
     try {
       debugPrint('[Chat] -> Gemini: "$trimmed"');
       state = state.copyWith(isAssistantTyping: true);
@@ -1016,6 +1019,15 @@ class ChatController extends Notifier<ChatState> {
             );
           } else {
             state = state.copyWith(messages: _withLastReplaced(text: partial));
+          }
+
+          if (!profile.isDeafOrHardOfHearing) {
+            int nextBound = partial.lastIndexOf(punct);
+            if (nextBound >= lastSpokenIndex) {
+              final chunkToSpeak = partial.substring(lastSpokenIndex, nextBound + 1);
+              lastSpokenIndex = nextBound + 1;
+              unawaited(ref.read(ttsServiceProvider).speak(chunkToSpeak, language: profile.language));
+            }
           }
         },
       ).timeout(_geminiBudget);
@@ -1061,11 +1073,11 @@ class ChatController extends Notifier<ChatState> {
       }
       if (streaming) {
         // Reconcile with the final text (normally identical to the last
-        // streamed chunk already shown) and speak it now — streaming only
-        // ever updated the bubble, nothing was spoken chunk-by-chunk.
+        // streamed chunk already shown) and speak any remaining text.
         state = state.copyWith(isAssistantTyping: false, messages: _withLastReplaced(text: turn.responseText));
-        if (!profile.isDeafOrHardOfHearing) {
-          unawaited(ref.read(ttsServiceProvider).speak(turn.responseText, language: profile.language));
+        if (!profile.isDeafOrHardOfHearing && lastSpokenIndex < turn.responseText.length) {
+          final remainingToSpeak = turn.responseText.substring(lastSpokenIndex);
+          unawaited(ref.read(ttsServiceProvider).speak(remainingToSpeak, language: profile.language));
         }
       } else {
         await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);

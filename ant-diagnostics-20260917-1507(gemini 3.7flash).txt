@@ -1,0 +1,743 @@
+ANT diagnostics
+session started: 2026-09-17T14:47:41.693194
+written: 2026-09-17T15:07:21.473291
+lines: 680
+recovered from the previous session: 5 lines
+app: 1.0.0+1
+package: com.ant.assistive.ant_app
+
+*** THIS FILE CONTAINS WHAT WAS ACTUALLY SAID. ***
+Voice transcripts, names, phone numbers, pairing codes,
+coordinates and account ids appear in full. This build was
+made that way deliberately, for a known group of testers.
+Treat it as personal data and do not forward it on.
+------------------------------------------------------------
+--- the previous session, recovered from disk ---
+=== session started 2026-09-17T14:40:15.317534 ===
+14:40:18.964  [Tts] available engines=[com.google.android.tts] default=com.google.android.tts
+14:40:19.421  [Tts] pinned voice for locale=en-US: en-IN-language
+14:40:19.422  [Tts] switched to com.google.android.tts
+14:40:27.953  [Tts] pinned voice for locale=bn-BD: bn-BD-language
+
+--- this session ---
+=== session started 2026-09-17T14:47:41.693194 ===
+14:47:45.276  [Tts] available engines=[com.google.android.tts] default=com.google.android.tts
+14:47:45.636  [Tts] switched to com.google.android.tts
+14:47:54.565  [OnboardingVoice] listenForVoiceChoice starting — choices: english / ইংরেজি / ইংলিশ / bangla / বাংলা
+14:48:46.014  [CloudStt] continuous listening started (bangla)
+14:48:47.431  [Stt] cloud heard "আলাইন" (isFinal=false)
+14:48:47.453  [Stt] cloud heard "লাইনস" (isFinal=false)
+14:48:47.582  [Stt] cloud heard "অহিংসা" (isFinal=false)
+14:48:47.599  [Stt] cloud heard "অনলাইন শপ" (isFinal=false)
+14:48:47.667  [Stt] cloud heard "অনলাইন সেবা" (isFinal=false)
+14:48:47.759  [Stt] cloud heard "বালাইনসে বাংলা" (isFinal=false)
+14:48:48.377  [Stt] cloud heard "বালাইনসে বাংলা" (isFinal=false)
+14:48:49.335  [Stt] cloud heard "বালাইনসে বাংলা" (isFinal=false)
+14:48:49.983  [Stt] cloud heard "বালাইনসে বাংলা ইংলিশ" (isFinal=false)
+14:48:52.501  [Stt] cloud heard "বালাইনসে বাংলা ইংলিশ" (isFinal=true)
+14:48:52.501  [OnboardingVoice] heard (final): "বালাইনসে বাংলা ইংলিশ"
+14:48:52.503  [OnboardingVoice] matched choice: "ইংলিশ" (score 1.00)
+14:48:52.503  [Stt] cloud session ending (final result)
+14:48:52.654  [Onboarding] _goTo: OnboardingStep.languageSelection -> OnboardingStep.roleSelection (generation 0 -> 1)
+14:49:33.062  [OnboardingVoice] listenForVoiceChoice starting — choices: I need assistance / I am a Caretaker
+14:49:33.641  [CloudStt] continuous listening started (english)
+14:49:34.682  [Stt] cloud heard "I," (isFinal=false)
+14:49:34.696  [Stt] cloud heard "I need." (isFinal=false)
+14:49:35.310  [Stt] cloud heard "I" (isFinal=false)
+14:49:35.320  [Stt] cloud heard "I need." (isFinal=false)
+14:49:35.490  [Stt] cloud heard "I need" (isFinal=false)
+14:49:35.644  [Stt] cloud heard "I need" (isFinal=false)
+14:49:36.183  [Stt] cloud heard "I need assistance." (isFinal=true)
+14:49:36.184  [OnboardingVoice] heard (final): "I need assistance."
+14:49:36.185  [OnboardingVoice] matched choice: "I need assistance" (score 1.00)
+14:49:36.185  [Stt] cloud session ending (final result)
+14:49:36.358  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 1
+14:49:38.421  [Onboarding] resuming vZfVlbe5rvMAGWeBVJNIQ1pVWv13 at OnboardingStep.roleSelection (recorded: null)
+14:49:38.732  [Onboarding] _goTo: OnboardingStep.roleSelection -> OnboardingStep.userPairingCodeEntry (generation 0 -> 1)
+14:49:38.736  [Permissions] asking for location during onboarding
+14:49:40.960  [CloudTts] dropping an utterance cancelled while it was being fetched
+14:49:42.735  [Permissions] location after onboarding prompt: LocationPermission.whileInUse
+14:50:07.250  [Onboarding] _goTo: OnboardingStep.userPairingCodeEntry -> OnboardingStep.visionQuestion (generation 1 -> 2)
+14:50:55.233  [OnboardingVoice] listenForVoiceChoice starting — choices: No vision / Partial / low vision / Full vision
+14:50:55.846  [CloudStt] continuous listening started (english)
+14:50:57.220  [Stt] cloud heard "Part." (isFinal=false)
+14:50:57.861  [Stt] cloud heard "Part." (isFinal=false)
+14:50:57.870  [Stt] cloud heard "Partial." (isFinal=false)
+14:50:58.084  [Stt] cloud heard "Partial low." (isFinal=false)
+14:50:58.265  [Stt] cloud heard "Partial low vision." (isFinal=false)
+14:50:58.424  [Stt] cloud heard "Partial" (isFinal=false)
+14:50:58.724  [Stt] cloud heard "Partial low" (isFinal=false)
+14:50:58.797  [Stt] cloud heard "Partial low vision." (isFinal=true)
+14:50:58.797  [OnboardingVoice] heard (final): "Partial low vision."
+14:50:58.799  [OnboardingVoice] matched choice: "Partial / low vision" (score 1.00)
+14:50:58.800  [Stt] cloud session ending (final result)
+14:50:58.992  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 2
+14:50:59.260  [Onboarding] _goTo: OnboardingStep.visionQuestion -> OnboardingStep.visualCalibration (generation 3 -> 4)
+14:51:17.491  [OnboardingVoice] listenForVoiceChoice starting — choices: This is comfortable, continue
+14:51:17.645  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 4
+14:51:18.070  [Onboarding] _goTo: OnboardingStep.visualCalibration -> OnboardingStep.themePreference (generation 5 -> 6)
+14:51:18.072  [CloudStt] continuous listening started (english)
+14:51:18.283  [OnboardingVoice] cancelled after listenOnce returned — step changed or disposed
+14:51:37.498  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 6
+14:51:37.799  [Onboarding] _goTo: OnboardingStep.themePreference -> OnboardingStep.mobilityQuestion (generation 7 -> 8)
+14:51:41.217  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 8
+14:51:41.408  [Onboarding] _goTo: OnboardingStep.mobilityQuestion -> OnboardingStep.cognitiveAnxietyQuestion (generation 9 -> 10)
+14:51:57.614  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 10
+14:51:57.853  [Onboarding] _goTo: OnboardingStep.cognitiveAnxietyQuestion -> OnboardingStep.deafHearingQuestion (generation 11 -> 12)
+14:51:58.699  [CloudTts] dropping an utterance cancelled while it was being fetched
+14:52:07.131  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 12
+14:52:07.360  [Onboarding] _goTo: OnboardingStep.deafHearingQuestion -> OnboardingStep.autoListenQuestion (generation 13 -> 14)
+14:52:21.429  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 14
+14:52:21.616  [Onboarding] _goTo: OnboardingStep.autoListenQuestion -> OnboardingStep.verbosityAndVoice (generation 15 -> 16)
+14:52:30.500  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 16
+14:52:30.774  [Onboarding] _goTo: OnboardingStep.verbosityAndVoice -> OnboardingStep.magicButtonContacts (generation 17 -> 18)
+14:52:55.210  [CloudStt] continuous listening started (english)
+14:52:56.405  [Stt] cloud heard "Ma." (isFinal=false)
+14:52:56.494  [Stt] cloud heard "Meche." (isFinal=false)
+14:52:56.653  [Stt] cloud heard "Maisha." (isFinal=false)
+14:52:57.034  [Stt] cloud heard "Maisha." (isFinal=true)
+14:52:57.034  [Stt] cloud session ending (final result)
+14:53:00.442  [CloudStt] continuous listening started (english)
+14:53:02.215  [Stt] cloud heard "0." (isFinal=false)
+14:53:02.584  [Stt] cloud heard "01." (isFinal=false)
+14:53:02.683  [Stt] cloud heard "019." (isFinal=false)
+14:53:02.996  [Stt] cloud heard "0199." (isFinal=false)
+14:53:03.243  [Stt] cloud heard "01990." (isFinal=false)
+14:53:03.794  [Stt] cloud heard "01990." (isFinal=false)
+14:53:04.540  [Stt] cloud heard "01990 19." (isFinal=false)
+14:53:04.926  [Stt] cloud heard "01990 190." (isFinal=false)
+14:53:05.077  [Stt] cloud heard "01990" (isFinal=false)
+14:53:05.468  [Stt] cloud heard "01990 190." (isFinal=false)
+14:53:05.642  [Stt] cloud heard "01990" (isFinal=false)
+14:53:06.044  [Stt] cloud heard "01990" (isFinal=false)
+14:53:06.278  [Stt] cloud heard "01990" (isFinal=false)
+14:53:06.913  [Stt] cloud heard "01990 190955." (isFinal=false)
+14:53:07.317  [Stt] cloud heard "01990 190955." (isFinal=true)
+14:53:07.318  [Stt] cloud session ending (final result)
+14:53:24.513  [CloudStt] continuous listening started (english)
+14:53:25.867  [Stt] cloud heard "" (isFinal=true)
+14:53:25.867  [Stt] cloud session ending (final result)
+14:53:49.619  [CloudStt] continuous listening started (english)
+14:53:51.296  [Stt] cloud heard "My." (isFinal=false)
+14:53:51.528  [Stt] cloud heard "Marsh." (isFinal=false)
+14:53:51.680  [Stt] cloud heard "Myesha." (isFinal=false)
+14:53:51.704  [Stt] cloud heard "Myesha has." (isFinal=false)
+14:53:52.090  [Stt] cloud heard "Myesha has a" (isFinal=false)
+14:53:52.180  [Stt] cloud heard "Myesha" (isFinal=false)
+14:53:52.280  [Stt] cloud heard "Myesha has" (isFinal=false)
+14:53:52.492  [Stt] cloud heard "Myesha has" (isFinal=false)
+14:53:52.631  [Stt] cloud heard "Myesha has a" (isFinal=false)
+14:53:52.836  [Stt] cloud heard "Myesha has a" (isFinal=false)
+14:53:52.888  [Stt] cloud heard "Myesha has a y" (isFinal=false)
+14:53:53.053  [Stt] cloud heard "Myesha has a y after" (isFinal=false)
+14:53:53.213  [Stt] cloud heard "Myesha has a y after" (isFinal=false)
+14:53:53.356  [Stt] cloud heard "Myesha has a y after the," (isFinal=false)
+14:53:53.703  [Stt] cloud heard "Myesha has a y after the" (isFinal=false)
+14:53:54.014  [Stt] cloud heard "Myesha has a y after the" (isFinal=false)
+14:53:54.186  [Stt] cloud heard "Myesha has a y after the" (isFinal=false)
+14:53:54.266  [Stt] cloud heard "Myesha has a y after the eye before" (isFinal=false)
+14:53:54.586  [Stt] cloud heard "Myesha has a y after the eye before the" (isFinal=false)
+14:53:54.602  [Stt] cloud heard "Myesha has a y after the eye before the" (isFinal=false)
+14:53:54.924  [Stt] cloud heard "Myesha has a y after the eye before the" (isFinal=false)
+14:53:55.458  [Stt] cloud heard "Myesha has a y after the eye before the I my bad." (isFinal=true)
+14:53:55.459  [Stt] cloud session ending (final result)
+14:54:18.890  [CloudStt] continuous listening started (english)
+14:54:19.856  [Stt] cloud heard "Yes." (isFinal=false)
+14:54:20.471  [Stt] cloud heard "Yes." (isFinal=false)
+14:54:21.442  [Stt] cloud heard "Yes." (isFinal=true)
+14:54:21.443  [Stt] cloud session ending (final result)
+14:54:21.627  [OnboardingVoice] listenForVoiceChoice starting — choices: Add another / Continue
+14:54:22.291  [CloudStt] continuous listening started (english)
+14:54:24.087  [Onboarding] _goTo: OnboardingStep.magicButtonContacts -> OnboardingStep.passerbyMessages (generation 18 -> 19)
+14:54:24.351  [OnboardingVoice] cancelled after listenOnce returned — step changed or disposed
+14:54:24.504  [Main] uncaught async error (handled, not fatal): Bad state: Cannot add new events after calling close
+14:54:47.534  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 19
+14:54:47.755  [Onboarding] _goTo: OnboardingStep.passerbyMessages -> OnboardingStep.snapshotConsent (generation 20 -> 21)
+14:55:10.633  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 21
+14:55:10.857  [Onboarding] _goTo: OnboardingStep.snapshotConsent -> OnboardingStep.safeHavens (generation 22 -> 23)
+14:55:35.770  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 23
+14:55:36.019  [Onboarding] _goTo: OnboardingStep.safeHavens -> OnboardingStep.frequentPlaces (generation 24 -> 25)
+14:56:02.317  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 25
+14:56:02.502  [Onboarding] _goTo: OnboardingStep.frequentPlaces -> OnboardingStep.commandTour (generation 26 -> 27)
+14:56:03.255  [CloudTts] dropping an utterance cancelled while it was being fetched
+14:56:06.714  [Onboarding] goBack: OnboardingStep.commandTour -> OnboardingStep.frequentPlaces (generation 27 -> 28)
+14:56:30.098  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 28
+14:56:30.271  [Onboarding] _goTo: OnboardingStep.frequentPlaces -> OnboardingStep.commandTour (generation 29 -> 30)
+14:56:31.713  [Onboarding] goBack: OnboardingStep.commandTour -> OnboardingStep.frequentPlaces (generation 30 -> 31)
+14:56:44.614  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 31
+14:56:44.885  [Onboarding] _goTo: OnboardingStep.frequentPlaces -> OnboardingStep.commandTour (generation 32 -> 33)
+14:56:53.800  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 33
+14:56:53.801  [Onboarding] _goTo: OnboardingStep.commandTour -> OnboardingStep.lockIn (generation 34 -> 35)
+14:56:55.033  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 35
+14:56:55.099  [LiveLocation] not publishing — no caretaker is paired
+14:56:55.229  [Onboarding] _goTo: OnboardingStep.lockIn -> OnboardingStep.complete (generation 36 -> 37)
+14:57:10.962  [WakeWord] loading melspectrogram.tflite...
+14:57:11.018  [WakeWord] melspectrogram OK, loading embedding_model.tflite...
+14:57:11.026  [WakeWord] embedding OK, loading hey_jarvis_v0.1.tflite...
+14:57:11.042  [WakeWord] all models loaded OK
+14:57:11.434  [WakeWord] listening started (cold — buffers cleared)
+14:57:14.100  [WakeWord] DETECTED (score=0.345)
+14:57:14.891  [CloudStt] continuous listening started (english)
+14:57:16.626  [Stt] cloud heard "Her." (isFinal=false)
+14:57:16.698  [Stt] cloud heard "Add." (isFinal=false)
+14:57:17.247  [Stt] cloud heard "EX," (isFinal=false)
+14:57:17.356  [Stt] cloud heard "Change." (isFinal=false)
+14:57:17.520  [Stt] cloud heard "Change. The" (isFinal=false)
+14:57:17.700  [Stt] cloud heard "Change the theme." (isFinal=false)
+14:57:17.893  [Stt] cloud heard "Change" (isFinal=false)
+14:57:18.243  [Stt] cloud heard "Change the theme." (isFinal=true)
+14:57:18.258  [Stt] cloud session ending (final result)
+14:57:18.383  [Chat] -> Gemini: "Change the theme."
+14:57:19.347  [WakeWord] listening started (cold — buffers cleared)
+14:57:23.084  [Chat] Gemini call FAILED after 4701ms: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+14:57:23.084  [Chat] Gemini failure stack
+14:57:23.086  #0      parseGenerateContentResponse (package:google_generative_ai/src/api.dart:582)
+#10     HttpApiClient.streamRequest (package:google_generative_ai/src/client.dart)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 10 frames from dart:async and dart:async-patch)
+14:57:24.979  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+14:57:28.025  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+14:57:31.065  [WakeWord] peak=0.075 (threshold 0.3) over the last 3s
+14:57:31.147  [WakeWord] DETECTED (score=0.444)
+14:57:31.935  [CloudStt] continuous listening started (english)
+14:57:32.980  [Stt] cloud heard "Change." (isFinal=false)
+14:57:33.203  [Stt] cloud heard "Change. The" (isFinal=false)
+14:57:33.320  [Stt] cloud heard "Change the theme." (isFinal=false)
+14:57:33.380  [Stt] cloud heard "change the theme to" (isFinal=false)
+14:57:33.609  [Stt] cloud heard "change" (isFinal=false)
+14:57:33.619  [Stt] cloud heard "Change" (isFinal=false)
+14:57:33.778  [Stt] cloud heard "Change the" (isFinal=false)
+14:57:33.928  [Stt] cloud heard "Change the theme" (isFinal=false)
+14:57:34.009  [Stt] cloud heard "Change the theme to" (isFinal=false)
+14:57:34.325  [Stt] cloud heard "Change the theme to light." (isFinal=true)
+14:57:34.332  [Stt] cloud session ending (final result)
+14:57:34.343  [Chat] local match: update_setting {setting: theme, value: light} (skipping Gemini)
+14:57:35.464  [WakeWord] listening started (cold — buffers cleared)
+14:57:40.050  [WakeWord] DETECTED (score=0.764)
+14:57:40.770  [CloudStt] continuous listening started (english)
+14:57:41.642  [Stt] cloud heard "Make." (isFinal=false)
+14:57:41.800  [Stt] cloud heard "make the" (isFinal=false)
+14:57:42.031  [Stt] cloud heard "Make the text." (isFinal=false)
+14:57:42.102  [Stt] cloud heard "Make the text small." (isFinal=false)
+14:57:42.186  [Stt] cloud heard "Make" (isFinal=false)
+14:57:42.337  [Stt] cloud heard "Make" (isFinal=false)
+14:57:42.417  [Stt] cloud heard "Make the" (isFinal=false)
+14:57:42.578  [Stt] cloud heard "Make the text" (isFinal=false)
+14:57:42.815  [Stt] cloud heard "Make the text smaller." (isFinal=true)
+14:57:42.826  [Stt] cloud session ending (final result)
+14:57:42.866  [Chat] local match: update_setting {setting: text_size, value: _smaller} (skipping Gemini)
+14:57:43.831  [WakeWord] listening started (cold — buffers cleared)
+14:57:49.037  [WakeWord] DETECTED (score=0.343)
+14:57:49.853  [CloudStt] continuous listening started (english)
+14:57:50.813  [Stt] cloud heard "The." (isFinal=false)
+14:57:50.889  [Stt] cloud heard "The dark." (isFinal=false)
+14:57:51.135  [Stt] cloud heard "The dark mode." (isFinal=false)
+14:57:51.421  [Stt] cloud heard "The" (isFinal=false)
+14:57:51.663  [Stt] cloud heard "The dark mode." (isFinal=true)
+14:57:51.670  [Stt] cloud session ending (final result)
+14:57:51.683  [Chat] local match: update_setting {setting: theme, value: dark} (skipping Gemini)
+14:57:52.664  [WakeWord] listening started (cold — buffers cleared)
+14:57:55.228  [WakeWord] DETECTED (score=0.841)
+14:57:56.015  [CloudStt] continuous listening started (english)
+14:57:56.880  [Stt] cloud heard "The." (isFinal=false)
+14:57:57.245  [Stt] cloud heard "The high." (isFinal=false)
+14:57:57.469  [Stt] cloud heard "The" (isFinal=false)
+14:57:57.608  [Stt] cloud heard "The" (isFinal=false)
+14:57:57.795  [Stt] cloud heard "The high" (isFinal=false)
+14:57:57.851  [Stt] cloud heard "The high" (isFinal=false)
+14:57:58.345  [Stt] cloud heard "The high contrast" (isFinal=false)
+14:57:58.367  [Stt] cloud heard "The high contrast sitting." (isFinal=true)
+14:57:58.381  [Stt] cloud session ending (final result)
+14:57:58.414  [Chat] -> Gemini: "The high contrast sitting."
+14:57:59.490  [WakeWord] listening started (cold — buffers cleared)
+14:58:04.316  [Chat] Gemini call FAILED after 5902ms: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+14:58:04.317  [Chat] Gemini failure stack
+14:58:04.318  #0      parseGenerateContentResponse (package:google_generative_ai/src/api.dart:582)
+#10     HttpApiClient.streamRequest (package:google_generative_ai/src/client.dart)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 10 frames from dart:async and dart:async-patch)
+14:58:05.114  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:58:08.162  [WakeWord] peak=0.208 (threshold 0.3) over the last 3s
+14:58:11.203  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+14:58:12.245  [WakeWord] DETECTED (score=0.780)
+14:58:13.025  [CloudStt] continuous listening started (english)
+14:58:14.489  [Stt] cloud heard "Turn." (isFinal=false)
+14:58:14.792  [Stt] cloud heard "Turn off." (isFinal=false)
+14:58:14.899  [Stt] cloud heard "turn off the" (isFinal=false)
+14:58:15.116  [Stt] cloud heard "turn" (isFinal=false)
+14:58:15.278  [Stt] cloud heard "Turn" (isFinal=false)
+14:58:15.402  [Stt] cloud heard "Turn off" (isFinal=false)
+14:58:15.515  [Stt] cloud heard "Turn off the" (isFinal=false)
+14:58:15.599  [Stt] cloud heard "Turn off The" (isFinal=false)
+14:58:15.810  [Stt] cloud heard "Turn off the" (isFinal=false)
+14:58:15.906  [Stt] cloud heard "Turn off the high" (isFinal=false)
+14:58:15.991  [Stt] cloud heard "Turn off the high" (isFinal=false)
+14:58:16.482  [Stt] cloud heard "Turn off the high contrast" (isFinal=false)
+14:58:16.509  [Stt] cloud heard "Turn off the high contrast mode." (isFinal=true)
+14:58:16.522  [Stt] cloud session ending (final result)
+14:58:16.563  [Chat] -> Gemini: "Turn off the high contrast mode."
+14:58:17.521  [WakeWord] listening started (cold — buffers cleared)
+14:58:23.147  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+14:58:26.189  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+14:58:29.226  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+14:58:32.264  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+14:58:35.307  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:58:38.347  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:58:41.388  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+14:58:44.431  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+14:58:47.466  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+14:58:50.505  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:58:53.553  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:58:56.594  [WakeWord] peak=0.016 (threshold 0.3) over the last 3s
+14:58:59.627  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+14:59:02.678  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+14:59:05.701  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:59:08.748  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:59:11.784  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:59:14.837  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:59:15.708  [Chat] Gemini call FAILED after 59144ms: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+14:59:15.708  [Chat] Gemini failure stack
+14:59:15.710  #0      parseGenerateContentResponse (package:google_generative_ai/src/api.dart:582)
+#10     HttpApiClient.streamRequest (package:google_generative_ai/src/client.dart)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 10 frames from dart:async and dart:async-patch)
+14:59:17.849  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+14:59:20.907  [WakeWord] peak=0.031 (threshold 0.3) over the last 3s
+14:59:23.938  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+14:59:26.978  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+14:59:30.031  [WakeWord] peak=0.003 (threshold 0.3) over the last 3s
+14:59:33.062  [WakeWord] peak=0.005 (threshold 0.3) over the last 3s
+14:59:36.100  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:59:39.151  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+14:59:42.189  [WakeWord] peak=0.052 (threshold 0.3) over the last 3s
+14:59:45.226  [WakeWord] peak=0.049 (threshold 0.3) over the last 3s
+14:59:48.259  [WakeWord] peak=0.241 (threshold 0.3) over the last 3s
+14:59:51.301  [WakeWord] peak=0.150 (threshold 0.3) over the last 3s
+14:59:52.586  [WakeWord] DETECTED (score=0.367)
+14:59:53.332  [CloudStt] continuous listening started (english)
+14:59:54.531  [Stt] cloud heard "Report." (isFinal=false)
+14:59:54.763  [Stt] cloud heard "report a" (isFinal=false)
+14:59:54.788  [Stt] cloud heard "Report has." (isFinal=false)
+14:59:54.958  [Stt] cloud heard "report a has" (isFinal=false)
+14:59:55.000  [Stt] cloud heard "Report a hazard." (isFinal=false)
+14:59:55.106  [Stt] cloud heard "Report" (isFinal=false)
+14:59:55.398  [Stt] cloud heard "Report a hazard." (isFinal=true)
+14:59:55.401  [Stt] cloud session ending (final result)
+14:59:55.468  [Chat] local match: open_hazard_report {} (skipping Gemini)
+15:00:05.774  [CloudStt] continuous listening started (english)
+15:00:06.727  [Stt] cloud heard "bu," (isFinal=false)
+15:00:06.814  [Stt] cloud heard "Has." (isFinal=false)
+15:00:06.841  [Stt] cloud heard "Buzz." (isFinal=false)
+15:00:06.958  [Stt] cloud heard "Buzzard." (isFinal=false)
+15:00:07.517  [Stt] cloud heard "Buzzard." (isFinal=false)
+15:00:09.753  [Stt] cloud heard "Buzzard." (isFinal=true)
+15:00:09.754  [Stt] cloud session ending (final result)
+15:00:29.414  [CloudStt] continuous listening started (english)
+15:00:32.193  [Stt] cloud heard "Open." (isFinal=false)
+15:00:32.366  [Stt] cloud heard "Open man." (isFinal=false)
+15:00:32.791  [Stt] cloud heard "Open" (isFinal=false)
+15:00:33.072  [Stt] cloud heard "Open manhole." (isFinal=true)
+15:00:33.073  [Stt] cloud session ending (final result)
+15:00:40.698  [CloudStt] continuous listening started (english)
+15:00:43.149  [Stt] cloud heard "Sic." (isFinal=false)
+15:00:43.348  [Stt] cloud heard "Sicil." (isFinal=false)
+15:00:43.394  [Stt] cloud heard "Sicily." (isFinal=false)
+15:00:43.901  [Stt] cloud heard "Sicily." (isFinal=true)
+15:00:43.901  [Stt] cloud session ending (final result)
+15:00:49.198  [CloudStt] continuous listening started (english)
+15:00:54.966  [Stt] cloud heard "Sub." (isFinal=false)
+15:00:55.056  [Stt] cloud heard "Submit." (isFinal=false)
+15:00:55.678  [Stt] cloud heard "Submit." (isFinal=false)
+15:00:57.353  [Stt] cloud heard "Sub." (isFinal=false)
+15:00:57.436  [Stt] cloud heard "Submit submit." (isFinal=false)
+15:00:57.831  [Stt] cloud heard "Submit." (isFinal=true)
+15:00:57.832  [Stt] cloud session ending (final result)
+15:01:06.039  [BackgroundListening] foreground service stopped
+15:01:07.779  [CloudTts] dropping an utterance cancelled while it was being fetched
+15:01:08.114  [WakeWord] listening started (cold — buffers cleared)
+15:01:13.735  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:01:16.786  [WakeWord] peak=0.017 (threshold 0.3) over the last 3s
+15:01:19.822  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:01:22.857  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:01:25.902  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:01:28.941  [WakeWord] peak=0.015 (threshold 0.3) over the last 3s
+15:01:31.982  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:01:35.023  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:01:38.060  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:01:41.102  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:01:44.145  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:01:47.169  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:01:48.869  [Chat] -> Gemini: "save my sister's number"
+15:01:50.219  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:01:53.266  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:01:55.190  [Chat] Gemini call FAILED after 6320ms: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+15:01:55.190  [Chat] Gemini failure stack
+15:01:55.192  #0      parseGenerateContentResponse (package:google_generative_ai/src/api.dart:582)
+#10     HttpApiClient.streamRequest (package:google_generative_ai/src/client.dart)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 10 frames from dart:async and dart:async-patch)
+15:01:56.304  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:01:59.343  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:02.377  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:03.136  [Chat] -> Gemini: "save a contact for me"
+15:02:05.423  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:06.000  [Chat] Gemini call FAILED after 2864ms: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+15:02:06.000  [Chat] Gemini failure stack
+15:02:06.002  #0      parseGenerateContentResponse (package:google_generative_ai/src/api.dart:582)
+#10     HttpApiClient.streamRequest (package:google_generative_ai/src/client.dart)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 10 frames from dart:async and dart:async-patch)
+15:02:08.463  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:11.500  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:14.547  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:14.656  [Chat] -> Gemini: "save an address for me?"
+15:02:17.583  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:17.829  [Chat] Gemini call FAILED after 3173ms: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+15:02:17.829  [Chat] Gemini failure stack
+15:02:17.831  #0      parseGenerateContentResponse (package:google_generative_ai/src/api.dart:582)
+#10     HttpApiClient.streamRequest (package:google_generative_ai/src/client.dart)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 10 frames from dart:async and dart:async-patch)
+15:02:20.622  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:23.662  [WakeWord] peak=0.006 (threshold 0.3) over the last 3s
+15:02:26.701  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:29.744  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:32.782  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:02:35.824  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:38.865  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:02:41.902  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:44.946  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:47.984  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:51.025  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:54.063  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:02:57.103  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:00.141  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:03.181  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:06.225  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:09.264  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:12.163  [Map] building — openStreetMap=false mapsConfigured=true myLocation=null
+15:03:13.120  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:03:14.762  [Map] building — openStreetMap=false mapsConfigured=true myLocation=null
+15:03:15.337  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:16.132  [WakeWord] peak=0.004 (threshold 0.3) over the last 3s
+15:03:19.174  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:03:21.909  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:21.925  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:21.943  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:21.958  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.014  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.026  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.040  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.078  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.114  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.125  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.147  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.160  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.197  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:03:22.202  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.226  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.278  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.291  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.334  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.351  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.366  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.377  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.390  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.434  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.446  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.458  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.480  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.493  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.507  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.554  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.563  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.576  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.590  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:22.607  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:23.842  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:23.860  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:23.915  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:23.945  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:23.960  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:23.974  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.031  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.058  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.074  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.247  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.261  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.280  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.292  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.345  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.356  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.404  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.431  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.473  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.500  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.512  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.526  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.580  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.608  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.626  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.643  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.659  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.708  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.733  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.795  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.808  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.824  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.883  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.929  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.941  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:24.995  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.025  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.064  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.073  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.091  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.131  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.141  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.165  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.175  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.212  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:03:25.217  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.243  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.298  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.347  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.357  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.425  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.449  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.485  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.537  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.565  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.638  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.671  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.744  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.777  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.881  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.891  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.916  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:25.982  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.035  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.073  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.094  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.106  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.151  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.160  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.192  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.232  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.239  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.259  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.275  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.318  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.340  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.357  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.402  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.425  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.443  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.458  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.506  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.531  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.542  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.558  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.602  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.626  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.640  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.681  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.689  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.714  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.723  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.761  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.772  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.794  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.835  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.860  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.874  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:26.964  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.031  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.040  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.068  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.079  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.119  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.143  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.156  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.210  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.224  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.246  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.281  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.291  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.310  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.323  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.344  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.382  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.391  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.417  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.467  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.475  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.501  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.549  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.559  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.575  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.635  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.645  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.657  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.681  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.723  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.847  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.916  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.928  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.946  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:27.957  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:28.027  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:28.083  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:28.212  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:29.244  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:31.249  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+15:03:34.294  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:35.507  [Chat] local match: request_route {destination: shankar} (skipping Gemini)
+15:03:37.340  [WakeWord] peak=0.007 (threshold 0.3) over the last 3s
+15:03:40.074  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:40.393  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:43.420  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:44.559  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:46.455  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:03:49.489  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:50.717  [Chat] local match request_route suppressed — answering a question
+15:03:50.717  [Chat] -> Gemini: "take me to shankar dhanmondi"
+15:03:51.913  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:03:52.534  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:03:55.579  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:03:58.616  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:04:01.661  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:04:04.697  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:04:07.739  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:04:10.774  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:04:13.819  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:04:16.861  [WakeWord] peak=0.005 (threshold 0.3) over the last 3s
+15:04:19.891  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:04:22.918  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:04:25.996  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:04:29.020  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:04:32.058  [WakeWord] peak=0.105 (threshold 0.3) over the last 3s
+15:04:33.616  [Chat] Gemini call FAILED after 42898ms: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+15:04:33.616  [Chat] Gemini failure stack
+15:04:33.618  #0      parseGenerateContentResponse (package:google_generative_ai/src/api.dart:582)
+#10     HttpApiClient.streamRequest (package:google_generative_ai/src/client.dart)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 10 frames from dart:async and dart:async-patch)
+15:04:36.275  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:36.967  [WakeWord] listening started (warm — feature buffers kept)
+15:04:37.180  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:04:40.097  [Chat] the assistant asked something — inviting an answer
+15:04:40.843  [CloudStt] continuous listening started (english)
+15:04:45.550  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:45.595  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:45.634  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:45.661  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:45.677  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:45.690  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:45.708  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:45.723  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:45.742  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:45.757  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:04:47.703  [Stt] cloud heard "oh," (isFinal=false)
+15:04:47.798  [Stt] cloud heard "oh, where" (isFinal=false)
+15:04:47.881  [Stt] cloud heard "Or would?" (isFinal=false)
+15:04:48.024  [Stt] cloud heard "Or would you?" (isFinal=false)
+15:04:48.052  [Stt] cloud heard "Or would you like?" (isFinal=false)
+15:04:48.116  [Stt] cloud heard "Or would you like to?" (isFinal=false)
+15:04:48.177  [Stt] cloud heard "Or would you like to go?" (isFinal=false)
+15:04:48.511  [Stt] cloud heard "Or would" (isFinal=false)
+15:04:48.579  [Stt] cloud heard "Or would you" (isFinal=false)
+15:04:48.596  [Stt] cloud heard "Or would you like" (isFinal=false)
+15:04:48.813  [Stt] cloud heard "Or would you like to go?" (isFinal=true)
+15:04:48.825  [Stt] cloud session ending (final result)
+15:04:48.879  [Chat] -> Gemini: "Or would you like to go?"
+15:04:49.737  [WakeWord] listening started (warm — feature buffers kept)
+15:04:49.931  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:04:50.872  [Chat] Gemini call FAILED after 1993ms: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+15:04:50.873  [Chat] Gemini failure stack
+15:04:50.874  #0      parseGenerateContentResponse (package:google_generative_ai/src/api.dart:582)
+#10     HttpApiClient.streamRequest (package:google_generative_ai/src/client.dart)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 10 frames from dart:async and dart:async-patch)
+15:04:52.948  [WakeWord] peak=0.005 (threshold 0.3) over the last 3s
+15:04:55.990  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:04:58.554  [Chat] the assistant asked something — inviting an answer
+15:04:59.193  [CloudStt] continuous listening started (english)
+15:05:00.611  [Stt] cloud heard "Duck." (isFinal=false)
+15:05:01.031  [Stt] cloud heard "Duck Don manned." (isFinal=false)
+15:05:01.201  [Stt] cloud heard "Duck Don. Mandy." (isFinal=false)
+15:05:01.241  [Stt] cloud heard "Duck" (isFinal=false)
+15:05:01.558  [Stt] cloud heard "Duck Don. Mandy." (isFinal=true)
+15:05:01.569  [Stt] cloud session ending (final result)
+15:05:01.583  [Chat] -> Gemini: "Duck Don. Mandy."
+15:05:02.482  [WakeWord] listening started (warm — feature buffers kept)
+15:05:02.664  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:05:03.854  [Chat] Gemini call FAILED after 2271ms: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+15:05:03.855  [Chat] Gemini failure stack
+15:05:03.856  #0      parseGenerateContentResponse (package:google_generative_ai/src/api.dart:582)
+#10     HttpApiClient.streamRequest (package:google_generative_ai/src/client.dart)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 10 frames from dart:async and dart:async-patch)
+15:05:05.695  [WakeWord] peak=0.010 (threshold 0.3) over the last 3s
+15:05:08.737  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:05:11.784  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:05:14.818  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:05:16.133  [Chat] -> Gemini: "shaptak dhanmondi"
+15:05:17.854  [WakeWord] peak=0.006 (threshold 0.3) over the last 3s
+15:05:20.892  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:05:23.941  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:05:26.976  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:05:30.023  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:05:33.058  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:05:36.101  [WakeWord] peak=0.091 (threshold 0.3) over the last 3s
+15:05:39.144  [WakeWord] peak=0.004 (threshold 0.3) over the last 3s
+15:05:42.180  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+15:05:45.220  [WakeWord] peak=0.055 (threshold 0.3) over the last 3s
+15:05:48.261  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:05:51.298  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:05:54.341  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:05:57.381  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:06:00.391  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:06:03.462  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:06:06.500  [WakeWord] peak=0.064 (threshold 0.3) over the last 3s
+15:06:09.544  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:06:12.583  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:06:15.617  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:06:18.660  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:06:21.703  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:06:24.738  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:06:27.784  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:06:30.819  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:06:33.861  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+15:06:36.899  [WakeWord] peak=0.009 (threshold 0.3) over the last 3s
+15:06:39.944  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:06:42.262  [Chat] Gemini call FAILED after 86129ms: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.
+15:06:42.262  [Chat] Gemini failure stack
+15:06:42.264  #0      parseGenerateContentResponse (package:google_generative_ai/src/api.dart:582)
+#10     HttpApiClient.streamRequest (package:google_generative_ai/src/client.dart)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 10 frames from dart:async and dart:async-patch)
+15:06:42.976  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:06:46.021  [WakeWord] peak=0.031 (threshold 0.3) over the last 3s
+15:06:49.058  [WakeWord] peak=0.035 (threshold 0.3) over the last 3s
+15:06:52.101  [WakeWord] peak=0.002 (threshold 0.3) over the last 3s
+15:06:55.138  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:06:58.182  [WakeWord] peak=0.011 (threshold 0.3) over the last 3s
+15:07:01.222  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:07:04.260  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:07:07.301  [WakeWord] peak=0.004 (threshold 0.3) over the last 3s
+15:07:10.344  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:07:11.057  [Map] building — openStreetMap=false mapsConfigured=true myLocation=LatLng(23.7539904, 90.3696328)
+15:07:13.378  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+15:07:16.409  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+15:07:19.454  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s

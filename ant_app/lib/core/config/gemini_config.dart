@@ -45,6 +45,32 @@ class GeminiConfig {
   /// name the replacement when that happens) — worth it for not being at
   /// the mercy of whatever the generic alias currently points to.
   ///
+  /// **`gemini-3.7-flash` was tried on 2026-09-17 and is unusable.** Ten
+  /// calls, ten failures, every one of them:
+  ///
+  ///     This model is currently experiencing high demand. Spikes in demand
+  ///     are usually temporary. Please try again later.
+  ///
+  /// Not a quota problem — nothing was exceeded, and this is a 503 rather
+  /// than a 429. It is the same overload this file already records for the
+  /// `gemini-flash-latest` alias on 2026-09-01, and the likely reason is the
+  /// same: a very new or very popular routing target with everybody on it.
+  /// Worth retrying in a few weeks; there is nothing to fix on this side.
+  ///
+  /// So back to `gemini-3.6-flash`, which is where this should have stayed.
+  /// The 2026-09-03 move off it was a *daily* free-tier quota exhaustion
+  /// after a day of heavy testing, and daily quotas reset — two weeks have
+  /// passed. It is the full flash tier at the current generation, which is
+  /// what the testers' "lacking smartness" complaint actually wanted, and
+  /// flash-lite only ever existed to dodge a rate limit.
+  ///
+  /// If it exhausts again under a real tester round, that is the signal to
+  /// enable billing on `gen-lang-client-0943644282` — which today has
+  /// billing off, so it cannot be charged and cannot escape the free tier
+  /// either. See `BillableApi.gemini`.
+  ///
+  /// Superseded reasoning, kept because the route here was not straight:
+  ///
   /// Moved to `gemini-3.7-flash` on 2026-09-17.
   ///
   /// The route here was not straight, and the wrong turn is worth recording.
@@ -72,5 +98,5 @@ class GeminiConfig {
   /// Cost is bounded in the client, not by a budget alert — see
   /// `BillableApi.gemini` in `api_budget.dart` for why that distinction
   /// matters and what the ceiling actually is.
-  static const String modelName = 'gemini-3.7-flash';
+  static const String modelName = 'gemini-3.6-flash';
 }

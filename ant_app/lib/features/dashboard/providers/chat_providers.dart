@@ -1018,7 +1018,7 @@ class ChatController extends Notifier<ChatState> {
             state = state.copyWith(messages: _withLastReplaced(text: partial));
           }
         },
-      );
+      ).timeout(_geminiBudget);
       stillWorking?.cancel();
       if (superseded()) {
         // The user moved on. Speaking this now would answer a question they
@@ -1119,6 +1119,25 @@ class ChatController extends Notifier<ChatState> {
   /// working. Long enough that a normal reply never triggers it, short
   /// enough that the user has not yet decided nothing happened.
   static const Duration _stillWorkingAfter = Duration(seconds: 3);
+
+  /// The longest the assistant may leave someone standing in silence.
+  ///
+  /// There was no bound at all, and the 17 Sep session shows what that cost:
+  /// calls that failed after **59,144ms** and **42,898ms** — a full minute of
+  /// nothing, and then a fallback reply anyway. For a user who cannot see a
+  /// spinner, that is indistinguishable from the app being dead, and the
+  /// spoken "still working on it" at three seconds only covers the first few
+  /// of those sixty.
+  ///
+  /// Thirty seconds is deliberately generous rather than tight: a genuine
+  /// route request with a POI search and a safety check behind it has been
+  /// measured at 26s, and cutting those off would trade a rare bad wait for
+  /// a common wrong answer. This is a bound on pathology, not on patience.
+  ///
+  /// Timing out is not a dead end — it lands in the same fallback that every
+  /// other Gemini failure does, and `OfflineIntentMatcher` still answers the
+  /// safety keywords with no model at all.
+  static const Duration _geminiBudget = Duration(seconds: 30);
 
   /// Chips that are pure chat replies. [SuggestedChipAction.showScreenToPasserby],
   /// [SuggestedChipAction.reportHazard] and

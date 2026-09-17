@@ -29,9 +29,7 @@ GROUP="fydp"
 # the build was rejected rather than the command being incomplete.
 APP_ID="1:514133180208:android:45009c17a5721198b2d2f5"
 
-# Secrets live here, gitignored: GROQ_API_KEY (chat, since the Gemini
-# migration), CLOUD_STT_API_KEY (Google Cloud STT — Whisper was tried and
-# reverted, see git history, because it under-performs on Bangla), and
+# Secrets live here, gitignored: GEMINI_API_KEY, CLOUD_STT_API_KEY,
 # CLOUD_TTS_API_KEY.
 # NOT optional. See preflight() for what happens without it.
 DEFINES_FILE="$APP_DIR/dart_defines.local.json"
@@ -65,7 +63,7 @@ DEFINES=(
 # The keys that must be compiled in, and what breaks without each.
 REQUIRED_DEFINES=(
   "CLOUD_STT_API_KEY|voice input falls back to the on-device recognizer"
-  "GROQ_API_KEY|the assistant cannot answer anything"
+  "GEMINI_API_KEY|the assistant cannot answer anything"
 )
 
 # Keys whose absence degrades rather than breaks — warned about loudly, but
@@ -143,7 +141,7 @@ ERROR: $DEFINES_FILE is missing.
 It is gitignored, so a fresh clone will not have it. Create it as:
 
   {
-    "GROQ_API_KEY": "...",
+    "GEMINI_API_KEY": "...",
     "CLOUD_STT_API_KEY": "...",
     "CLOUD_TTS_API_KEY": "..."
   }

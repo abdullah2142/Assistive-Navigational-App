@@ -86,21 +86,13 @@ class MonthlyApiBudget implements ApiBudget {
     BillableApi.routes: 9000,
     // Free tier 5,000/month, and the dearest SKU by a wide margin.
     BillableApi.places: 4500,
-    // Not a free-tier figure — a money figure, and the only hard $2 ceiling
-    // that exists.
-    //
-    // Google's budget *alerts* do not cap anything; they email after the
-    // money is spent, which is the same reason this class exists for Maps.
-    // So the cap is computed here instead:
-    //
-    //   measured  ~5,600 input tokens + ~100 output per call
-    //             (1,437 system prompt + 3,718 tool declarations + history)
-    //   30,000 calls ≈ 168M input tokens
-    //
-    // At flash-tier input pricing that lands comfortably inside $2 — but the
-    // rate is the one number here that is not measured from this codebase,
-    // so **re-derive this cap from the current published price before
-    // relying on it**, rather than trusting the arithmetic that produced it.
+    // Superseded from a Gemini dollar ceiling to a Groq rate-limit ceiling:
+    // Groq's free tier costs nothing, but caps at 1,000 requests/day per
+    // model — so 30,000/month is that daily figure carried straight
+    // through (1,000 × ~30), not re-derived from anything. It happens to
+    // land on the same number the old Gemini $2 budget used, which is a
+    // coincidence of the two ceilings, not a reason to trust one from the
+    // other if either changes.
     //
     // For scale: the heaviest real tester session on record made 84 calls in
     // about an hour. 30,000 is roughly 350 such hours a month, which no

@@ -94,7 +94,9 @@ class GroqAssistantService {
       {'role': 'user', 'content': userText},
     ];
 
-    final streamed = await _sendWithRetry(messages);
+    final selectedTools = _getRelevantTools(userText);
+    
+    final streamed = await _sendWithRetry(messages, selectedTools);
 
     final textBuffer = StringBuffer();
     // Keyed by the streamed tool-call index — Groq (like OpenAI) streams a
@@ -214,7 +216,7 @@ class GroqAssistantService {
   /// doesn't hang the whole chat UI indefinitely; past that, this throws and
   /// the caller falls back to the offline matcher exactly as it does for
   /// [AssistantBudgetExhausted].
-  Future<http.StreamedResponse> _sendWithRetry(List<Map<String, dynamic>> messages, {bool isRetry = false}) async {
+  Future<http.StreamedResponse> _sendWithRetry(List<Map<String, dynamic>> messages, List<Map<String, dynamic>> selectedTools, {bool isRetry = false}) async {
     final request = http.Request('POST', Uri.parse('${GroqConfig.baseUrl}/chat/completions'))
       ..headers.addAll({
         'Authorization': 'Bearer $_apiKey',
@@ -223,7 +225,7 @@ class GroqAssistantService {
       ..body = jsonEncode({
         'model': GroqConfig.chatModel,
         'messages': messages,
-        'tools': _tools,
+        'tools': selectedTools,
         'temperature': 0.4,
         'max_completion_tokens': 1024,
         'stream': true,
@@ -235,7 +237,7 @@ class GroqAssistantService {
       final wait = _parseRetryAfter(body);
       if (wait != null && wait <= const Duration(seconds: 20)) {
         await Future<void>.delayed(wait);
-        return _sendWithRetry(messages, isRetry: true);
+        return _sendWithRetry(messages, selectedTools, isRetry: true);
       }
       throw Exception('Groq chat completion failed (429): $body');
     }
@@ -289,42 +291,85 @@ class GroqAssistantService {
         : '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}';
 
     return '''
-You are ANT, a calm, safety-focused navigational assistant for a disabled person living in Dhaka. Be warm but brief.
+You are ANT, a navigational assistant for a disabled person in Dhaka. Be brief.
 
-Profile: vision=${profile.visionLevel.name}, mobility=${profile.mobilityAid.name}, deaf/hoh=${profile.isDeafOrHardOfHearing}, crowd-anxious=${profile.crowdedPlacesAnxious}, complex-instructions-hard=${profile.complexInstructionsHard}, reply=${profile.verbosity.name} (minimalist=one short sentence; descriptive=a bit more, still concise), snapshot=${profile.snapshotConsent.name}, has-caretaker=${profile.pairedUserId != null}
-${profile.magicButtonContacts.isEmpty ? '' : '''
-Saved contacts (real, readable, never claim unavailable): ${profile.magicButtonContacts.map((c) => '${c.name}${c.relationship.isEmpty ? '' : ' (${c.relationship})'}: ${c.phoneNumber}').join('; ')}'''}
-${profile.savedPlaces.isEmpty ? '' : '''
-Saved places: ${profile.savedPlaces.map((p) => '${p.label}${p.address.isEmpty ? '' : ' (${p.address})'}').join('; ')}'''}
-${profile.rememberedNotes.isEmpty ? '' : '''
-Remembered about this user (treat as true, don't re-ask): ${profile.rememberedNotes.join('; ')}'''}
-Live location (may be null — never invent one): $locationLine
-Available now: safety-checked walking routes (request_route). Camera scanning and auto emergency-dispatch are NOT built yet — say so if asked, don't pretend.
+Profile: vision=${profile.visionLevel.name}, mobility=${profile.mobilityAid.name}, deaf/hoh=${profile.isDeafOrHardOfHearing}, crowd-anxious=${profile.crowdedPlacesAnxious}, reply=${profile.verbosity.name}, paired=${profile.pairedUserId != null}
+${profile.magicButtonContacts.isEmpty ? '' : 'Contacts: ${profile.magicButtonContacts.map((c) => '${c.name}: ${c.phoneNumber}').join('; ')}'}
+${profile.savedPlaces.isEmpty ? '' : 'Saved places: ${profile.savedPlaces.map((p) => p.label).join('; ')}'}
+Live location: $locationLine
 
 Rules:
-- Never claim to know the state of something you can't read (screen/camera/mic/connection). A half-heard command ("Screen.") is a clarify-request, not a cue to invent a status.
-- ALWAYS reply in ${bn ? 'Bangla' : 'English'} regardless of the user's language, unless they ask you to switch. Minimalist style = one short plain sentence.
-- 6-digit code + not yet paired → pair_with_caretaker. Want to pair, no code yet → ask for it.
-- Setting change requested (text size, theme, language, verbosity, voice, vision level, mobility aid, deaf/hearing mode, snapshot, crowd/complex sensitivity, addresses, wake word) → call update_setting, don't just claim it. `theme` is ONLY "light"/"dark" — never invent a colour menu (red/blue/green etc.); that feature doesn't exist.
-- Show passerby message / report hazard → call the matching function.
-- Go somewhere / directions / a bare place name right after you asked where → request_route with that destination. Already on a route, wants a different road → request_alternative_route. Came off route / "re-route" / "which way from here" → replan_route.
-- Real emergency → tell them to use the Magic Button or call for help directly; you can't dial for them yet.
-- Caretaker should be told something → send_caretaker_message (their own words). Wants to be checked on, nothing specific to say → alert_caretaker. Wants to send their own voice → record_caretaker_voice_memo.
-- "Where am I" / lost → describe_current_location. Never guess a street from raw coordinates.
-- Show/hide map → open_map/close_map (not a route action).
-- Durable personal fact in passing → remember_about_me. Asked to forget → forget_about_me. Never claim to remember without calling it.
-- Use earlier messages (this session and past ones) — don't re-ask what's already known, and don't contradict what you yourself already said earlier this session; if you would, trust the more recent statement and stay consistent.
-- No contact book / address lookup exists. Never say a number "isn't saved with me" (implies it might be) — say plainly you can't look it up. add_emergency_contact is for adding a Magic Button contact, not looking one up.
-- No live POI/business database — not even for places you already routed to. Never invent specifics for "what's around here" — say you don't have that data rather than guessing plausibly.
-- If the user asserts a fact about their own location/area and you lack strong contrary evidence, defer after at most one clarifying attempt — don't re-argue it.
-- Never name a specific business/restaurant/shop yourself — you have no directory, so any name you produce is a guess. For "somewhere to eat for X taka" etc., don't suggest a name in prose — call request_route with the descriptive phrase (destination, budget, kind of place) and let the router find/name a real one.
-- Act on the need, not the literal words: "I need to poop"/"my stomach hurts" → route to nearest toilet; "thirsty"/"need to sit"/"phone dying"/"need medicine" → route to whatever kind of place solves it.
-- "The nearest X" already names what they want — call request_route with the whole phrase (incl. "nearest"); never list options first.
-- Be a guardian, not only a map: if they're unsure/uncomfortable/asking advice, answer that before offering a route.
-- Ask only when it changes what you'd do — one short question, never a list, never when a sensible default exists.
-- Never confirm a route request twice. Need is already clear (urgent, named destination, or they already said yes) → call request_route immediately; asking again reads as not having heard them.
-- destination must trace back to something the user actually said — never a placeholder like "another place" just to produce a call; if you don't know where, ask.
+- ALWAYS reply in ${bn ? 'Bangla' : 'English'}. Be very concise.
+- Unsure/half-heard input -> clarify, NEVER guess status.
+- Want to go somewhere/directions -> request_route immediately, no double checking.
+- Need toilet/medicine/rest -> request_route to nearest appropriate place.
+- Emergency/fear/danger -> trigger_emergency.
+- Caretaker memo -> send_caretaker_message. General check -> alert_caretaker.
+- Where am I -> describe_current_location. Do not guess street names from coords.
+- Setting changes -> update_setting. (theme is only light/dark).
+- Save/forget fact -> remember_about_me / forget_about_me.
+- No live POI database exists. Don't invent specific businesses.
 ''';
+  }
+
+  /// Dynamically selects the subset of tools required based on keywords
+  /// to minimize token usage on Groq's input token limits.
+  static List<Map<String, dynamic>> _getRelevantTools(String text) {
+    final lower = text.toLowerCase();
+    final names = <String>{};
+
+    // 1. High priority & Emergency (almost always good to have if misclassified, but let's be lean)
+    if (lower.contains('help') || lower.contains('danger') || lower.contains('scared') || 
+        lower.contains('emergency') || lower.contains('can\'t') || lower.contains('cant') ||
+        lower.contains('norte') || lower.contains('bhay') || lower.contains('save')) {
+      names.add('trigger_emergency');
+    }
+    
+    // 2. Routing
+    if (lower.contains('go') || lower.contains('take') || lower.contains('route') || 
+        lower.contains('where') || lower.contains('near') || lower.contains('find') ||
+        lower.contains('navigate') || lower.contains('directions') || lower.contains('cancel') ||
+        lower.contains('stop') || lower.contains('lost') || lower.contains('alternative') ||
+        lower.contains('toilet') || lower.contains('food') || lower.contains('hospital') ||
+        lower.contains('jani na') || lower.contains('kothay') || lower.contains('jaabo')) {
+      names.addAll(['request_route', 'request_alternative_route', 'cancel_route', 'replan_route', 'describe_current_location']);
+    }
+
+    // 3. Settings
+    if (lower.contains('set') || lower.contains('change') || lower.contains('theme') || 
+        lower.contains('dark') || lower.contains('light') || lower.contains('voice') ||
+        lower.contains('language') || lower.contains('size') || lower.contains('font') ||
+        lower.contains('speak') || lower.contains('mode') || lower.contains('bangla') ||
+        lower.contains('english')) {
+      names.add('update_setting');
+    }
+
+    // 4. Caretaker
+    if (lower.contains('caretaker') || lower.contains('message') || lower.contains('tell') ||
+        lower.contains('alert') || lower.contains('send') || lower.contains('voice memo') ||
+        lower.contains('record') || lower.contains('code') || lower.contains('pair')) {
+      names.addAll(['pair_with_caretaker', 'send_caretaker_message', 'record_caretaker_voice_memo', 'alert_caretaker']);
+    }
+
+    // 5. Place/Fact management
+    if (lower.contains('save') || lower.contains('remember') || lower.contains('forget') ||
+        lower.contains('add') || lower.contains('remove') || lower.contains('contact')) {
+      names.addAll(['save_place', 'remove_place', 'remember_about_me', 'forget_about_me', 'add_emergency_contact', 'remove_emergency_contact']);
+    }
+
+    // 6. Map / Hazard
+    if (lower.contains('map') || lower.contains('hazard') || lower.contains('report') ||
+        lower.contains('stranger') || lower.contains('read') || lower.contains('passerby') ||
+        lower.contains('block') || lower.contains('broken')) {
+      names.addAll(['open_map', 'close_map', 'open_hazard_report', 'resolve_hazard', 'open_passerby_helper', 'add_passerby_message', 'remove_passerby_message']);
+    }
+
+    // Always include a baseline if none matched to prevent API errors if it's completely generic
+    if (names.isEmpty) {
+      names.addAll(['describe_current_location', 'alert_caretaker', 'trigger_emergency']);
+    }
+
+    return _tools.where((t) => names.contains(t['function']['name'])).toList();
   }
 
   /// Same 24 tools as `GeminiAssistantService._tools`, in OpenAI's

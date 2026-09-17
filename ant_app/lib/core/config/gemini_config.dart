@@ -45,17 +45,32 @@ class GeminiConfig {
   /// name the replacement when that happens) — worth it for not being at
   /// the mercy of whatever the generic alias currently points to.
   ///
-  /// Switched from `gemini-3.6-flash` to the "flash-lite" tier on
-  /// 2026-09-03: after a full day of heavy live testing on the same key,
-  /// `gemini-3.6-flash` started rejecting every call with "You exceeded
-  /// your current quota" — a real, confirmed rate-limit exhaustion, not an
-  /// app bug (the message that failed, "স্ক্রীন দেখাও", was being
-  /// transcribed and sent correctly the whole time). Verified this lite
-  /// tier directly against the live API before switching — it's not
-  /// quota-exhausted (separate bucket from the flash tier) and correctly
-  /// calls `open_passerby_helper` for that exact failing phrase. Lighter
-  /// models generally carry more generous free-tier request quotas, so
-  /// this should also be more resilient against hitting this again under
-  /// the same kind of sustained testing.
-  static const String modelName = 'gemini-3.5-flash-lite';
+  /// Moved to `gemini-3.7-flash` on 2026-09-17.
+  ///
+  /// The route here was not straight, and the wrong turn is worth recording.
+  /// `flash-lite` was picked on 2026-09-03 only because `gemini-3.6-flash`
+  /// exhausted its **free-tier** quota under a day of heavy testing — a
+  /// billing limit, not a capability judgement. Testers then reported the
+  /// assistant as "lacking smartness", which flash-lite deserved, and a
+  /// switch to `gemini-2.5-flash` was made on 2026-09-16 and never actually
+  /// ran: the build it went out in could not reach Gemini at all (no
+  /// `CLOUD_STT_API_KEY`, so nothing was ever transcribed to send), and its
+  /// diagnostics log contains zero model turns.
+  ///
+  /// `2.5` was also a step *backwards* — two generations down — taken to
+  /// escape a quota problem that is fixed with billing rather than with a
+  /// smaller model. `3.7-flash` is the current generation at the full flash
+  /// tier, which is where this should have gone from `3.6`.
+  ///
+  /// **Two things to confirm against the live API before trusting this**, per
+  /// this file's standing convention of live-testing a pin:
+  /// 1. It is GA rather than preview.
+  /// 2. It handles all 24 `FunctionDeclaration`s without degrading. That is
+  ///    the app's hard requirement — many models start ignoring tools, or
+  ///    inventing ones, past about ten.
+  ///
+  /// Cost is bounded in the client, not by a budget alert — see
+  /// `BillableApi.gemini` in `api_budget.dart` for why that distinction
+  /// matters and what the ceiling actually is.
+  static const String modelName = 'gemini-3.7-flash';
 }

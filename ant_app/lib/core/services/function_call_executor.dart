@@ -328,6 +328,12 @@ class FunctionCallExecutor {
               : "I can't tell where you are right now — please check that location access is enabled.";
         case 'no_routes_found':
           return bn ? 'ওই জায়গায় হেঁটে যাওয়ার পথ পেলাম না।' : "I couldn't find a walking route there.";
+        // The model named nowhere, or named a placeholder. Ask the question it
+        // should have asked instead of reporting a failure the user did not
+        // cause — and because this is a question, it reopens the microphone
+        // (item 60) so they can just answer it.
+        case 'no_destination':
+          return d.chatAskDestination;
         default:
           return bn
               ? 'পথ খুঁজতে গিয়ে সমস্যা হয়েছে। একটু পরে আবার চেষ্টা করুন।'
@@ -1026,6 +1032,15 @@ class FunctionCallExecutor {
     }
     final destination = (args['destination'] as String?)?.trim() ?? '';
     if (destination.isEmpty) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'no_destination'}, null);
+    }
+    // A model asked to fill a required argument will fill it, inventing a
+    // placeholder rather than declining — "অন্য জায়গা", "another place". The
+    // local matcher has refused these since item 55; this path never did, and
+    // shipped a route to a destination that names nowhere. Asking is the
+    // right outcome: it is the question the model should have asked itself.
+    if (DestinationClarifier.isPlaceholder(destination)) {
+      debugPrint('[Assistant] refusing a placeholder destination: "$destination"');
       return _AppliedCall(profile, const {'ok': false, 'error': 'no_destination'}, null);
     }
 

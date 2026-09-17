@@ -698,6 +698,17 @@ class OnboardingController extends Notifier<OnboardingState> {
       ref.read(ttsServiceProvider).setVoiceId(profile.voiceId);
       state = state.copyWith(profile: profile, isLoading: false, step: OnboardingStep.complete);
       debugPrint('[Onboarding] devSkipOnboarding: wrote dummy profile for ${user.uid}');
+      // Item 50 — same as `chooseRole()`: ask for location permission upfront
+      // rather than letting the map widget ask it the first time it builds.
+      // `devSkipOnboarding` bypasses role selection entirely, so without this
+      // the primer never fires on the skip path and the user sees an unexplained
+      // system dialog when they open the map — confirmed from diagnostics logs.
+      // A caretaker's dummy profile still has `role: caretaker` (preserved from
+      // the existing profile above), so the check here mirrors chooseRole()'s:
+      // only ask if the dummy profile ended up as a disabled-user device.
+      if (profile.role == UserRole.disabledUser) {
+        unawaited(ref.read(locationPermissionPrimerProvider).prime());
+      }
     } catch (e) {
       _failCurrentStep(e);
     }

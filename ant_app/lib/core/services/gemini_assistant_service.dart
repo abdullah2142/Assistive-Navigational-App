@@ -2,6 +2,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
+import 'api_budget.dart';
 import '../../features/dashboard/models/chat_message.dart';
 import '../../features/dashboard/models/hazard_report.dart';
 import '../../features/dashboard/models/suggested_chip.dart';
@@ -17,6 +18,20 @@ import 'routing_service.dart' show RouteCandidate;
 /// One completed exchange: what to show/speak, and any side effects the
 /// model (or, since `LocalIntentMatcher` was added, a plain local pattern
 /// match — see `FunctionCallExecutor`) asked for.
+/// Thrown when this month's Gemini call ceiling is spent.
+///
+/// A distinct type so the failure is legible in a log rather than arriving as
+/// a generic exception: "the budget stopped this" and "the network stopped
+/// this" want different responses from whoever reads the diagnostics.
+class GeminiBudgetExhausted implements Exception {
+  const GeminiBudgetExhausted();
+
+  @override
+  String toString() =>
+      'GeminiBudgetExhausted: this month\'s assistant call ceiling is spent '
+      '(see BillableApi.gemini). Falling back to the offline matcher.';
+}
+
 class AssistantTurn {
   const AssistantTurn({
     required this.responseText,
@@ -107,8 +122,12 @@ class AssistantTurn {
 /// still owns the *decision* of which function to call for anything the
 /// local matcher isn't confident about, plus all free-form conversation.
 class GeminiAssistantService {
-  GeminiAssistantService({required String apiKey, required FunctionCallExecutor executor})
-      : _model = GenerativeModel(
+  GeminiAssistantService({
+    required String apiKey,
+    required FunctionCallExecutor executor,
+    ApiBudget? budget,
+  })  : _budget = budget ?? defaultApiBudget,
+        _model = GenerativeModel(
           model: GeminiConfig.modelName,
           apiKey: apiKey,
           tools: [Tool(functionDeclarations: _tools)],
@@ -123,6 +142,7 @@ class GeminiAssistantService {
 
   final GenerativeModel _model;
   final FunctionCallExecutor _executor;
+  final ApiBudget _budget;
 
   /// How many prior messages ride along as short-term context.
   static const int _historyTurns = 8;
@@ -150,6 +170,21 @@ class GeminiAssistantService {
     /// `request_alternative_route` switches between.
     List<RouteCandidate> routeAlternatives = const [],
   }) async {
+    // The money ceiling, checked before the call rather than after the bill.
+    //
+    // Google's budget alerts do not cap spend — they email once it is gone —
+    // so the only real ceiling lives in the client, which is the same
+    // reasoning `MonthlyApiBudget` already applies to the Maps APIs. See
+    // `BillableApi.gemini` for how the cap was derived.
+    //
+    // Throwing rather than returning a canned reply, so this takes the
+    // existing failure path: `ChatController` already falls back to
+    // `OfflineIntentMatcher`, which still answers the safety keywords —
+    // help, stop, where am I, emergency — with no model at all.
+    if (!await _budget.tryConsume(BillableApi.gemini)) {
+      throw const GeminiBudgetExhausted();
+    }
+
     final contents = <Content>[
       ..._historyToContents(recentHistory),
       Content.text(buildPrompt(userText: userText, profile: profile, location: location)),
@@ -264,6 +299,12 @@ User profile:
 - Preferred reply style: ${profile.verbosity.name} (minimalist = a single short sentence, no filler; descriptive = a bit more context, still concise)
 - Snapshot-sharing permission for their caretaker: ${profile.snapshotConsent.name}
 - Paired with a caretaker: ${profile.pairedUserId != null}
+${profile.magicButtonContacts.isEmpty ? '' : '''
+Emergency contacts already saved (these ARE stored and you can read them back):
+${profile.magicButtonContacts.map((c) => '- ${c.name}${c.relationship.isEmpty ? '' : ' (${c.relationship})'}: ${c.phoneNumber}').join('\n')}'''}
+${profile.savedPlaces.isEmpty ? '' : '''
+Places this user has saved:
+${profile.savedPlaces.map((p) => '- ${p.label}${p.address.isEmpty ? '' : ' (${p.address})'}').join('\n')}'''}
 
 ${profile.rememberedNotes.isEmpty ? '' : '''
 Things this user has told you about themselves before (kept across sessions — treat as true, and use them without being asked again):
@@ -277,6 +318,7 @@ Rules:
 - ALWAYS reply in ${bn ? 'Bangla' : 'English'}, regardless of what language the user's message is in, unless they explicitly ask you to switch.
 - If reply style is minimalist, answer in one short plain sentence.
 - If the user (not already paired) gives you a 6-digit code to link up with their caretaker, or asks to add/pair with a caretaker and mentions a code, call pair_with_caretaker. If they want to pair but haven't given a code yet, ask them for the 6-digit code their caretaker's app shows.
+- The contacts and places listed above are real, saved, and readable. If the user asks what one of them is, read it back from that list. Never tell them something they have saved is not available to you — it is, it is written above.
 - If the user is asking to change any setting (text size, theme, UI language, reply style, voice, vision level, mobility aid, deaf/hearing mode, snapshot permission, crowded/complex sensitivity, home or safe-place address, emergency contacts, passerby messages, the "Hey ANT" wake word), call the matching function instead of just claiming you did it.
 - If the user wants to show a message to a passerby, or report a hazard, call the matching trigger function.
 - If the user wants to go somewhere, asks for directions, or (right after you asked where they want to go) names a place, call request_route with that destination.

@@ -84,6 +84,44 @@ OPTIONAL_DEFINES=(
   "CLOUD_TTS_API_KEY|every spoken word uses the handset's own engine, whose quality varies wildly by manufacturer (item 63)"
 )
 
+# Compile-time switches, proved by what they leave in the binary.
+#
+# The checks above cannot see these. They are plain --dart-defines rather than
+# entries in the defines file, so there is no secret to grep the APK for — and
+# grepping for the flag's *name* would find nothing either, because
+# `bool.fromEnvironment` is a const: the compiler folds it away and tree-shakes
+# the branch that lost. The name never reaches the binary.
+#
+# What does reach it is the consequence. So each flag is verified by a string
+# that only exists when it is on, and where there is one, a string that only
+# exists when it is off. The second is the stronger proof: a surviving
+# opposite branch means the constant did not fold the way it was meant to.
+#
+# This exists because item 61 was exactly this failure — the code was right,
+# the artifact was not, and nothing was watching. Both flags below were
+# checked by hand on the build of 16 Sep; hand-checking is what stops
+# happening.
+#
+#   name|string present when ON|string present when OFF|what breaks
+FLAG_PROOFS=(
+  "TESTER_BUILD|DEV: skip to dashboard||testers get no skip-onboarding button, and every pack except A begins with it (item 61)"
+  "LOG_RAW_TRANSCRIPTS|THIS FILE CONTAINS WHAT WAS ACTUALLY SAID|replaced with their shape before they reach this file|the diagnostics report hides what was said, and the open questions that need it stay unanswerable (item 54)"
+)
+
+# Whether DEFINES actually asks for [flag].
+#
+# Checked rather than assumed so this verifies the binary against *this
+# script's intent*, in both directions. Deleting a flag from DEFINES then
+# asserts the opposite behaviour is back, which is what makes it safe to build
+# a public, redacting version by editing one line.
+flag_is_set() {
+  local name="$1" d
+  for d in "${DEFINES[@]}"; do
+    [[ "$d" == "--dart-define=$name=true" ]] && return 0
+  done
+  return 1
+}
+
 # Refuses to build a release that would ship mute.
 #
 # This exists because it already happened. A release went out built with only
@@ -168,6 +206,37 @@ verify_apk() {
       missing=1
     fi
   done
+
+  local on_marker off_marker
+  for entry in "${FLAG_PROOFS[@]}"; do
+    IFS='|' read -r name on_marker off_marker why <<< "$entry"
+    if flag_is_set "$name"; then
+      if ! grep -qa -- "$on_marker" "$APK"; then
+        echo "  MISSING  $name did not reach the APK — $why" >&2
+        missing=1
+      elif [[ -n "$off_marker" ]] && grep -qa -- "$off_marker" "$APK"; then
+        # Both branches present means the constant did not fold, so which one
+        # actually runs is anyone's guess.
+        echo "  MISSING  $name is on, but its off-branch is still in the APK — $why" >&2
+        missing=1
+      else
+        echo "  ok  $name=true, proved by its effect on the binary"
+      fi
+    else
+      # Not asked for, so the opposite must hold. This is the check that makes
+      # a public build safe to produce by deleting one line.
+      if grep -qa -- "$on_marker" "$APK"; then
+        echo "  MISSING  $name is not set, but the APK behaves as if it were" >&2
+        missing=1
+      elif [[ -n "$off_marker" ]] && ! grep -qa -- "$off_marker" "$APK"; then
+        echo "  MISSING  $name is off, but its off-branch is not in the APK either" >&2
+        missing=1
+      else
+        echo "  ok  $name is off, and the APK agrees"
+      fi
+    fi
+  done
+
   [[ $missing -eq 0 ]] || {
     echo "Refusing to treat this build as releasable." >&2
     exit 1

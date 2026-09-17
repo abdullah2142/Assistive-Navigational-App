@@ -5,11 +5,18 @@ import 'package:flutter/foundation.dart';
 
 import '../config/routing_config.dart';
 
-/// The three Google APIs this app can be billed for.
+/// The Google APIs this app can be billed for.
 ///
 /// The Maps SDK is absent on purpose: map loads are free and unlimited, so
 /// counting them would be pure overhead.
-enum BillableApi { geocoding, routes, places }
+///
+/// [gemini] is counted in *calls*, not tokens, because a call is the only
+/// unit the client can see — the SDK does not report token usage back. That
+/// is fine here because the per-call cost barely varies: the system prompt
+/// and the 24 tool declarations are roughly 5,200 tokens of the ~5,600 sent
+/// on an average turn, whatever the user actually said. A call is therefore
+/// a good proxy for a fixed slice of money.
+enum BillableApi { geocoding, routes, places, gemini }
 
 /// Decides whether one more billable Google call may be made.
 ///
@@ -79,6 +86,28 @@ class MonthlyApiBudget implements ApiBudget {
     BillableApi.routes: 9000,
     // Free tier 5,000/month, and the dearest SKU by a wide margin.
     BillableApi.places: 4500,
+    // Not a free-tier figure — a money figure, and the only hard $2 ceiling
+    // that exists.
+    //
+    // Google's budget *alerts* do not cap anything; they email after the
+    // money is spent, which is the same reason this class exists for Maps.
+    // So the cap is computed here instead:
+    //
+    //   measured  ~5,600 input tokens + ~100 output per call
+    //             (1,437 system prompt + 3,718 tool declarations + history)
+    //   30,000 calls ≈ 168M input tokens
+    //
+    // At flash-tier input pricing that lands comfortably inside $2 — but the
+    // rate is the one number here that is not measured from this codebase,
+    // so **re-derive this cap from the current published price before
+    // relying on it**, rather than trusting the arithmetic that produced it.
+    //
+    // For scale: the heaviest real tester session on record made 84 calls in
+    // about an hour. 30,000 is roughly 350 such hours a month, which no
+    // round of testing will approach — the ceiling is there to stop a bug
+    // (a retry loop, a stuck wake word) from spending the budget, not to
+    // ration ordinary use.
+    BillableApi.gemini: 30000,
   };
 
   Map<String, int>? _cached;

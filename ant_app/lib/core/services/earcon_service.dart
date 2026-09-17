@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -65,12 +66,27 @@ class EarconService {
     try {
       final bytes = _cache[cue] ??= toneFor(cue);
       await _player.play(BytesSource(bytes, mimeType: 'audio/wav'), volume: 0.6);
-      await _player.onPlayerComplete.first.timeout(
-        const Duration(milliseconds: 600),
-        // A player that never reports completion must not hold the
-        // microphone shut. Carrying on is strictly better than waiting.
-        onTimeout: () {},
-      );
+      // Bare `.timeout()`, caught by type rather than handled by callback.
+      //
+      // This was `onTimeout: () {}` and it threw on every single cue:
+      //
+      //   type '() => Null' is not a subtype of
+      //   type '(() => FutureOr<AudioEvent>)?' of 'onTimeout'
+      //
+      // `onPlayerComplete.first` is a `Future<AudioEvent>`, and `.timeout`
+      // type-checks its callback against the *runtime* type of the future it
+      // is attached to — so a callback returning null cannot satisfy it.
+      // Item 46, verbatim, in a different file: same operator, same trap,
+      // and the same fix it landed on. Bare `.timeout()` depends on nothing
+      // about what the future carries, which is the property worth having.
+      //
+      // The try/catch below meant this degraded instead of crashing, so the
+      // cue simply never played and item 59 was silently dead in the build
+      // that shipped.
+      await _player.onPlayerComplete.first.timeout(const Duration(milliseconds: 600));
+    } on TimeoutException {
+      // A player that never reports completion must not hold the microphone
+      // shut. Carrying on is strictly better than waiting.
     } catch (e) {
       debugPrint('[Earcon] could not play $cue: $e');
     }

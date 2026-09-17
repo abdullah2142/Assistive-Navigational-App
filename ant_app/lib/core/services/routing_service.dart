@@ -747,12 +747,51 @@ class RoutingService {
     if (status != 'OK') throw RoutingException('reverse_geocode_failed:$status');
     // Google orders reverse results most-specific first, which is the one
     // worth saying: "Road 7, Dhanmondi" rather than "Dhaka Division".
+    //
+    // Except when the most specific thing it has is a Plus Code. Confirmed
+    // live on 16 Sep: "আমি যেখানে আছি" was answered with "আপনি P9V4+452,
+    // Dhaka 1209 এর কাছে আছেন" — four times in one session. A Plus Code is a
+    // grid reference. Reading one aloud to somebody who cannot see a map is
+    // the same failure as reading them coordinates, which is the whole thing
+    // `describeLocation` was written to avoid.
+    //
+    // So the first result that is *not* one wins, and if every result is a
+    // Plus Code the code itself is dropped and whatever area name trails it
+    // is kept — "Dhaka 1209" is vague but it is an answer a person can use.
     final results = response['results'] as List<dynamic>? ?? const [];
     if (results.isEmpty) return null;
-    final label = (results.first as Map<String, dynamic>)['formatted_address'] as String?;
-    if (label == null || label.isEmpty) return null;
-    return GeocodeCandidate(label: label, location: location);
+    String? fallback;
+    for (final r in results) {
+      final label = (r as Map<String, dynamic>)['formatted_address'] as String?;
+      if (label == null || label.isEmpty) continue;
+      if (!_startsWithPlusCode(label)) {
+        return GeocodeCandidate(label: label, location: location);
+      }
+      fallback ??= _withoutPlusCode(label);
+    }
+    if (fallback == null || fallback.isEmpty) return null;
+    return GeocodeCandidate(label: fallback, location: location);
   }
+
+  /// An Open Location Code — "P9V4+452", "7MQ2+3X Dhaka". Four or more
+  /// base-20 characters, a `+`, then two or more.
+  ///
+  /// Anchored to the start because that is where Google puts it, and a real
+  /// address is never shaped this way.
+  static final _plusCode = RegExp(r'^[23456789CFGHJMPQRVWX]{4,}\+[23456789CFGHJMPQRVWX]{2,}\b');
+
+  static bool _startsWithPlusCode(String label) => _plusCode.hasMatch(label.trim());
+
+  @visibleForTesting
+  static bool debugIsPlusCode(String label) => _startsWithPlusCode(label);
+
+  @visibleForTesting
+  static String debugStripPlusCode(String label) => _withoutPlusCode(label);
+
+  /// Drops the code and keeps the rest — "P9V4+452, Dhaka 1209" becomes
+  /// "Dhaka 1209".
+  static String _withoutPlusCode(String label) =>
+      label.trim().replaceFirst(_plusCode, '').replaceFirst(RegExp(r'^[\s,]+'), '').trim();
 
   Future<GeocodeCandidate?> _reverseGeocodeOsm(LatLng location) async {
     final uri = Uri.https('nominatim.openstreetmap.org', '/reverse', {

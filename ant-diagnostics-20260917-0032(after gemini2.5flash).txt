@@ -1,0 +1,373 @@
+ANT diagnostics
+session started: 2026-09-17T00:26:41.744132
+written: 2026-09-17T00:32:37.023414
+lines: 258
+app: 1.0.0+1
+package: com.ant.assistive.ant_app
+
+Transcripts, names, numbers, coordinates and account ids are
+replaced with their shape before they reach this file.
+------------------------------------------------------------
+--- this session ---
+=== session started 2026-09-17T00:26:41.744132 ===
+00:26:44.123  [Tts] available engines=[com.google.android.tts] default=com.google.android.tts
+00:26:44.608  [Tts] pinned voice for locale=en-US: en-IN-language
+00:26:44.609  [Tts] switched to com.google.android.tts
+00:26:53.045  [Tts] pinned voice for locale=bn-BD: bn-BD-language
+00:26:53.830  [Onboarding] _goTo: OnboardingStep.languageSelection -> OnboardingStep.roleSelection (generation 0 -> 1)
+00:26:56.927  [Onboarding] goBack: OnboardingStep.roleSelection -> OnboardingStep.languageSelection (generation 1 -> 2)
+00:26:58.165  [Onboarding] _goTo: OnboardingStep.languageSelection -> OnboardingStep.roleSelection (generation 2 -> 3)
+00:26:58.883  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 3
+00:26:58.888  [OnboardingVoice] listenForVoiceChoice starting — choices: I need assistance / I am a Caretaker
+00:26:58.889  [OnboardingVoice] already cancelled before first listen — never spoke or listened
+00:27:01.809  [Onboarding] resuming <id:1ziu> at OnboardingStep.roleSelection (recorded: null)
+00:27:02.048  [Onboarding] _goTo: OnboardingStep.roleSelection -> OnboardingStep.userPairingCodeEntry (generation 0 -> 1)
+00:27:02.056  [Permissions] asking for location during onboarding
+00:27:03.582  [Permissions] location after onboarding prompt: LocationPermission.whileInUse
+00:27:04.147  [Onboarding] _goTo: OnboardingStep.userPairingCodeEntry -> OnboardingStep.visionQuestion (generation 1 -> 2)
+00:27:04.912  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 2
+00:27:04.915  [OnboardingVoice] listenForVoiceChoice starting — choices: No vision / Partial / low vision / Full vision
+00:27:04.915  [OnboardingVoice] already cancelled before first listen — never spoke or listened
+00:27:05.115  [Onboarding] _goTo: OnboardingStep.visionQuestion -> OnboardingStep.mobilityQuestion (generation 3 -> 4)
+00:27:05.796  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 4
+00:27:05.798  [OnboardingVoice] listenForVoiceChoice starting — choices: White cane / Wheelchair / I walk unassisted
+00:27:05.799  [OnboardingVoice] already cancelled before first listen — never spoke or listened
+00:27:05.965  [Onboarding] _goTo: OnboardingStep.mobilityQuestion -> OnboardingStep.cognitiveAnxietyQuestion (generation 5 -> 6)
+00:27:07.229  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 6
+00:27:07.394  [Onboarding] _goTo: OnboardingStep.cognitiveAnxietyQuestion -> OnboardingStep.deafHearingQuestion (generation 7 -> 8)
+00:27:07.985  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 8
+00:27:08.167  [Onboarding] _goTo: OnboardingStep.deafHearingQuestion -> OnboardingStep.verbosityAndVoice (generation 9 -> 10)
+00:27:09.305  [Stt] cloud failed to start
+00:27:09.306  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:27:09.597  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:27:09.598  [Stt] resolved locale="<1 word, 5 chars>"
+00:27:11.981  [Onboarding] goBack: OnboardingStep.verbosityAndVoice -> OnboardingStep.deafHearingQuestion (generation 10 -> 11)
+00:27:12.814  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 11
+00:27:12.944  [Onboarding] _goTo: OnboardingStep.deafHearingQuestion -> OnboardingStep.optionNarrationQuestion (generation 12 -> 13)
+00:27:17.029  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 13
+00:27:17.180  [Onboarding] _goTo: OnboardingStep.optionNarrationQuestion -> OnboardingStep.verbosityAndVoice (generation 14 -> 15)
+00:27:19.784  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 15
+00:27:19.965  [Onboarding] _goTo: OnboardingStep.verbosityAndVoice -> OnboardingStep.magicButtonContacts (generation 16 -> 17)
+00:27:39.396  [Onboarding] _goTo: OnboardingStep.magicButtonContacts -> OnboardingStep.passerbyMessages (generation 17 -> 18)
+00:27:40.652  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 18
+00:27:40.813  [Onboarding] _goTo: OnboardingStep.passerbyMessages -> OnboardingStep.snapshotConsent (generation 19 -> 20)
+00:27:42.217  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 20
+00:27:42.385  [Onboarding] _goTo: OnboardingStep.snapshotConsent -> OnboardingStep.safeHavens (generation 21 -> 22)
+00:27:45.597  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 22
+00:27:45.716  [Onboarding] _goTo: OnboardingStep.safeHavens -> OnboardingStep.frequentPlaces (generation 23 -> 24)
+00:27:48.613  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 24
+00:27:48.768  [Onboarding] _goTo: OnboardingStep.frequentPlaces -> OnboardingStep.commandTour (generation 25 -> 26)
+00:27:49.631  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 26
+00:27:49.632  [Onboarding] _goTo: OnboardingStep.commandTour -> OnboardingStep.lockIn (generation 27 -> 28)
+00:27:50.246  [Onboarding] _stopCurrentScreenVoice: cancelling voice for generation 28
+00:27:50.258  [LiveLocation] not publishing — no caretaker is paired
+00:27:50.380  [Onboarding] _goTo: OnboardingStep.lockIn -> OnboardingStep.complete (generation 29 -> 30)
+00:28:15.044  [WakeWord] loading melspectrogram.tflite...
+00:28:15.118  [WakeWord] melspectrogram OK, loading embedding_model.tflite...
+00:28:15.134  [WakeWord] embedding OK, loading hey_jarvis_v0.1.tflite...
+00:28:15.155  [WakeWord] all models loaded OK
+00:28:15.554  [WakeWord] listening started (cold — buffers cleared)
+00:28:21.173  [WakeWord] peak=0.137 (threshold 0.3) over the last 3s
+00:28:21.494  [WakeWord] DETECTED (score=0.938)
+00:28:21.528  [Earcon] could not play Earcon.listening: type '() => Null' is not a subtype of type '(() => FutureOr<AudioEvent>)?' of 'onTimeout'
+00:28:21.819  [Stt] cloud failed to start
+00:28:21.819  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:28:21.888  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:28:21.888  [Stt] resolved locale="<1 word, 5 chars>"
+00:28:29.295  [WakeWord] listening started (cold — buffers cleared)
+00:28:34.898  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+00:28:37.937  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+00:28:41.008  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+00:28:44.062  [WakeWord] peak=0.007 (threshold 0.3) over the last 3s
+00:28:45.333  [WakeWord] DETECTED (score=0.313)
+00:28:45.445  [Earcon] could not play Earcon.listening: type '() => Null' is not a subtype of type '(() => FutureOr<AudioEvent>)?' of 'onTimeout'
+00:28:45.662  [Stt] cloud failed to start
+00:28:45.663  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:28:45.808  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:28:45.809  [Stt] resolved locale="<1 word, 5 chars>"
+00:28:53.414  [WakeWord] listening started (cold — buffers cleared)
+00:28:59.033  [WakeWord] peak=0.001 (threshold 0.3) over the last 3s
+00:29:02.078  [WakeWord] peak=0.000 (threshold 0.3) over the last 3s
+00:29:05.121  [WakeWord] peak=0.012 (threshold 0.3) over the last 3s
+00:29:08.004  [WakeWord] DETECTED (score=0.324)
+00:29:08.069  [Earcon] could not play Earcon.listening: type '() => Null' is not a subtype of type '(() => FutureOr<AudioEvent>)?' of 'onTimeout'
+00:29:08.321  [Stt] cloud failed to start
+00:29:08.322  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:29:08.462  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:29:08.463  [Stt] resolved locale="<1 word, 5 chars>"
+00:29:14.712  [WakeWord] listening started (cold — buffers cleared)
+00:29:16.251  [Chat] local match: open_passerby_helper {} (skipping Gemini)
+00:29:17.395  [Stt] cloud failed to start
+00:29:17.396  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:29:17.497  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:29:17.498  [Stt] resolved locale="<1 word, 5 chars>"
+00:29:22.324  [Stt] cloud failed to start
+00:29:22.325  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:29:22.447  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:29:22.448  [Stt] resolved locale="<1 word, 5 chars>"
+00:29:26.606  [Stt] recognition error: error_no_match (permanent=true)
+00:29:27.276  [Stt] cloud failed to start
+00:29:27.277  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:29:27.394  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:29:27.395  [Stt] resolved locale="<1 word, 5 chars>"
+00:29:35.697  [Stt] cloud failed to start
+00:29:35.698  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:29:35.820  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:29:35.821  [Stt] resolved locale="<1 word, 5 chars>"
+00:29:39.989  [Stt] recognition error: error_no_match (permanent=true)
+00:29:40.647  [Stt] cloud failed to start
+00:29:40.647  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:29:40.775  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:29:40.776  [Stt] resolved locale="<1 word, 5 chars>"
+00:29:44.940  [Stt] recognition error: error_no_match (permanent=true)
+00:29:45.604  [Stt] cloud failed to start
+00:29:45.604  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:29:45.712  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:29:45.714  [Stt] resolved locale="<1 word, 5 chars>"
+00:29:49.865  [Stt] recognition error: error_no_match (permanent=true)
+00:29:50.541  [Stt] cloud failed to start
+00:29:50.542  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:29:50.649  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:29:50.651  [Stt] resolved locale="<1 word, 5 chars>"
+00:29:53.690  Bad state: Using "<1 word, 3 chars>" when a widget is about to or has been unmounted is unsafe.
+Ref relies on BuildContext, and BuildContext is unsafe to use when the widget is deactivated.
+To safely refer to the state of providers inside State.dispose(), save the provider state in a field of your State class.
+00:29:53.705  #0      ConsumerStatefulElement._assertNotDisposed (package:flutter_riverpod/src/core/consumer.dart:471)
+#1      ConsumerStatefulElement.read (package:flutter_riverpod/src/core/consumer.dart:562)
+#2      _CrowdsourceReportingHubState._tts (package:ant_app/features/dashboard/widgets/crowdsource_reporting_hub.dart:117)
+#3      _PickerSheetState.dispose (package:ant_app/features/dashboard/widgets/passerby_message_picker.dart)
+#4      StatefulElement.unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#5      ConsumerStatefulElement.unmount (package:flutter_riverpod/src/core/consumer.dart:517)
+#6      _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#7      _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#8      ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#9      _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#10     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#11     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#12     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#13     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#14     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#15     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#16     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#17     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#18     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#19     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#20     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#21     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#22     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#23     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#24     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#25     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#26     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#27     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#28     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#29     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#30     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#31     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#32     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#33     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#34     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#35     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#36     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#37     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#38     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#39     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#40     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#41     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#42     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#43     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#44     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#45     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#46     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#47     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#48     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#49     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#50     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#51     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#52     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#53     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#54     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#55     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#56     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#57     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#58     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#59     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#60     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#61     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#62     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#63     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#64     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#65     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#66     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#67     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#68     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#69     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#70     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#71     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#72     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#73     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#74     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#75     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#76     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#77     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#78     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#79     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#80     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#81     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#82     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#83     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#84     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#85     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#86     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#87     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#88     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#89     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#90     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#91     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#92     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#93     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#94     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#95     ComponentElement.visitChildren (package:flutter/src/widgets/framework.dart:<digits:4>)
+#96     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+#97     _InactiveElements._unmount.<anonymous closure> (package:flutter/src/widgets/framework.dart:<digits:4>)
+#98     _RawViewElement.visitChildren (package:flutter/src/widgets/view.dart:581)
+#99     _InactiveElements._unmount (package:flutter/src/widgets/framework.dart:<digits:4>)
+00:29:54.663  [Main] uncaught async error (handled, not fatal): Bad state: Using "<1 word, 3 chars>" when a widget is about to or has been unmounted is unsafe.
+Ref relies on BuildContext, and BuildContext is unsafe to use when the widget is deactivated.
+To safely refer to the state of providers inside State.dispose(), save the provider state in a field of your State class.
+00:29:54.811  [Stt] recognition error: error_no_match (permanent=true)
+00:31:01.187  [BackgroundListening] foreground service started
+00:31:01.192  [BackgroundListening] foreground service started
+00:31:02.873  [BackgroundListening] foreground service started
+00:31:02.898  [BackgroundListening] foreground service stopped
+00:31:05.214  [Earcon] could not play Earcon.listening: type '() => Null' is not a subtype of type '(() => FutureOr<AudioEvent>)?' of 'onTimeout'
+00:31:05.376  [Stt] cloud failed to start
+00:31:05.377  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:05.463  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:05.464  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:13.641  [Intent] misheard-recall matched open_hazard_report in "<4 words, 17 chars>"
+00:31:13.695  [Chat] local match: open_hazard_report {} (skipping Gemini)
+00:31:14.384  [Stt] cloud failed to start
+00:31:14.384  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:14.470  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:14.471  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:17.603  [Stt] recognition error: error_no_match (permanent=true)
+00:31:18.090  [Stt] cloud failed to start
+00:31:18.091  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:18.259  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:18.260  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:19.578  Another exception was thrown: Instance of 'DiagnosticsProperty<void>'
+00:31:24.469  [Stt] cloud failed to start
+00:31:24.469  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:24.534  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:24.534  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:28.105  [Stt] cloud failed to start
+00:31:28.106  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:28.248  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:28.249  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:31.400  [Stt] recognition error: error_no_match (permanent=true)
+00:31:31.878  [Stt] cloud failed to start
+00:31:31.879  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:32.000  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:32.001  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:39.079  [Stt] cloud failed to start
+00:31:39.079  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:39.222  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:39.222  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:42.372  [Stt] recognition error: error_no_match (permanent=true)
+00:31:42.847  [Stt] cloud failed to start
+00:31:42.847  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:42.984  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:42.986  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:45.972  [Stt] cloud failed to start
+00:31:45.973  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:46.103  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:46.104  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:46.133  [Stt] recognition error: error_busy (permanent=true)
+00:31:46.281  [Stt] recognition error: error_speech_timeout (permanent=true)
+00:31:46.750  [Stt] cloud failed to start
+00:31:46.751  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:46.887  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:46.888  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:50.518  [Stt] cloud failed to start
+00:31:50.519  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:50.658  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:50.659  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:53.814  [Stt] recognition error: error_no_match (permanent=true)
+00:31:54.287  [Stt] cloud failed to start
+00:31:54.287  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:54.424  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:54.425  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:57.411  [Stt] cloud failed to start
+00:31:57.412  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:57.527  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:57.529  [Stt] resolved locale="<1 word, 5 chars>"
+00:31:57.540  [Stt] recognition error: error_busy (permanent=true)
+00:31:57.734  [Stt] recognition error: error_speech_timeout (permanent=true)
+00:31:58.156  [Stt] cloud failed to start
+00:31:58.157  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:31:58.272  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:31:58.274  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:01.435  [Stt] recognition error: error_no_match (permanent=true)
+00:32:01.900  [Stt] cloud failed to start
+00:32:01.900  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:02.019  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:02.020  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:05.178  [Stt] recognition error: error_no_match (permanent=true)
+00:32:05.645  [Stt] cloud failed to start
+00:32:05.645  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:05.770  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:05.770  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:09.394  [Stt] cloud failed to start
+00:32:09.395  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:09.515  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:09.516  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:12.782  [Stt] recognition error: error_no_match (permanent=true)
+00:32:13.144  [Stt] cloud failed to start
+00:32:13.145  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:13.268  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:13.269  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:14.288  [BackgroundListening] foreground service started
+00:32:14.298  [BackgroundListening] foreground service started
+00:32:16.415  [Stt] recognition error: error_no_match (permanent=true)
+00:32:16.898  [Stt] cloud failed to start
+00:32:16.899  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:17.047  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:17.048  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:17.810  [BackgroundListening] foreground service started
+00:32:17.872  [BackgroundListening] foreground service stopped
+00:32:20.205  [Stt] recognition error: error_no_match (permanent=true)
+00:32:20.469  [Stt] cloud failed to start
+00:32:20.469  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:20.586  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:20.589  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:20.677  [Stt] cloud failed to start
+00:32:20.677  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:20.748  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:20.748  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:24.736  [Stt] recognition error: error_no_match (permanent=true)
+00:32:25.087  Another exception was thrown: Instance of 'DiagnosticsProperty<void>'
+00:32:25.217  [Stt] cloud failed to start
+00:32:25.217  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:25.348  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:25.349  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:26.749  [Stt] cloud failed to start
+00:32:26.750  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:26.867  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:26.868  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:27.150  [Stt] cloud failed to start
+00:32:27.151  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:27.211  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:27.212  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:28.050  Another exception was thrown: Instance of 'DiagnosticsProperty<void>'
+00:32:30.012  [Stt] recognition error: error_no_match (permanent=true)
+00:32:30.500  [Stt] cloud failed to start
+00:32:30.501  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:30.616  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:30.617  [Stt] resolved locale="<1 word, 5 chars>"
+00:32:33.947  [Stt] recognition error: error_no_match (permanent=true)
+00:32:33.980  [Stt] recognition error: error_client (permanent=true)
+00:32:34.249  [Stt] cloud failed to start
+00:32:34.249  [Stt] Cloud STT unavailable — falling back to on-device recognizer
+00:32:34.384  [Stt] wanted prefix="<1 word, 2 chars>", device locales=[cmn_CN, cmn_TW, en_AU, en_CA, en_IN, en_IE, en_SG, en_GB, en_US, fr_BE, fr_CA, fr_FR, fr_CH, de_AT, de_BE, de_DE, de_CH, hi_IN, in_ID, it_IT, it_CH, ja_JP, ko_KR, pl_PL, pt_BR, ru_RU, es_ES, es_US, th_TH, tr_TR, vi_VN]
+00:32:34.385  [Stt] resolved locale="<1 word, 5 chars>"

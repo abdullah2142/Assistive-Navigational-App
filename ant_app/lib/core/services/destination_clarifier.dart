@@ -244,6 +244,37 @@ class DestinationClarifier {
     return kept;
   }
 
+  /// Placeholders that name no place, and must never reach a geocoder.
+  ///
+  /// The local matcher has refused these since item 55; the *model* path never
+  /// did. Confirmed live on 16 Sep: "ঘুরতে যাব" ("I want to go out") produced
+  /// `request_route` with the destination **"অন্য জায়গা"** — literally
+  /// "another place" — and the app started routing somewhere. The user asked
+  /// where on earth it was taking them, which is the right question.
+  ///
+  /// A model asked to fill a required `destination` argument will fill it. If
+  /// it has nothing to fill it with, it invents a placeholder rather than
+  /// declining, so the guard has to live where the argument is consumed
+  /// rather than where it is produced.
+  static const _placeholderDestinations = {
+    'somewhere', 'anywhere', 'someplace', 'somewhere else', 'anywhere else',
+    'a place', 'some place', 'another place', 'other place', 'nowhere',
+    'unknown', 'unspecified', 'destination', 'a destination',
+    'কোথাও', 'যেকোনো জায়গা', 'অন্য জায়গা', 'অন্য কোথাও', 'অন্য একটি জায়গা',
+    'কোনো জায়গা', 'গন্তব্য',
+  };
+
+  /// Whether [destination] is a placeholder rather than a place.
+  ///
+  /// Returning true means "ask where they mean", never "fail" — a user who
+  /// said something vague gets a question, which is what they would have got
+  /// had the model asked in the first place.
+  static bool isPlaceholder(String destination) {
+    final lower = destination.trim().toLowerCase();
+    if (lower.isEmpty) return true;
+    return _placeholderDestinations.contains(lower);
+  }
+
   /// Ways of saying "whichever one is nearest" — item 55.
   ///
   /// **Reported:** "a lot of times when asked to be taken to the closest,

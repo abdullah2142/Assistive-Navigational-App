@@ -244,6 +244,13 @@ class ChatController extends Notifier<ChatState> {
   /// Replaces the last message's text in place, keeping its sender/timestamp
   /// — used while a streaming reply is filling in, when what's needed is
   /// "update the bubble that's already there," not "add another one".
+  /// Drops a half-streamed bubble belonging to a turn the user has moved past.
+  List<ChatMessage> _withoutLastAssistantBubble() {
+    final messages = state.messages;
+    if (messages.isEmpty || messages.last.sender != ChatSender.assistant) return messages;
+    return messages.sublist(0, messages.length - 1);
+  }
+
   List<ChatMessage> _withLastReplaced({required String text}) {
     final messages = List<ChatMessage>.from(state.messages);
     if (messages.isEmpty) return messages;
@@ -744,9 +751,27 @@ class ChatController extends Notifier<ChatState> {
   /// without one. Short: it is context, not the answer.
   static const Duration _lastFixBudget = Duration(seconds: 2);
 
+  /// Which user turn is the current one.
+  ///
+  /// Bumped by every message the user sends, so a reply that arrives for an
+  /// earlier turn can tell that it is no longer wanted.
+  ///
+  /// Confirmed live on 16 Sep: a message sent at 22:39:13 was answered
+  /// **114,964ms later**. In the meantime the user asked something else
+  /// entirely, got a correct answer at 22:41:07 — and then the two-minute-old
+  /// reply landed at 22:41:08 on top of it, answering a question they had
+  /// stopped asking. They complained, reasonably, that the assistant was
+  /// talking about the wrong thing.
+  ///
+  /// Nothing cancels the HTTP request itself; the SDK gives no handle for
+  /// that. What this does is make the *result* unusable, which is the part
+  /// the user experiences.
+  int _turnGeneration = 0;
+
   Future<void> sendFreeText(String text, UserProfile profile) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
+    _turnGeneration++;
     _appendUserMessage(trimmed);
 
     final d = Dashboard.of(profile.language);
@@ -959,6 +984,11 @@ class ChatController extends Notifier<ChatState> {
         unawaited(ref.read(ttsServiceProvider).speak(d.chatStillWorking, language: profile.language));
       });
     }
+    // Whose turn this reply belongs to. Anything that comes back for an
+    // older one is discarded rather than spoken — see `_turnGeneration`.
+    final myTurn = _turnGeneration;
+    bool superseded() => _turnGeneration != myTurn;
+
     try {
       debugPrint('[Chat] -> Gemini: "$trimmed"');
       state = state.copyWith(isAssistantTyping: true);
@@ -971,6 +1001,9 @@ class ChatController extends Notifier<ChatState> {
         activeRoute: state.pendingRoute,
         routeAlternatives: state.routeAlternatives,
         onPartialText: (partial) {
+          // A superseded turn must not keep writing into the bubble — its
+          // chunks would overwrite the newer answer as they arrive.
+          if (superseded()) return;
           firstChunkMs ??= stopwatch.elapsedMilliseconds;
           if (!streaming) {
             streaming = true;
@@ -987,6 +1020,15 @@ class ChatController extends Notifier<ChatState> {
         },
       );
       stillWorking?.cancel();
+      if (superseded()) {
+        // The user moved on. Speaking this now would answer a question they
+        // have stopped asking, on top of an answer they already got.
+        debugPrint('[Chat] discarding a stale Gemini reply for turn $myTurn '
+            '(now on $_turnGeneration) after ${stopwatch.elapsedMilliseconds}ms');
+        if (streaming) state = state.copyWith(messages: _withoutLastAssistantBubble());
+        state = state.copyWith(isAssistantTyping: false);
+        return;
+      }
       debugPrint(
           '[Chat] <- Gemini in ${stopwatch.elapsedMilliseconds}ms '
           '(first chunk ${firstChunkMs ?? -1}ms): "${turn.responseText}" '
@@ -1029,10 +1071,21 @@ class ChatController extends Notifier<ChatState> {
         await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
       }
       if (turn.overlayAction != null) {
-        state = state.copyWith(
-          pendingOverlayAction: turn.overlayAction,
-          pendingHazardPrefill: turn.hazardPrefill,
-        );
+        // The same guard the local path has had, applied to what the model
+        // decides. Confirmed live on 16 Sep: the user said "বিপদজনক"
+        // ("dangerous") while answering a question about whether a toilet was
+        // safe. The local matcher recognised the hazard keyword and correctly
+        // suppressed it — and Gemini then opened the hazard report anyway,
+        // because suppression stopped at the local branch. A word inside an
+        // answer is not a command, whichever half of the app reads it.
+        if (answeringQuestion) {
+          debugPrint('[Chat] model overlay ${turn.overlayAction} suppressed — answering a question');
+        } else {
+          state = state.copyWith(
+            pendingOverlayAction: turn.overlayAction,
+            pendingHazardPrefill: turn.hazardPrefill,
+          );
+        }
       }
       if (turn.route != null) {
         state = state.copyWith(

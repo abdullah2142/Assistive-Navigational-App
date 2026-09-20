@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 
 import 'api_budget.dart';
+import 'voice_matching.dart';
 import '../../features/dashboard/models/chat_message.dart';
 import '../../features/dashboard/models/hazard_report.dart';
 import '../../features/dashboard/models/suggested_chip.dart';
@@ -312,65 +314,153 @@ Live location: $locationLine
 ''';
   }
 
-  /// Dynamically selects the subset of tools required based on keywords
-  /// to minimize token usage on Groq's input token limits.
+  /// The keywords that put each group of tools in front of the model.
+  ///
+  /// ## Why this is a table and not a chain of `if`s
+  ///
+  /// The first version was Latin-only, and measuring it against the 119 real
+  /// utterances in `ant-diagnostics-*.txt` showed what that costs:
+  ///
+  ///     Bangla script   76 utterances   100% fell to the 3-tool fallback
+  ///     Latin           43 utterances    48% fell to the 3-tool fallback
+  ///
+  /// **Every single Bangla utterance** got only `describe_current_location`,
+  /// `alert_caretaker` and `trigger_emergency`. So on this app's primary
+  /// language the model could not route, change a setting, save a place or
+  /// open the map — not because it failed to understand, but because the
+  /// tools were never offered. `ইবনে সিনার রাস্তা দেখাও` ("show me the way
+  /// to Ibn Sina") got no `request_route`; `ম্যাপ টা বন্ধ করো` got no
+  /// `close_map`; `লেখারো বরো করো` got no `update_setting`.
+  ///
+  /// `LocalIntentMatcher` hides some of this — it catches the map and
+  /// text-size phrasings before the model is reached — which is very likely
+  /// why it looked fine in testing. A named destination in Bangla is exactly
+  /// the case that has to reach the model.
+  ///
+  /// ## Matching rules
+  ///
+  /// Latin terms are matched as **whole words**, via `containsTerm`. The
+  /// substring version fired `go` inside "mango", `add` inside "address" and
+  /// `set` inside "sunset" — the same trap this codebase has documented three
+  /// times ("no" in "know", "male" in "female", `না` in নারায়ণগঞ্জ).
+  ///
+  /// Bangla terms stay **substring** matches, deliberately. Bangla attaches
+  /// postpositions and case endings directly to the stem — `ম্যাপ` becomes
+  /// `ম্যাপটা`, `রাস্তা` becomes `রাস্তায়` — so whole-word matching would miss
+  /// most real sentences. `_mishearable` in `local_intent_matcher.dart` makes
+  /// the same choice for the same reason.
+  ///
+  /// Over-inclusion costs tokens; under-inclusion costs the feature. When a
+  /// term is ambiguous, it goes in.
+  static const _toolKeywords = <({List<String> tools, List<String> latin, List<String> bangla})>[
+    (
+      tools: ['request_route', 'request_alternative_route', 'cancel_route', 'replan_route',
+          'describe_current_location'],
+      latin: ['go', 'going', 'take', 'route', 'where', 'near', 'nearest', 'closest', 'find',
+          'navigate', 'directions', 'cancel', 'stop', 'lost', 'alternative', 'toilet', 'food',
+          'eat', 'hungry', 'hospital', 'doctor', 'restaurant', 'way', 'walk',
+          'kothay', 'jabo', 'jaabo', 'jete', 'niye', 'chalo', 'rasta', 'jayga', 'kache',
+          'kachakachi', 'bondho', 'batil', 'koro'],
+      bangla: ['যাব', 'যেতে', 'যাচ্ছি', 'নিয়ে', 'পথ', 'রাস্তা', 'কোথায়', 'কাছে', 'কাছাকাছি',
+          'নিকট', 'আশেপাশে', 'দেখাও', 'চলো', 'বাতিল', 'থাম', 'হারিয়ে', 'টয়লেট', 'শৌচাগার',
+          'হাসপাতাল', 'ডাক্তার', 'রেস্টুরেন্ট', 'খাওয়া', 'খিদে', 'জায়গা', 'ঘুরতে'],
+    ),
+    (
+      tools: ['update_setting'],
+      latin: ['set', 'setting', 'settings', 'change', 'theme', 'dark', 'light', 'voice',
+          'language', 'size', 'font', 'speak', 'mode', 'bangla', 'english', 'bigger', 'smaller',
+          'lekha', 'boro', 'choto', 'bhasha'],
+      bangla: ['লেখা', 'বড়', 'ছোট', 'থিম', 'ভাষা', 'কণ্ঠ', 'আকার', 'গাঢ়', 'উজ্জ্বল',
+          'সেটিং', 'বাংলা', 'ইংরেজি', 'পরিবর্তন', 'বদলাও'],
+    ),
+    (
+      tools: ['pair_with_caretaker', 'send_caretaker_message', 'record_caretaker_voice_memo',
+          'alert_caretaker'],
+      latin: ['caretaker', 'carer', 'guardian', 'message', 'tell', 'alert', 'send', 'memo',
+          'record', 'code', 'pair', 'janao', 'bolo', 'pathao'],
+      bangla: ['দেখাশোনাকারী', 'অভিভাবক', 'জানাও', 'বার্তা', 'পাঠাও', 'রেকর্ড', 'কোড',
+          'যুক্ত', 'খবর'],
+    ),
+    (
+      tools: ['save_place', 'remove_place', 'remember_about_me', 'forget_about_me',
+          'add_emergency_contact', 'remove_emergency_contact'],
+      latin: ['save', 'saved', 'remember', 'forget', 'add', 'remove', 'delete', 'contact',
+          'number', 'phone', 'sister', 'brother', 'mother', 'father',
+          'seve', 'mone', 'jog', 'nombor', 'bon', 'bhai'],
+      bangla: ['সেভ', 'সংরক্ষণ', 'মনে', 'ভুলে', 'যোগ', 'বাদ', 'মুছে', 'পরিচিতি', 'নাম্বার',
+          'নম্বর', 'ফোন', 'বোন', 'ভাই', 'মা', 'বাবা', 'ঠিকানা', 'অ্যাড', 'এড'],
+    ),
+    (
+      tools: ['open_map', 'close_map', 'open_hazard_report', 'resolve_hazard',
+          'open_passerby_helper', 'add_passerby_message', 'remove_passerby_message'],
+      latin: ['map', 'hazard', 'report', 'stranger', 'passerby', 'screen', 'block', 'broken',
+          'danger', 'dekhao', 'bipod', 'screen dekhao'],
+      bangla: ['ম্যাপ', 'মানচিত্র', 'বিপদ', 'বিপদজনক', 'রিপোর্ট', 'স্ক্রিন', 'স্ক্রীন',
+          'পথচারী', 'ভাঙা', 'বন্ধ'],
+    ),
+  ];
+
+  /// Emergency terms, kept apart because this group is never filtered out.
+  ///
+  /// Romanised and Bangla-script forms both, matching the vocabulary
+  /// `LocalIntentMatcher._emergencyStrong` carries — `bachao` was the single
+  /// most likely thing a frightened Bangla speaker says and it was absent
+  /// here, as were `sahajjo`, `বাঁচাও`, `সাহায্য` and `sos`.
+  static const _emergencyLatin = [
+    'help', 'danger', 'scared', 'emergency', 'sos', "can't", 'cant', 'save me',
+    'bachao', 'bachaw', 'banchao', 'sahajjo', 'shahajjo', 'bipode', 'bhoy', 'bhay',
+  ];
+  static const _emergencyBangla = [
+    'বাঁচাও', 'বাঁচান', 'সাহায্য', 'বিপদে', 'জরুরি', 'ভয়',
+  ];
+
+  /// Selects the subset of tools worth sending, to stay under Groq's input
+  /// token limit — see [_toolKeywords] for how, and for what the first
+  /// version of this cost.
   static List<Map<String, dynamic>> _getRelevantTools(String text) {
     final lower = text.toLowerCase();
+    final words = voiceWords(text);
     final names = <String>{};
 
-    // 1. High priority & Emergency (almost always good to have if misclassified, but let's be lean)
-    if (lower.contains('help') || lower.contains('danger') || lower.contains('scared') || 
-        lower.contains('emergency') || lower.contains('can\'t') || lower.contains('cant') ||
-        lower.contains('norte') || lower.contains('bhay') || lower.contains('save')) {
-      names.add('trigger_emergency');
-    }
-    
-    // 2. Routing
-    if (lower.contains('go') || lower.contains('take') || lower.contains('route') || 
-        lower.contains('where') || lower.contains('near') || lower.contains('find') ||
-        lower.contains('navigate') || lower.contains('directions') || lower.contains('cancel') ||
-        lower.contains('stop') || lower.contains('lost') || lower.contains('alternative') ||
-        lower.contains('toilet') || lower.contains('food') || lower.contains('hospital') ||
-        lower.contains('jani na') || lower.contains('kothay') || lower.contains('jaabo')) {
-      names.addAll(['request_route', 'request_alternative_route', 'cancel_route', 'replan_route', 'describe_current_location']);
+    bool hits(List<String> latin, List<String> bangla) =>
+        latin.any((t) => containsTerm(words, t)) || bangla.any(lower.contains);
+
+    for (final group in _toolKeywords) {
+      if (hits(group.latin, group.bangla)) names.addAll(group.tools);
     }
 
-    // 3. Settings
-    if (lower.contains('set') || lower.contains('change') || lower.contains('theme') || 
-        lower.contains('dark') || lower.contains('light') || lower.contains('voice') ||
-        lower.contains('language') || lower.contains('size') || lower.contains('font') ||
-        lower.contains('speak') || lower.contains('mode') || lower.contains('bangla') ||
-        lower.contains('english')) {
-      names.add('update_setting');
+    // Always offered, never filtered.
+    //
+    // It was keyword-gated, which meant an emergency phrased in a way the
+    // keywords missed reached a model that had no way to act on it. The
+    // local matcher catches most of these before the model is reached, but
+    // it is the *fallback* that matters here: if it misses, the model was
+    // the last chance, and a filter is the wrong place to lose one.
+    // Costs one tool declaration per call.
+    names.add('trigger_emergency');
+    if (hits(_emergencyLatin, _emergencyBangla)) {
+      names.add('alert_caretaker');
     }
 
-    // 4. Caretaker
-    if (lower.contains('caretaker') || lower.contains('message') || lower.contains('tell') ||
-        lower.contains('alert') || lower.contains('send') || lower.contains('voice memo') ||
-        lower.contains('record') || lower.contains('code') || lower.contains('pair')) {
-      names.addAll(['pair_with_caretaker', 'send_caretaker_message', 'record_caretaker_voice_memo', 'alert_caretaker']);
-    }
-
-    // 5. Place/Fact management
-    if (lower.contains('save') || lower.contains('remember') || lower.contains('forget') ||
-        lower.contains('add') || lower.contains('remove') || lower.contains('contact')) {
-      names.addAll(['save_place', 'remove_place', 'remember_about_me', 'forget_about_me', 'add_emergency_contact', 'remove_emergency_contact']);
-    }
-
-    // 6. Map / Hazard
-    if (lower.contains('map') || lower.contains('hazard') || lower.contains('report') ||
-        lower.contains('stranger') || lower.contains('read') || lower.contains('passerby') ||
-        lower.contains('block') || lower.contains('broken')) {
-      names.addAll(['open_map', 'close_map', 'open_hazard_report', 'resolve_hazard', 'open_passerby_helper', 'add_passerby_message', 'remove_passerby_message']);
-    }
-
-    // Always include a baseline if none matched to prevent API errors if it's completely generic
-    if (names.isEmpty) {
-      names.addAll(['describe_current_location', 'alert_caretaker', 'trigger_emergency']);
+    // Nothing matched — a bare "yes", a name, an answer to a question the
+    // assistant asked. Offer the handful that make sense with no verb in the
+    // sentence rather than sending nothing.
+    if (names.length == 1) {
+      names.addAll(['describe_current_location', 'alert_caretaker', 'request_route']);
     }
 
     return _tools.where((t) => names.contains(t['function']['name'])).toList();
   }
+
+  /// The tool names [_getRelevantTools] would offer for [text].
+  ///
+  /// Exposed because this filter decides what the assistant is *capable* of
+  /// on any given turn, and it is otherwise invisible — the first version
+  /// silently removed every tool but three for all Bangla input, and nothing
+  /// failed loudly enough to notice.
+  @visibleForTesting
+  static Set<String> toolNamesFor(String text) =>
+      _getRelevantTools(text).map((t) => t['function']['name'] as String).toSet();
 
   /// Same 24 tools as `GeminiAssistantService._tools`, in OpenAI's
   /// `{type: "function", function: {...}}` tool-call shape.

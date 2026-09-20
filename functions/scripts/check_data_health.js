@@ -18,37 +18,38 @@
  *
  * ## Running it
  *
- *   gcloud auth application-default login
  *   node scripts/check_data_health.js
  *
  * Read-only. It never writes.
+ *
+ * ## Why it no longer needs `gcloud`
+ *
+ * This used to read through the Admin SDK, which meant Application Default
+ * Credentials, which meant `gcloud auth application-default login` on
+ * whatever machine wanted to look. That is a real barrier for a check whose
+ * entire job is to be run casually and often — and it is what left the
+ * question "has `seedCrimeZones` actually written 41 documents?" answered
+ * only from function logs, never by reading the collection.
+ *
+ * Every collection here is `allow read: if request.auth != null`, so an
+ * ordinary signed-in client can read all of it. So it signs in anonymously
+ * and reads over the Firestore REST API — the same throwaway-token pattern
+ * `monthly_crime_ingest.js` and `backfill_thana_evidence.js` already use to
+ * *write*, which is the stronger privilege. Nothing to install, runs
+ * anywhere Node runs, and the account deletes itself afterwards.
  */
 
-// Modular imports, not the `admin.firestore()` namespace — firebase-admin
-// v14 removed that, and this script found out the hard way.
-const { initializeApp } = require('firebase-admin/app');
-const { getFirestore } = require('firebase-admin/firestore');
+const { THANA_CRIME_SEED } = require('../data/dhaka_thana_crime_seed');
+const { thanaSlug } = require('../lib/news_ingestion');
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'ant-assistive-nav';
+// Public by design — Firestore security rules are the access control, not
+// this key's secrecy. Same key already ships inside the Flutter app.
+const FIREBASE_WEB_API_KEY = 'AIzaSyAXm0kMvv5odpkkrHKRNZz2Cm6mvTx2uDg';
+const FIRESTORE_URL = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 
-/**
- * Turns the credentials failure into one actionable line.
- *
- * The Firestore client resolves Application Default Credentials on a
- * background promise while building its gRPC stub, so when they are missing
- * it throws *outside* the await this script controls — no try/catch around
- * the query can catch it, and the person running this gets thirty lines of
- * google-gax stack instead of the one command they need to run. These
- * handlers exist purely to fix that.
- */
 function explainAndExit(err) {
   const message = String(err && err.message ? err.message : err);
-  if (/default credentials|GoogleAuthException|could not load/i.test(message)) {
-    console.error('\nNot signed in to Google Cloud on this machine.\n');
-    console.error('  gcloud auth application-default login\n');
-    console.error('Then run this again. Nothing was read or written.\n');
-    process.exit(2);
-  }
   console.error('\nFailed to run.');
   console.error(message.slice(0, 300));
   console.error('');
@@ -57,6 +58,71 @@ function explainAndExit(err) {
 
 process.on('uncaughtException', explainAndExit);
 process.on('unhandledRejection', explainAndExit);
+
+async function signInAnonymously() {
+  const res = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_WEB_API_KEY}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ returnSecureToken: true }) },
+  );
+  const json = await res.json();
+  if (!json.idToken) throw new Error(`Anonymous sign-in failed: ${JSON.stringify(json).slice(0, 200)}`);
+  return { idToken: json.idToken, localId: json.localId };
+}
+
+async function deleteAccount(idToken) {
+  try {
+    await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${FIREBASE_WEB_API_KEY}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken }),
+    });
+  } catch {
+    // Untidy, not harmful. Never let cleanup fail a read-only report.
+  }
+}
+
+/**
+ * Unwraps one Firestore REST value into something ordinary.
+ *
+ * The REST API types every field (`{"stringValue":"..."}`), unlike the Admin
+ * SDK's plain objects. Only the shapes this script actually reads are
+ * handled — timestamps and the counts below — because guessing at the rest
+ * would be inventing a serializer nobody asked for.
+ */
+function plainValue(field) {
+  if (!field || typeof field !== 'object') return undefined;
+  if ('stringValue' in field) return field.stringValue;
+  if ('timestampValue' in field) return field.timestampValue;
+  if ('integerValue' in field) return Number(field.integerValue);
+  if ('doubleValue' in field) return field.doubleValue;
+  if ('booleanValue' in field) return field.booleanValue;
+  return undefined;
+}
+
+/**
+ * Reads up to `max` documents from a collection, following paging.
+ *
+ * `pageSize` is a request, not a promise — Firestore may return fewer and a
+ * `nextPageToken`, so a single unpaged call can under-report a collection
+ * and make a healthy collector look like a stopped one.
+ */
+async function readCollection(idToken, name, max) {
+  const docs = [];
+  let pageToken = '';
+  do {
+    const url = `${FIRESTORE_URL}/${name}?pageSize=${Math.min(300, max)}`
+      + (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '');
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${idToken}` } });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`HTTP ${res.status} reading ${name}: ${body.slice(0, 160)}`);
+    }
+    const body = await res.json();
+    for (const doc of body.documents || []) {
+      docs.push({ id: doc.name.split('/').pop(), fields: doc.fields || {} });
+    }
+    pageToken = body.nextPageToken || '';
+  } while (pageToken && docs.length < max);
+  return docs;
+}
 
 /**
  * What each collection means, and how stale is too stale.
@@ -71,6 +137,16 @@ const COLLECTIONS = [
     what: 'the 2009 per-thana baseline every route score starts from',
     emptyMeans: 'CRITICAL — seedCrimeZones has never run. Route safety is scoring against nothing.',
     maxAgeHours: null, // static seed; it does not refresh and should not
+    // "Not empty" is too weak a question for this one. A partial seed is the
+    // dangerous case and the invisible one: routing still works, every
+    // polyline still scores, and the missing thanas simply never flag —
+    // indistinguishable from a safe neighbourhood. So count against the seed
+    // and name what is absent.
+    expectCount: THANA_CRIME_SEED.length,
+    // `thanaSlug` imported rather than re-implemented: these ids have to match
+    // what `seedCrimeZones` wrote exactly, and a local copy that drifted by
+    // one character would report all 41 thanas missing from a healthy seed.
+    expectIds: THANA_CRIME_SEED.map((t) => thanaSlug(t.thanaName)),
   },
   {
     name: 'thanaIncidents',
@@ -100,6 +176,16 @@ const COLLECTIONS = [
     maxAgeHours: 24 * 7,
   },
   {
+    name: 'cityTrend',
+    what: 'monthly citywide DMP figures; the last four set the trend multiplier on every route',
+    emptyMeans:
+      'No month has ever been ingested, so the citywide multiplier is pinned at a neutral 1.0. '
+      + 'scrapeDmpCrimeReports fires on the 12th and reads only the newest month, so an empty or '
+      + 'thin collection is the normal state until scripts/backfill_city_trend.js has been run.',
+    // The scraper fires monthly; two months of silence means it has stopped.
+    maxAgeHours: 24 * 62,
+  },
+  {
     name: 'hazardZones',
     what: 'confirmed crowdsourced hazards that routing avoids',
     emptyMeans: 'No hazard has ever been confirmed. Expected until real users start reporting.',
@@ -113,19 +199,24 @@ const COLLECTIONS = [
   },
 ];
 
-/** Best-effort newest timestamp in a snapshot, across the field names used. */
-function newestMs(snapshot) {
-  const fields = ['updatedAt', 'createdAt', 'recordedAt', 'publishedAt', 'postedAt', 'seededAt'];
+/** Best-effort newest timestamp across the field names this project writes. */
+function newestMs(docs) {
+  // Every "when did this happen" field this project actually writes.
+  // `lastReportedAt` and `ingestedAt` were missing until a live run showed
+  // hazardZones reporting "no timestamp field found" on five real documents.
+  const fields = [
+    'updatedAt', 'createdAt', 'recordedAt', 'publishedAt', 'postedAt',
+    'seededAt', 'ingestedAt', 'lastReportedAt', 'firstReportedAt',
+  ];
   let newest = null;
-  snapshot.forEach((doc) => {
-    const data = doc.data();
+  for (const doc of docs) {
     for (const f of fields) {
-      const v = data[f];
+      const v = plainValue(doc.fields[f]);
       if (!v) continue;
-      const ms = typeof v.toMillis === 'function' ? v.toMillis() : Date.parse(v);
+      const ms = Date.parse(v);
       if (Number.isFinite(ms) && (newest === null || ms > newest)) newest = ms;
     }
-  });
+  }
   return newest;
 }
 
@@ -137,48 +228,68 @@ function describeAge(ms, nowMs) {
 }
 
 async function main() {
-  initializeApp({ projectId: PROJECT_ID });
-  const db = getFirestore();
   const now = Date.now();
   const problems = [];
 
-  console.log(`\nProject: ${PROJECT_ID}\n`);
+  console.log(`\nProject: ${PROJECT_ID}`);
+  const { idToken, localId } = await signInAnonymously();
 
-  for (const c of COLLECTIONS) {
-    let snap;
-    try {
-      // Capped: this is a health check, not an export. Enough rows to find
-      // a recent timestamp, few enough to stay free.
-      snap = await db.collection(c.name).limit(50).get();
-    } catch (err) {
-      console.log(`${c.name.padEnd(18)} ERROR  ${String(err).slice(0, 100)}`);
-      problems.push(`${c.name}: could not be read`);
-      continue;
-    }
+  try {
+    for (const c of COLLECTIONS) {
+      // A collection with a completeness expectation is read in full; the
+      // rest are capped, because this is a health check and not an export.
+      const cap = c.expectCount ? c.expectCount * 2 : 50;
+      let docs;
+      try {
+        docs = await readCollection(idToken, c.name, cap);
+      } catch (err) {
+        console.log(`\n${c.name.padEnd(18)} ERROR  ${String(err.message).slice(0, 120)}`);
+        problems.push(`${c.name}: could not be read`);
+        continue;
+      }
 
-    if (snap.empty) {
-      console.log(`${c.name.padEnd(18)} EMPTY`);
+      if (docs.length === 0) {
+        console.log(`\n${c.name.padEnd(18)} EMPTY`);
+        console.log(`${''.padEnd(18)}   ${c.what}`);
+        console.log(`${''.padEnd(18)}   ${c.emptyMeans}`);
+        if (c.emptyMeans.startsWith('CRITICAL')) problems.push(`${c.name} is empty`);
+        continue;
+      }
+
+      const newest = newestMs(docs);
+      const age = newest === null ? 'no timestamp field found' : describeAge(newest, now);
+      const stale = c.maxAgeHours !== null && newest !== null
+        && (now - newest) / 3600000 > c.maxAgeHours;
+      const capped = docs.length >= cap;
+
+      console.log(
+        `\n${c.name.padEnd(18)} ${String(docs.length).padStart(3)}${capped ? '+' : ' '} docs`
+        + `   newest ${age}${stale ? '   <-- STALE' : ''}`,
+      );
       console.log(`${''.padEnd(18)}   ${c.what}`);
-      console.log(`${''.padEnd(18)}   ${c.emptyMeans}\n`);
-      if (c.emptyMeans.startsWith('CRITICAL')) problems.push(`${c.name} is empty`);
-      continue;
-    }
+      if (stale) {
+        problems.push(`${c.name} has nothing newer than ${age} — its collector may have stopped`);
+      }
 
-    const newest = newestMs(snap);
-    const age = newest === null ? 'no timestamp field found' : describeAge(newest, now);
-    const stale = c.maxAgeHours !== null && newest !== null
-      && (now - newest) / 3600000 > c.maxAgeHours;
-
-    console.log(
-      `${c.name.padEnd(18)} ${String(snap.size).padStart(3)}${snap.size === 50 ? '+' : ' '} docs`
-      + `   newest ${age}${stale ? '   <-- STALE' : ''}`,
-    );
-    console.log(`${''.padEnd(18)}   ${c.what}\n`);
-    if (stale) {
-      problems.push(`${c.name} has nothing newer than ${age} — its collector may have stopped`);
+      if (c.expectIds) {
+        const present = new Set(docs.map((d) => d.id));
+        const missing = c.expectIds.filter((id) => !present.has(id));
+        if (missing.length === 0) {
+          console.log(`${''.padEnd(18)}   all ${c.expectCount} seeded thanas present — seedCrimeZones has run`);
+        } else {
+          console.log(`${''.padEnd(18)}   MISSING ${missing.length} of ${c.expectCount}: ${missing.join(', ')}`);
+          problems.push(
+            `${c.name} is missing ${missing.length} thana${missing.length === 1 ? '' : 's'} `
+            + '— routes through them score as though they were safe. Re-run seedCrimeZones.',
+          );
+        }
+      }
     }
+  } finally {
+    await deleteAccount(idToken);
   }
 
+  console.log('');
   if (problems.length === 0) {
     console.log('No problems found.\n');
   } else {
@@ -186,6 +297,7 @@ async function main() {
     for (const p of problems) console.log(`  - ${p}`);
     console.log('');
   }
+  console.log(`(read anonymously as ${localId}, since deleted; nothing was written)\n`);
   process.exit(problems.length ? 1 : 0);
 }
 

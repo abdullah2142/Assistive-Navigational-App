@@ -15,6 +15,7 @@ const {
   normaliseDigits,
   monthIndexOf,
   validateExtraction,
+  EARLIEST_CRIME_TABLE_PERIOD,
   PEDESTRIAN_RELEVANT_CATEGORIES,
 } = require("../lib/crime_report_ingestion");
 
@@ -73,6 +74,53 @@ test("the real August 2026 row passes validation", () => {
       totalCases: 1509,
     }),
     null,
+  );
+});
+
+test("a month with no crime table is refused by name, not as a zero total", () => {
+  // 2019-05, 2019-12, 2022-04 and 2023-06 publish only recovery tables —
+  // arms, stolen vehicles, narcotics — and no `অপরাধ চিত্র` table at all
+  // (read by eye off the scans, 2026-09-20). Extraction correctly returns
+  // nothing, and the old message for that was "total cases is zero or
+  // missing", which reads like a broken reading of a table that exists.
+  // Whoever hits this in a log should be told what is actually true.
+  const problem = validateExtraction({ hasCrimeTable: false, period: "2019-05", totalCases: 0 });
+  assert.ok(problem, "a scan with no crime table must be refused");
+  assert.match(problem, /recovery tables/, "the refusal must say why, not just that a number was zero");
+});
+
+test("the crime-table era starts at January 2024", () => {
+  // Load-bearing: the backfill skips everything before this rather than
+  // spending a model call per month to be refused. 2024-01 and 2024-06 were
+  // checked by eye and do carry the table, with the existing prompt reading
+  // them unchanged.
+  assert.strictEqual(EARLIEST_CRIME_TABLE_PERIOD, "2024-01");
+  assert.ok("2023-12" < EARLIEST_CRIME_TABLE_PERIOD, "string compare must order periods correctly");
+  assert.ok("2024-01" >= EARLIEST_CRIME_TABLE_PERIOD);
+});
+
+test("a present crime table is unaffected by the new flag", () => {
+  // The flag must only ever *add* a refusal. A row from before the prompt
+  // carried `hasCrimeTable` has to keep validating, or the deployed
+  // scheduled function starts refusing real months mid-rollout.
+  assert.strictEqual(
+    validateExtraction({
+      period: "2026-08",
+      dacoity: 4, robbery: 22, burglary: 38, theft: 101, kidnapping: 21,
+      totalCases: 1509,
+    }),
+    null,
+    "a row with no hasCrimeTable field must still pass",
+  );
+  assert.strictEqual(
+    validateExtraction({
+      hasCrimeTable: true,
+      period: "2024-01",
+      dacoity: 1, robbery: 25, burglary: 63, theft: 141, kidnapping: 8,
+      totalCases: 1725,
+    }),
+    null,
+    "January 2024, read off the scan by hand, must pass",
   );
 });
 

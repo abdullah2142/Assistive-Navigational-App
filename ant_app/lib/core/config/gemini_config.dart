@@ -98,5 +98,25 @@ class GeminiConfig {
   /// Cost is bounded in the client, not by a budget alert — see
   /// `BillableApi.gemini` in `api_budget.dart` for why that distinction
   /// matters and what the ceiling actually is.
-  static const String modelName = 'gemini-3.6-flash';
+  /// **Back to `gemini-3.5-flash-lite` on 2026-09-21, for this tester branch.**
+  ///
+  /// `3.6-flash` is the better model and its daily quota has long since
+  /// reset — but its *rate* limits (RPM and RPD) are tighter than
+  /// flash-lite's, and a tester round is exactly the bursty, sustained load
+  /// those bound. The 3 Sep exhaustion was not a fluke; it is what this tier
+  /// does under a real session.
+  ///
+  /// So the trade here is deliberate and narrow: a weaker model that answers
+  /// every time beats a stronger one that stops answering halfway through a
+  /// round. The eight prompt fixes on this branch exist precisely to lift
+  /// flash-lite's behaviour, and they have never been tested against it — the
+  /// 16-17 Sep bug list was flash-lite *without* them.
+  ///
+  /// This is also what the APK currently in Firebase runs (release 1.0.0 (1),
+  /// built from `ff3dff9`), so this branch changes the prompt and not the
+  /// model — which is the only way to read whether the prompt fixes worked.
+  ///
+  /// Revisit once billing is enabled on `gen-lang-client-0943644282`, which
+  /// is what actually buys headroom on 3.6.
+  static const String modelName = 'gemini-3.5-flash-lite';
 }

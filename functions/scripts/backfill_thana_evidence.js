@@ -27,6 +27,94 @@
  */
 
 const { collectBackfill } = require("../lib/news_backfill");
+const { THANA_CRIME_SEED, densityToScore, isNotoriousHotspot } = require("../data/dhaka_thana_crime_seed");
+const { temporalMultiplier } = require("../lib/temporal_weighting");
+const { learnedAdjustment } = require("../lib/learned_baseline");
+
+/** `checkRouteSafety`'s own threshold: above this, a route is refused. */
+const UNSAFE_ABOVE = 7;
+
+/** Representative hours — mid-afternoon, and after the night threshold. */
+const DAY_HOUR = 14;
+const NIGHT_HOUR = 23;
+
+/**
+ * What recording this evidence would do to the scores that decide routing.
+ *
+ * ## Why the dry run does not stop at counting months
+ *
+ * "Mohammadpur has 11 evidence months" is not a decision anyone can make.
+ * `learnedAdjustment` is capped at 1.6x deliberately — it corrects a stale
+ * baseline rather than replacing it — so a thana with a low 2009 score can
+ * accumulate a full year of evidence and still not cross the threshold that
+ * actually changes a route. Whether that cap is right is a judgement about
+ * this specific data, and it cannot be made without seeing the arithmetic.
+ *
+ * So this prints the before and after, at both hours that matter, and marks
+ * the only rows that change anything a walking user would notice: the ones
+ * that cross [UNSAFE_ABOVE].
+ *
+ * The citywide multiplier is left out — it is one number applied uniformly
+ * to every thana, so including it would shift the whole column and change
+ * no comparison. Advisories are left out too: they expire, and this is
+ * about what the baseline would believe once they have.
+ */
+function projectImpact(results) {
+  const seedByName = new Map(THANA_CRIME_SEED.map((t) => [t.thanaName, t]));
+  const nowMs = Date.now();
+  const rows = [];
+
+  for (const r of results) {
+    const seed = seedByName.get(r.thana.name);
+    if (!seed) continue;
+    const base = densityToScore(seed.densityEstimate);
+    const hotspot = isNotoriousHotspot(seed);
+    const learned = learnedAdjustment(r.incidents.map((i) => i.period), nowMs);
+
+    const at = (hour, factor) => base * temporalMultiplier(seed.categoryHint, hour, { isHotspot: hotspot }) * factor;
+    rows.push({
+      name: r.thana.name,
+      months: r.incidents.length,
+      learned,
+      dayBefore: at(DAY_HOUR, 1), dayAfter: at(DAY_HOUR, learned),
+      nightBefore: at(NIGHT_HOUR, 1), nightAfter: at(NIGHT_HOUR, learned),
+    });
+  }
+  return rows.sort((a, b) => b.months - a.months || b.nightAfter - a.nightAfter);
+}
+
+function printImpact(results) {
+  const rows = projectImpact(results).filter((r) => r.months > 0);
+  const f = (n) => n.toFixed(1).padStart(5);
+  const crossings = [];
+
+  console.log("\nWhat recording this would do to route scoring");
+  console.log(`(base x time-of-day x learned; a route is refused above ${UNSAFE_ABOVE})\n`);
+  console.log(`  ${"thana".padEnd(20)} ${"mo".padStart(3)} ${"x".padStart(5)}  ${"day".padStart(11)}   ${"11pm".padStart(11)}`);
+  for (const r of rows) {
+    const crosses = r.nightBefore <= UNSAFE_ABOVE && r.nightAfter > UNSAFE_ABOVE;
+    const alsoDay = r.dayBefore <= UNSAFE_ABOVE && r.dayAfter > UNSAFE_ABOVE;
+    if (crosses || alsoDay) crossings.push(r.name);
+    console.log(
+      `  ${r.name.padEnd(20)} ${String(r.months).padStart(3)} ${r.learned.toFixed(2).padStart(5)}`
+      + `  ${f(r.dayBefore)}->${f(r.dayAfter)}   ${f(r.nightBefore)}->${f(r.nightAfter)}`
+      + `${crosses || alsoDay ? "   <-- newly refused" : ""}`,
+    );
+  }
+
+  // The honest headline. If nothing crosses, the backfill is a change to
+  // numbers nobody walking will ever experience, and saying so plainly is
+  // more useful than a table that looks like progress.
+  console.log("");
+  if (crossings.length === 0) {
+    console.log(`No thana crosses ${UNSAFE_ABOVE} as a result of this evidence, at either hour.`);
+    console.log("Routing is unchanged; only the stored scores move. See §8.2 of");
+    console.log("docs/module4_crime_safety.md — this is the learned cap doing exactly what");
+    console.log("it was designed to do, and the question is whether that is still right.");
+  } else {
+    console.log(`${crossings.length} thana(s) would newly refuse routes: ${crossings.join(", ")}.`);
+  }
+}
 
 const FIREBASE_WEB_API_KEY = "AIzaSyAXm0kMvv5odpkkrHKRNZz2Cm6mvTx2uDg";
 const RECORD_FN_URL = "https://us-central1-ant-assistive-nav.cloudfunctions.net/recordThanaIncident";
@@ -76,6 +164,8 @@ async function main() {
   for (const r of movable.sort((a, b) => b.incidents.length - a.incidents.length)) {
     console.log(`  ${r.thana.name.padEnd(20)} ${r.incidents.length}`);
   }
+
+  printImpact(results);
 
   if (dryRun) {
     console.log("\n--dry-run: nothing was recorded.");

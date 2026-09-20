@@ -37,6 +37,11 @@
  * accumulates through `learned_baseline.js`; the 2009 academic seed remains
  * the starting geography.
  *
+ * And the history only goes back to **January 2024** — not because of
+ * anything in this code, but because DMP did not publish a crime table
+ * before then. See [EARLIEST_CRIME_TABLE_PERIOD] for what the earlier pages
+ * actually contain.
+ *
  * ## Deliberately Firebase-free
  *
  * No `firebase-admin`, no Firestore, so it runs anywhere Node runs. The
@@ -75,14 +80,37 @@ function normaliseDigits(value) {
 }
 
 /**
- * Walks DMP's crime-data index to the newest published month.
+ * The first month whose page actually carries a crime table.
  *
- * Every link is **scraped, never constructed**. The site's own month slugs are
- * not reliably spelled — February 2026 is published at `/februuary-2026/` —
- * so building a URL from a date would silently miss months. The year index is
- * likewise read rather than assumed.
+ * ## Why this constant exists, and why it is not a prompt problem
+ *
+ * `findTableImage` happily resolves scans back to 2019, and extraction
+ * returns all zeros for them. The standing theory was a changed table layout
+ * that a widened prompt would absorb. **It is not.** The scans for
+ * 2019-05, 2019-12, 2022-04 and 2023-06 were fetched and read by eye on
+ * 2026-09-20, and each contains exactly three tables:
+ *
+ *     ... অস্ত্র গোলাবারুদ ও বিস্ফোরক উদ্ধারের বিবরণী   (arms recovery)
+ *     ... চোরাইগাড়ী উদ্ধারের বিবরণী                     (stolen-vehicle recovery)
+ *     ... মাদকদ্রব্য উদ্ধারের বিবরণী                      (narcotics recovery)
+ *
+ * There is no `অপরাধ চিত্র` table on the page at all — one image per month
+ * page, checked against every `wp-content/uploads` reference in the markup,
+ * and the WordPress media endpoint lists no siblings. Those three tables are
+ * *recovery* counts: precisely the police-activity figures
+ * [PEDESTRIAN_RELEVANT_CATEGORIES] exists to exclude. The extraction returns
+ * zeros because the numbers genuinely are not there.
+ *
+ * From 2024-01 the layout changes and the crime table leads the page
+ * (verified by eye for 2024-01 and 2024-06), read correctly by the existing
+ * prompt with no change. So the recoverable history starts here, and asking
+ * a model to read an earlier month is a guaranteed-wasted call against a
+ * table that does not exist.
  */
-async function findLatestMonthPage() {
+const EARLIEST_CRIME_TABLE_PERIOD = "2024-01";
+
+/** The years DMP offers on its crime-data index, newest first. */
+async function listYears() {
   const cheerio = require("cheerio");
   const indexRes = await fetch(DMP_CRIME_DATA_URL, { redirect: "follow" });
   if (!indexRes.ok) throw new Error(`DMP crime-data index returned HTTP ${indexRes.status}`);
@@ -97,32 +125,80 @@ async function findLatestMonthPage() {
     if (match) years.push(Number(match[1]));
   });
   if (years.length === 0) throw new Error("No crime-data year links found — DMP page markup may have changed.");
+  return [...new Set(years)].sort((a, b) => b - a);
+}
 
-  for (const year of [...new Set(years)].sort((a, b) => b - a)) {
-    const yearUrl = new URL(`/?crime_data_year=crime-data-${year}`, DMP_CRIME_DATA_URL).toString();
-    const yearRes = await fetch(yearUrl, { redirect: "follow" });
-    if (!yearRes.ok) continue;
-    const $year = cheerio.load(await yearRes.text());
+/**
+ * Every month page published under one year, newest month first.
+ *
+ * Every link is **scraped, never constructed**, and the month comes from the
+ * link's *text*, never its slug. The site's slugs are wrong in two separate
+ * ways and both are live:
+ *
+ * - **Misspelled.** February 2026 is published at `/februuary-2026/`.
+ * - **Collided.** WordPress derives a slug once and then suffixes duplicates,
+ *   so May 2024 sits at `/april-2024-2/` and November 2020 at
+ *   `/november-2019-2/` — each labelled correctly ("May-2024",
+ *   "November 2020") and slugged as the wrong month, a year out in the
+ *   second case.
+ *
+ * Constructing URLs from dates would miss the first kind and silently
+ * mis-date the second. Checked against the whole archive on 2026-09-20:
+ * reading the label recovers every month correctly, and no two links on a
+ * year page resolve to the same period. The dedupe below is therefore
+ * insurance rather than a fix for a known collision — first link wins,
+ * because recording one month twice would double-count it in the trend.
+ */
+async function listMonthPages(year) {
+  const cheerio = require("cheerio");
+  const yearUrl = new URL(`/?crime_data_year=crime-data-${year}`, DMP_CRIME_DATA_URL).toString();
+  const yearRes = await fetch(yearUrl, { redirect: "follow" });
+  if (!yearRes.ok) return [];
+  const $year = cheerio.load(await yearRes.text());
 
-    const months = [];
-    $year("a[href*='/crime_data/']").each((_, el) => {
-      const href = $year(el).attr("href");
-      const label = $year(el).text().trim();
-      const month = monthIndexOf(label);
-      if (href && month) months.push({ href, label, month });
+  const byPeriod = new Map();
+  $year("a[href*='/crime_data/']").each((_, el) => {
+    const href = $year(el).attr("href");
+    const label = $year(el).text().trim();
+    const month = monthIndexOf(label);
+    if (!href || !month) return;
+    const period = `${year}-${String(month).padStart(2, "0")}`;
+    if (byPeriod.has(period)) return;
+    byPeriod.set(period, {
+      url: new URL(href, DMP_CRIME_DATA_URL).toString(),
+      title: `DMP Crime Data — ${label}`,
+      period,
     });
-    if (months.length === 0) continue;
+  });
+  return [...byPeriod.values()].sort((a, b) => b.period.localeCompare(a.period));
+}
 
+/** Walks DMP's crime-data index to the newest published month. */
+async function findLatestMonthPage() {
+  for (const year of await listYears()) {
+    const months = await listMonthPages(year);
     // Newest month on the newest year page that actually has one.
-    months.sort((a, b) => b.month - a.month);
-    const newest = months[0];
-    return {
-      url: new URL(newest.href, DMP_CRIME_DATA_URL).toString(),
-      title: `DMP Crime Data — ${newest.label}`,
-      period: `${year}-${String(newest.month).padStart(2, "0")}`,
-    };
+    if (months.length > 0) return months[0];
   }
   throw new Error("No monthly crime-data pages found on any year index.");
+}
+
+/**
+ * Every month page in the archive that should carry a crime table, oldest
+ * first — the backfill's work list.
+ *
+ * Months before [EARLIEST_CRIME_TABLE_PERIOD] are dropped here rather than
+ * attempted and refused: see that constant for what is actually on those
+ * pages.
+ */
+async function listCrimeTableMonths() {
+  const months = [];
+  for (const year of await listYears()) {
+    months.push(...await listMonthPages(year));
+  }
+  return months
+    .filter((m) => m.period >= EARLIEST_CRIME_TABLE_PERIOD)
+    .sort((a, b) => a.period.localeCompare(b.period));
 }
 
 const MONTH_NAMES = [
@@ -221,11 +297,18 @@ async function findTableImage(monthPageUrl) {
  * দস্যুতা invites the model to guess which column it meant.
  */
 async function extractCityRowViaGemini(imageBuffer, mimeType, geminiApiKey) {
-  const prompt = `This is a scanned monthly crime table published by Dhaka Metropolitan Police
-(DMP), titled "ঢাকা মহানগর এলাকায় ... মাসের অপরাধ চিত্র". It is a single row of
-citywide totals with Bangla column headings and Bangla numerals.
+  const prompt = `This is a scanned page published by Dhaka Metropolitan Police (DMP). It may
+contain a monthly crime table titled "ঢাকা মহানগর এলাকায় ... মাসের অপরাধ চিত্র" —
+a single row of citywide totals with Bangla column headings and Bangla numerals.
 
-Read the FIRST table only (the "অপরাধ চিত্র" one) and map these columns:
+FIRST, decide whether that "অপরাধ চিত্র" table is present on this page at all.
+Some months publish only recovery tables (অস্ত্র গোলাবারুদ / চোরাইগাড়ী /
+মাদকদ্রব্য উদ্ধারের বিবরণী) and no crime table. If there is no "অপরাধ চিত্র"
+table, set "hasCrimeTable" to false and leave every number at 0 — do NOT read
+figures out of a recovery table instead.
+
+If the "অপরাধ চিত্র" table IS present, set "hasCrimeTable" to true, read that
+table only, and map these columns:
   ডাকাতি              -> dacoity
   দস্যুতা              -> robbery
   খুন                 -> murder
@@ -238,7 +321,7 @@ Convert every Bangla numeral to an ordinary number (০=0 … ৯=9). Also read 
 month and year from the title and give it as YYYY-MM.
 
 Return ONLY this JSON, numbers only:
-{"period":"YYYY-MM","dacoity":0,"robbery":0,"murder":0,"kidnapping":0,"burglary":0,"theft":0,"totalCases":0}`;
+{"hasCrimeTable":true,"period":"YYYY-MM","dacoity":0,"robbery":0,"murder":0,"kidnapping":0,"burglary":0,"theft":0,"totalCases":0}`;
 
   const body = JSON.stringify({
     contents: [{
@@ -288,6 +371,14 @@ Return ONLY this JSON, numbers only:
  */
 function validateExtraction(row) {
   if (!row || typeof row !== "object") return "extraction did not return an object";
+  // Checked before the period, because a month with no crime table is a fact
+  // about DMP's publishing rather than a fault in the reading, and saying
+  // "total cases is zero" about it sends whoever reads the log hunting for a
+  // bug in the extraction. See [EARLIEST_CRIME_TABLE_PERIOD].
+  if (row.hasCrimeTable === false) {
+    return "this month's scan carries only recovery tables (arms / stolen vehicles / narcotics) "
+      + "— DMP published no crime table for it";
+  }
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(row.period || "")) return `period "${row.period}" is not YYYY-MM`;
   const total = normaliseDigits(row.totalCases ?? row.totalCasesDMP);
   if (total <= 0) return "total cases is zero or missing";
@@ -297,9 +388,16 @@ function validateExtraction(row) {
   return null;
 }
 
-/** Fetches the newest DMP month and extracts its citywide row. */
-async function fetchAndExtractLatestReport(geminiApiKey) {
-  const month = await findLatestMonthPage();
+/**
+ * Fetches one DMP month page and extracts its citywide row.
+ *
+ * Split out of [fetchAndExtractLatestReport] so the archive can be walked
+ * month by month — the scheduled function only ever wants the newest one,
+ * but the citywide trend is computed from a history, and until this existed
+ * there was no way to read a month that had already been published and
+ * missed.
+ */
+async function fetchAndExtractMonth(month, geminiApiKey) {
   const imageUrl = await findTableImage(month.url);
   const imageRes = await fetch(imageUrl, { redirect: "follow" });
   if (!imageRes.ok) throw new Error(`DMP table image returned HTTP ${imageRes.status}`);
@@ -325,14 +423,24 @@ async function fetchAndExtractLatestReport(geminiApiKey) {
   };
 }
 
+/** Fetches the newest DMP month and extracts its citywide row. */
+async function fetchAndExtractLatestReport(geminiApiKey) {
+  return fetchAndExtractMonth(await findLatestMonthPage(), geminiApiKey);
+}
+
 module.exports = {
   DMP_CRIME_DATA_URL,
+  EARLIEST_CRIME_TABLE_PERIOD,
   PEDESTRIAN_RELEVANT_CATEGORIES,
   normaliseDigits,
   monthIndexOf,
   validateExtraction,
+  listYears,
+  listMonthPages,
+  listCrimeTableMonths,
   findLatestMonthPage,
   findTableImage,
   extractCityRowViaGemini,
+  fetchAndExtractMonth,
   fetchAndExtractLatestReport,
 };

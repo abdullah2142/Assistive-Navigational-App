@@ -26,7 +26,12 @@
  */
 
 import { fetchFeed } from '../src/lib/feed.js';
-import { NEWS_FEEDS, MAX_ARTICLE_AGE_MS } from '../src/collectors/news.js';
+import {
+  NEWS_FEEDS,
+  MAX_ARTICLE_AGE_MS,
+  splitGoogleNewsTitle,
+  titleKey,
+} from '../src/collectors/news.js';
 import { SOCIAL_FEEDS, MAX_POST_AGE_MS } from '../src/collectors/social.js';
 import {
   isCandidate,
@@ -57,9 +62,13 @@ function explainMiss(text) {
 
 async function probe(label, feeds, maxAgeMs) {
   console.log(`\n=== ${label} ===`);
-  const funnel = { items: 0, dated: 0, fresh: 0, crime: 0, candidates: 0 };
+  const funnel = { items: 0, duplicate: 0, dated: 0, fresh: 0, crime: 0, candidates: 0 };
   const misses = [];
   const hits = [];
+  // Shared across feeds, exactly as in `collectNews` — the point of the
+  // cross-source dedupe is that it spans feeds, so a per-feed set would
+  // measure nothing.
+  const seenTitles = new Set();
 
   for (const feed of feeds) {
     const name = feed.name || feed.url;
@@ -76,8 +85,26 @@ async function probe(label, feeds, maxAgeMs) {
     let fresh = 0;
     let crime = 0;
     let candidates = 0;
-    for (const item of items) {
+    let duplicate = 0;
+    for (const raw of items) {
       funnel.items++;
+
+      // The same two normalisations `collectNews` applies, for the same
+      // reason this script exists at all: a probe that filters differently
+      // from the real run predicts a run that never happens.
+      const item = feed.viaGoogleNews
+        ? { ...raw, title: splitGoogleNewsTitle(raw.title).title }
+        : raw;
+      const key = titleKey(item.title);
+      if (key && seenTitles.has(key)) {
+        // Counted, not silently dropped — how much Google News merely
+        // repeats the direct feeds is the thing worth knowing about it.
+        duplicate++;
+        funnel.duplicate++;
+        continue;
+      }
+      if (key) seenTitles.add(key);
+
       if (!item.publishedAt) continue;
       funnel.dated++;
       if (now - Date.parse(item.publishedAt) > maxAgeMs) continue;
@@ -101,13 +128,15 @@ async function probe(label, feeds, maxAgeMs) {
 
     console.log(
       `  ${name.padEnd(34)} items=${String(items.length).padStart(3)}`
+      + ` dup=${String(duplicate).padStart(2)}`
       + ` fresh=${String(fresh).padStart(3)} crime=${String(crime).padStart(2)}`
       + ` candidates=${candidates}`,
     );
   }
 
   console.log(
-    `  FUNNEL  fetched=${funnel.items} -> dated=${funnel.dated} -> fresh=${funnel.fresh}`
+    `  FUNNEL  fetched=${funnel.items} -> new=${funnel.items - funnel.duplicate}`
+    + ` -> dated=${funnel.dated} -> fresh=${funnel.fresh}`
     + ` -> crime=${funnel.crime} -> CANDIDATES=${funnel.candidates}`,
   );
   for (const h of hits) console.log(`     candidate  ${h}`);

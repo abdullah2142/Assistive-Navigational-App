@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { parseFeed, fetchFeed } from '../src/lib/feed.js';
 import { matchThana, mentionsCrime, isCandidate, containsPhrase, words } from '../src/lib/thana_match.js';
 import { THANAS } from '../src/lib/thana_index.js';
+import { NEWS_FEEDS, splitGoogleNewsTitle, titleKey } from '../src/collectors/news.js';
 
 test('the thana index covers all 41 DMP thanas with slugs', () => {
   assert.equal(THANAS.length, 41);
@@ -214,4 +215,54 @@ test("fetchFeed gives up on a 404 rather than retrying a dead feed", async () =>
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test('Google News titles give up their outlet instead of keeping it in the headline', () => {
+  // Every Google News title appends the publisher after a dash. Left on, the
+  // masthead is stored inside the headline and `matchThana` reads a few words
+  // of branding that have nothing to do with where the crime happened.
+  assert.deepEqual(
+    splitGoogleNewsTitle("Man stabbed to death in Dhaka's Shah Ali, one held - thedailystar.net"),
+    { title: "Man stabbed to death in Dhaka's Shah Ali, one held", outlet: 'thedailystar.net' },
+  );
+  // Only the LAST dash separates — headlines carry dashes of their own.
+  assert.deepEqual(
+    splitGoogleNewsTitle('Mirpur mugging - police arrest three - Dhaka Tribune'),
+    { title: 'Mirpur mugging - police arrest three', outlet: 'Dhaka Tribune' },
+  );
+});
+
+test('a dash inside a headline is not mistaken for a masthead', () => {
+  // The failure that matters is the greedy one: truncating a real headline
+  // at its own punctuation would drop the half naming the thana.
+  assert.deepEqual(
+    splitGoogleNewsTitle('Report - a long trailing clause that is really part of the headline'),
+    { title: 'Report - a long trailing clause that is really part of the headline', outlet: null },
+  );
+  assert.deepEqual(
+    splitGoogleNewsTitle('No outlet suffix here'),
+    { title: 'No outlet suffix here', outlet: null },
+  );
+});
+
+test('one story reaching two feeds under two URLs dedupes on its title', () => {
+  // Google News rewrites every link, so URL dedupe cannot see across
+  // sources: the same story arrives twice and would be classified twice,
+  // paying a second model call for an answer already bought.
+  assert.equal(
+    titleKey('Three held over Mirpur mugging!'),
+    titleKey('Three held over Mirpur mugging'),
+  );
+  assert.notEqual(titleKey('Mirpur mugging'), titleKey('Mohammadpur mugging'));
+});
+
+test('direct publisher feeds are ordered ahead of Google News', () => {
+  // Load-bearing ordering: `collectNews` keeps the first version of a story,
+  // and an advisory's `sourceUrl` is the whole provenance record for a claim
+  // about a real neighbourhood. A `news.google.com/rss/articles/CBMi…`
+  // redirect is a markedly worse one than the publisher's own URL.
+  const firstGoogle = NEWS_FEEDS.findIndex((f) => f.viaGoogleNews);
+  const lastDirect = NEWS_FEEDS.map((f) => !f.viaGoogleNews).lastIndexOf(true);
+  assert.ok(firstGoogle > lastDirect, 'every direct feed must precede every Google News feed');
+  assert.ok(firstGoogle > 0, 'there must still be direct feeds');
 });

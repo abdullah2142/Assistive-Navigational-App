@@ -3,8 +3,16 @@
 How a walking route gets a safety verdict, where every number in it comes
 from, and which of them are current.
 
-Written against the deployed system on 16 September 2026. Companion to
-`04_module_plan_crime.md`, which is the plan; this is what actually runs.
+Written against the deployed system on 16 September 2026; revised 21
+September. Companion to `04_module_plan_crime.md`, which is the plan; this is
+what actually runs.
+
+**Two things changed on 21 September and both are load-bearing.** The
+citywide multiplier was found sitting on its floor because `cityTrend` has a
+13-month hole (§3), and a census showed the night threshold already flags 11
+of 41 thanas before any crime data is involved (§6a). The backfills that
+would have made those scores larger are built and held until the threshold
+question in §8.0 is settled.
 
 ---
 
@@ -123,10 +131,29 @@ shown in the app as a live figure.
 DMP's monthly tables are citywide totals (read directly off the published
 scan), and `/archived-crime-data/` is dead links to 2013–2017 `.doc` files.
 
-### Citywide trend — current, automated
+### Citywide trend — current, automated, and with a hole in it
 
 `scrapeDmpCrimeReports` runs monthly on the 12th (DMP publishes the previous
 month around the 9th) and reads `dmp.gov.bd/crime_data/{month}-{year}/`.
+
+**It reads exactly one month — the newest — so it can keep the series
+current but can never repair it.** Read directly on 21 September 2026,
+`cityTrend` held 66 months ending **2025-05**, plus a lone **2026-07**: a
+13-month hole. Every row came from a Kaggle mirror of national PHQ reports
+imported on 3 September, or from `police.gov.bd`. Not one came from the DMP
+table this section describes.
+
+`updateCityTrendMultiplier` divides the newest month by the average of the
+three before it *in the collection*, with no notion of whether those are
+adjacent months or a year apart. So it compared July 2026 (170
+pedestrian-relevant) against March–May **2025** (~239) and produced **0.71**
+— its clamp floor — which multiplied every route score in Dhaka from 3
+September onward. Nothing errored and nothing logged.
+
+`scripts/backfill_city_trend.js` fills the hole; `check_data_health.js` now
+detects it. The Kaggle rows themselves are sound: 2024-01 and 2024-06 were
+checked column-for-column against the DMP scans and match exactly, so the
+backfilled months are comparable with what is already there.
 
 The table is a **scanned image with no text layer**, so Gemini reads it
 multimodally — no OCR infrastructure. Only pedestrian-relevant categories
@@ -198,7 +225,7 @@ are deliberately Firebase-free so they run anywhere Node runs.
 | `ingestCrimeNews` | every 6 h | news → advisories |
 | `recordThanaAdvisory` | callable | validated advisory write |
 | `recordThanaIncident` | callable | validated incident write (feeds learned baseline) |
-| `recordCityCrimeMonth` | callable | manual citywide write, if the site walls up again |
+| `recordCityCrimeMonth` | callable | manual citywide write, if the site walls up again; also what `backfill_city_trend.js` writes through |
 | `onHazardReportCreated` | Firestore | clusters reports into zones |
 | `decayHazardZones` | scheduled | expires stale evidence |
 | `resolveHazardZone` | callable | clears a fixed hazard |
@@ -220,6 +247,43 @@ allows create-only under the caller's own uid.
 | News pipeline produces admissible advisories | live run: 58 items → 5 street-crime → 1 advisory | **Strong** |
 | Per-thana risk reflects Dhaka today | 2009 data | **Weak — stated** |
 | Backfilled baseline is accurate | dry run only, never recorded | **Unverified** |
+| `seedCrimeZones` has run | all 41 documents read from the collection by slug, 21 Sep | **Strong** |
+| Kaggle/PHQ rows match the DMP scans | 2024-01 and 2024-06 agree column-for-column with the published images | **Strong** |
+| The citywide multiplier means what it says | **No — it was 0.71 from comparing across a 13-month hole (§3)** | **Refuted** |
+
+---
+
+## 6a. How much of Dhaka does this call unsafe?
+
+Worth stating plainly, because it is not obvious from the design and it
+bears on every other decision here. With **no evidence recorded at all** —
+just `baseCrimeScore × temporalMultiplier × cityTrendMultiplier`:
+
+| | 2pm | 11pm |
+| --- | --- | --- |
+| at the live 0.71 multiplier | **1** of 41 | **11** of 41 |
+| at a neutral 1.0 | **1** of 41 | **13** of 41 |
+
+At night that is Dhanmondi, Gulshan, Kotwali, Motijheel, New Market, Paltan,
+Ramna, Shahbagh, Tejgaon, Bangshal and Jatrabari — essentially all of central
+Dhaka.
+
+Two things follow. First, the night figure is driven by the **temporal
+multiplier**, not by crime data: commercial cores take ×3.0 and a hotspot
+×5.0, so a mid-ranking base score clears 7 on the clock alone. Second,
+`baseCrimeScore` is a min-max normalisation anchored on Demra and Paltan, so
+"7" means *70% of the way from Dhaka's quietest thana to its noisiest in
+early 2009* — a **relative rank**, never an absolute claim that a place is
+dangerous.
+
+The mitigation already in the design is that this is a *preference*, not a
+refusal: `RoutePlanningService` takes the first safe alternative, and if none
+are safe it takes the lowest-risk one and flags `stillUnsafe`. Nobody is left
+without a route. But a warning that fires on a quarter of the city every
+night is a warning users learn to talk over, and that failure mode — alarm
+fatigue — is a real risk for someone who cannot see the map to disagree.
+**Not a data problem and not fixable by any backfill; a threshold problem.**
+Unresolved.
 
 ---
 
@@ -231,8 +295,15 @@ allows create-only under the caller's own uid.
   Mitigated by crowdsourced hazards, which come from users standing in the
   place; not eliminated.
 - **DMP gives citywide only** — it can say crime is up, never *where*.
-- **Extraction fails below 2025.** May 2019's layout returns zeros and is
-  refused rather than recorded. Widening the prompt would recover that history.
+- **DMP published no crime table before January 2024.** The 2019–2023 month
+  pages carry one image each, and it holds three *recovery* tables — arms,
+  stolen vehicles, narcotics — with no `অপরাধ চিত্র` table anywhere on the
+  page. Checked by eye for 2019-05, 2019-12, 2022-04 and 2023-06, against
+  every `wp-content/uploads` reference in the markup. This was previously
+  recorded as a layout problem a widened prompt would fix; it is not a
+  prompt problem and there is nothing there to recover.
+- **A gap in `cityTrend` is silent and consequential**, because the
+  multiplier compares across it rather than noticing it. See §3.
 - **Google News is unreachable from Cloud Functions**, so the backfill cannot
   be scheduled in GCP as things stand.
 
@@ -242,7 +313,90 @@ allows create-only under the caller's own uid.
 
 Ordered by value. Everything here is built or scoped; none of it is research.
 
-### 8.1 Run the news backfill — **built, dry-run only, not yet recorded**
+**8.0 blocks 8.1 and the city-trend repair.** Both backfills are built,
+tested and deliberately *not run*: each makes scores larger, and the open
+question is whether the threshold they are compared against means anything
+in the first place. Making a miscalibrated warning fire more often is not an
+improvement.
+
+### 8.0 The threshold is relative, the cut-off is absolute — **decided to fix first, not yet designed in code**
+
+§6a is the measurement: **11 of 41 thanas are flagged at 11pm with no crime
+evidence recorded at all**, and essentially all of central Dhaka is in that
+list. Nothing in any backfill caused it and no backfill can fix it.
+
+#### What is actually broken
+
+Four things, and only the last one is the bug.
+
+1. **The scale is relative.** `baseCrimeScore` is a min-max normalisation
+   anchored on Demra (quietest) and Paltan (noisiest) in early 2009. A 7
+   means "70% of the way up Dhaka's internal 2009 spread". It has never
+   encoded an absolute claim that a place is dangerous, and it cannot.
+2. **The stack is multiplicative and effectively unbounded.** base (1–10) ×
+   temporal (1–5) × city (0.7–1.5) × advisory (1–2) × learned (1–1.6) tops
+   out near 240, compared against a fixed 7. Past the threshold the number
+   stops discriminating: Dhanmondi at 17.0 and Shahbagh at 7.3 are both just
+   "unsafe".
+3. **Night is a blanket step.** Every commercial core takes ×3.0 at 8pm.
+   That is a statement about land use, not about a street, and combined with
+   (1) it is what pushes the city centre over.
+4. **One number answers two different questions.** *"Which of these
+   alternatives should I prefer?"* is comparative, and the engine does it
+   well — relative scores are exactly right for ranking. *"Should I warn
+   this person?"* is absolute, and the same number cannot answer it.
+
+**Only (4) is the defect.** The scoring is fine; deriving a spoken warning
+from a fixed cut on a relative scale is not.
+
+#### Why this matters more than it sounds
+
+The planner takes the first safe alternative and, when none are safe, the
+lowest-risk one with `stillUnsafe` set — so nobody is ever left without a
+route, and the comparative path is genuinely working. The harm is narrower
+and worse: a warning that fires on a quarter of the city every night is one
+users learn to talk over. For someone who cannot see the map to disagree,
+the warning *is* the information, and a warning trained to be ignored fails
+exactly when it is real. Alarm fatigue is the risk here, not misrouting.
+
+It also flattens a distinction a pedestrian actually needs. A thana that has
+been mid-ranking for twenty years and a thana with a live advisory this week
+produce the same score and the same sentence. Chronic and acute are
+different facts and want different words.
+
+#### The shape of the fix
+
+Three changes, in order. No new data — all of this is computable from what
+`crimeZones` already holds.
+
+1. **Keep the score for ranking; stop deriving the spoken warning from a
+   fixed cut on it.** `checkRouteSafety` keeps returning `riskScore`
+   unchanged, so route *selection* does not move at all.
+2. **Make the warning relative to the city at that hour.** Warn when a
+   route's risk sits in roughly the top decile *for that time of day*,
+   computed across all 41 thanas. This is self-calibrating: it means
+   "unusually risky for a Dhaka night" instead of "risky compared with Demra
+   at 2pm in 2009", and the 8pm cliff stops mattering because the whole
+   distribution moves with it.
+   - **The obvious objection, and the answer.** A purely relative rule
+     always finds a top decile, even on a genuinely quiet night. So it needs
+     an absolute floor underneath: below some level, say nothing regardless
+     of rank. Relative for the ceiling, absolute for the floor.
+3. **Say which kind of risk it is.** `advisoryFactor` and `learnedFactor`
+   are already separable from `baseCrimeScore` — they are collapsed into one
+   product before anything can use them. Keeping them apart in the response
+   lets the assistant distinguish "this area has been rough for a while"
+   from "something was reported here this week", which is the distinction
+   §6a says is being lost.
+
+#### How to know it worked
+
+The census in §6a is the before. Re-run it after: the night figure should
+fall well below 11 of 41, the daytime figure should stay at 1, and Paltan —
+the one genuinely evidence-backed outlier — should still be flagged at both
+hours. A fix that silences Paltan has gone too far.
+
+### 8.1 Run the news backfill — **built and verified; held pending 8.0**
 
 This is the one that retires the 2009 ranking as the app's idea of Dhaka.
 
@@ -277,9 +431,21 @@ assertion in a comment; it is now dated, citable evidence.
 
 Demra bottom on both sources is a useful control.
 
-**Before running, know that it changes routing** for an app currently in
-testers' hands. It is idempotent — keyed on source URL, earliest article per
-month — so re-running refreshes rather than duplicates.
+It is idempotent — keyed on source URL, earliest article per month — so
+re-running refreshes rather than duplicates.
+
+**Whether it changes routing depends entirely on the citywide multiplier,
+which is why the dry run now reads that multiplier and prints the
+arithmetic.** At the live 0.71 (§3), *no* thana crosses the threshold from
+this evidence: Mohammadpur reaches 6.6 at 11pm, Adabor 5.0. Repair the
+multiplier to ~1.0 first and the same evidence takes Mohammadpur to 9.3 and
+Adabor to 7.1, and Dhanmondi crosses in *daytime*.
+
+So the order is not arbitrary. Repair the multiplier first, then re-read this
+dry run — a table produced against a broken multiplier is describing an app
+that does not exist. And both of those come after 8.0, because both make
+scores larger and 8.0 is the question of what the threshold they cross
+actually means.
 
 **After running**, confirm it took:
 
@@ -290,49 +456,148 @@ firebase functions:log --only decayHazardZones --project ant-assistive-nav
 The hourly line has said "0 thanas gained an evidence month" since the day it
 shipped. It should stop saying that.
 
-### 8.2 Decide what happens to the 2009 `densityEstimate`
+### 8.2 What happens to the 2009 `densityEstimate` — **decided: retire on a condition**
 
-Once 8.1 has run, the baseline has a current per-thana signal for the first
-time, and the seed's role should be an explicit decision rather than drift.
+The two fields are different claims and stay treated differently:
 
-The two fields are different claims and should be treated differently:
+- **`categoryHint`** — *land use* (commercial core, transit hub,
+  residential). Not crime data, does not rot the same way, verifiable today.
+  **Keep regardless.**
+- **`densityEstimate`** — a 2009 *crime* measurement. Retire, but not yet,
+  and on a stated trigger rather than a vibe.
 
-- **`densityEstimate`** — a 2009 *crime* measurement. Stale. Candidate for
-  removal, replaced by a baseline derived from evidence months.
-- **`categoryHint`** — *land use* (commercial core, transit hub, residential).
-  Not crime data, does not rot the same way, verifiable today, and it drives
-  the temporal multiplier, which is one of the genuinely defensible parts of
-  the engine. **Keep this regardless.**
+#### Why not simply delete it, given it is seventeen years old
 
-If `densityEstimate` goes, `baseCrimeScore` needs a replacement — a flat
-neutral base, with evidence months providing all the geography. Note the cost
-honestly: the app then flags nothing on day one in thanas with no evidence yet.
+The fair challenge is: if it is stale, why does it get a vote today? Taking
+it seriously, `densityEstimate` bundles two claims:
 
-### 8.3 Widen extraction to pre-2025 layouts
+1. **How much crime there was.** A level. Worthless now, no argument.
+2. **Which areas ranked above which.** A ranking, and partly durable —
+   because it largely tracks land use, and land use moves slowly.
 
-`findTableImage` resolves scans back to 2019, but `extractCityRowViaGemini`
-returns all zeros for May 2019 — a different table layout — and
-`validateExtraction` correctly refuses it.
+But claim 2's durable part is **already carried by `categoryHint`**, which is
+current and checkable. So the field's useful content is mostly redundant and
+its unique content is the stale part. That argues for deletion.
 
-Recovering 2019–2024 would give a real multi-year citywide trend instead of a
-multiplier computed from a few months. Worth an hour: fetch a 2019 and a 2022
-scan, look at them, and add their column headings to the prompt.
+Two reasons it still survives this round — the first weak, the second not:
 
-### 8.4 Wire more news sources
+- *(weak, and not a good enough reason on its own)* `isNotoriousHotspot`
+  derives from it. That is a coupling argument, not a truth argument, and it
+  is fixable: hotspots could be re-derived as outliers in **evidence
+  months**, which would be strictly better — current, citable, and still
+  computed rather than hand-listed.
+- *(the real reason)* **The evidence corpus cannot carry the geography
+  yet.** 14 of 41 thanas have the 3+ months `learned_baseline` needs; 13
+  have none at all. Delete the seed today and 27 thanas share one
+  undifferentiated base. And a flat base does not rescue the low-ranked
+  thanas either, because `learnedFactor` *multiplies*: Pallabi has 7
+  evidence months and 1.27 × a flat 4.0 is still nowhere near 7. You would
+  lose the 2009 geography without gaining current geography.
 
-Currently two outlets, four feeds. Dhaka Tribune, bdnews24 and New Age all 403
-from everywhere, so they cannot be fetched directly — but **Google News
-aggregates them**, and the backfill already benefits. If the 6-hourly live
-pipeline needs more volume, routing it through Google News from outside GCP is
-the same trade the backfill already makes.
+#### The decision
 
-### 8.5 Confirm `seedCrimeZones` has actually run
+**Retire `densityEstimate` when ≥30 of 41 thanas hold 3+ evidence months.**
+At that point the seed becomes a fallback for the remainder rather than the
+base, and `isNotoriousHotspot` re-derives from evidence outliers instead of
+2009 density outliers.
 
-`task.md` records it returning `{"written":41}`, and `checkRouteSafety`
-verifiably found real zones on real polylines, so it has. But no one has read
-the collection directly this session — there are no application-default
-credentials on the dev machine, so counts came from function logs. Worth one
-direct read to close the loop.
+Running 8.1 is what starts the clock: it takes the count from 0 to 14 in one
+pass. `check_data_health.js` is the natural place to report progress toward
+the trigger.
+
+Note the interaction with 8.0: if the warning becomes a *relative* judgement,
+an undifferentiated base is much less harmful than it is today, because
+everything is being compared to everything else rather than to a fixed line.
+8.0 may well lower this threshold. Revisit it there rather than separately.
+
+### 8.3 ~~Widen extraction to pre-2025 layouts~~ — done, and the premise was wrong
+
+**Superseded on 21 September 2026.** The scans were fetched and looked at.
+There is no pre-2024 layout to widen the prompt for: DMP published no crime
+table at all before January 2024, only recovery tables (§7). The zeros were
+correct.
+
+What *was* missing was any way to read a month other than the newest, which
+is why `cityTrend` had a 13-month hole and the citywide multiplier sat on its
+0.71 floor (§3). Now built:
+
+- `EARLIEST_CRIME_TABLE_PERIOD`, `listMonthPages`, `listCrimeTableMonths`
+  and `fetchAndExtractMonth` in `lib/crime_report_ingestion.js`
+- `scripts/backfill_city_trend.js` — records every published month that is
+  missing, skipping the ones already held
+- the extraction prompt now returns `hasCrimeTable`, so a recovery-only
+  scan is refused by name rather than as "total cases is zero"
+
+```bash
+GEMINI_API_KEY=... node functions/scripts/backfill_city_trend.js --dry-run
+```
+
+The dry run needs no key and writes nothing. To record, the key can be fed
+straight from Secret Manager without it ever being pasted anywhere:
+
+```bash
+GEMINI_API_KEY="$(firebase functions:secrets:access GEMINI_API_KEY --project ant-assistive-nav)" node functions/scripts/backfill_city_trend.js
+```
+
+**The recording step is held, deliberately.** Filling the hole takes the
+multiplier from 0.71 to roughly 1.0, which raises **every route score in
+Dhaka by about 41%** the moment it lands, and takes the night-flagged count
+from 11 of 41 to 13 (§6a). It is the correct number — 0.71 is an artefact of
+comparing July 2026 against spring 2025 — but "more correct" and "safe to
+ship to people walking tonight" are different claims, and §8.0 is the one
+that decides the second. Verified ready on 21 September: 13 missing months
+identified, all 24 published months resolve, tooling tested.
+
+### 8.4 Wire more news sources — done, pending one deploy-time check
+
+Two Google News queries added to the Cloudflare Worker's `NEWS_FEEDS`
+(`src/collectors/news.js`). The Worker, not the Cloud Function: Google News
+answers 503 to GCP, and this is the project's one always-on host outside it.
+
+It is not a marginal addition. Probed against the live feeds on 21
+September, the four direct feeds produced **zero** candidates and Google News
+produced one — a Shah Ali stabbing published by The Daily Star that the Daily
+Star's *own two feeds* did not surface.
+
+Two details that matter:
+
+- **Direct feeds are ordered first.** `collectNews` keeps the first version
+  of a story, and an advisory's `sourceUrl` is its entire provenance. A
+  `news.google.com/rss/articles/CBMi…` redirect is a much worse record than
+  the publisher's own URL.
+- **Dedupe is by title as well as URL.** Google News rewrites every link, so
+  URL dedupe cannot see across sources and one story would be classified —
+  and paid for — twice.
+
+**Still unverified: whether Cloudflare's edge can reach Google News.** It
+works from a laptop, and this project's own rule is that this proves nothing.
+Hit the deployed `/news` endpoint and read the per-feed counts. If Google
+answers 503 there too, `fetchFeed` logs it and returns `[]`, so the four
+direct feeds carry on unchanged — this can only add, never subtract.
+
+```bash
+node cloudflare-worker/scripts/probe_feeds.mjs   # local funnel, free, no model calls
+```
+
+### 8.5 ~~Confirm `seedCrimeZones` has actually run~~ — done
+
+**Closed 21 September 2026. All 41 thana documents are present**, read
+directly from the collection, checked by slug against the seed rather than
+merely counted.
+
+The credentials barrier is gone rather than worked around:
+`check_data_health.js` no longer uses the Admin SDK and needs no `gcloud`.
+It signs in anonymously and reads over the Firestore REST API — every
+collection is `allow read: if request.auth != null`, and this is the same
+throwaway-token pattern two other scripts already use to *write*.
+
+```bash
+node functions/scripts/check_data_health.js
+```
+
+It also now watches `cityTrend` for mid-series gaps, which is how §3's
+13-month hole surfaced, and knows about `hazardZones`' timestamp fields,
+which it previously reported as "no timestamp field found".
 
 ### Not planned
 

@@ -57,17 +57,28 @@ class GeminiConfig {
   /// same: a very new or very popular routing target with everybody on it.
   /// Worth retrying in a few weeks; there is nothing to fix on this side.
   ///
-  /// So back to `gemini-3.6-flash`, which is where this should have stayed.
-  /// The 2026-09-03 move off it was a *daily* free-tier quota exhaustion
-  /// after a day of heavy testing, and daily quotas reset — two weeks have
-  /// passed. It is the full flash tier at the current generation, which is
-  /// what the testers' "lacking smartness" complaint actually wanted, and
-  /// flash-lite only ever existed to dodge a rate limit.
+  /// **And back to `gemini-3.5-flash-lite` on 2026-09-21, on this branch.**
   ///
-  /// If it exhausts again under a real tester round, that is the signal to
-  /// enable billing on `gen-lang-client-0943644282` — which today has
-  /// billing off, so it cannot be charged and cannot escape the free tier
-  /// either. See `BillableApi.gemini`.
+  /// `3.6-flash` was the pin for four days and is the better model, but its
+  /// *rate* limits — RPM and RPD, not the daily quota that reset — are
+  /// tighter than flash-lite's, and a tester round is exactly the bursty
+  /// sustained load those bound. The 2026-09-03 exhaustion was not bad luck;
+  /// it is what this tier does under a real session.
+  ///
+  /// So the trade is deliberate and narrow: a weaker model that answers every
+  /// time beats a stronger one that stops answering halfway through a round.
+  /// The eight prompt fixes on this branch exist precisely to lift
+  /// flash-lite's behaviour, and they have never been tested against it — the
+  /// 16-17 Sep bug list was flash-lite *without* them.
+  ///
+  /// It is also what the APK currently in Firebase runs (release 1.0.0 (1),
+  /// built from `ff3dff9`). Holding the model still is what makes the next
+  /// round a readable experiment: the prompt changed, and nothing else did.
+  ///
+  /// Revisit once billing is enabled on `gen-lang-client-0943644282` — which
+  /// today has billing off, so it cannot be charged and cannot escape the
+  /// free tier either. That is what actually buys headroom on 3.6. See
+  /// `BillableApi.gemini`.
   ///
   /// Superseded reasoning, kept because the route here was not straight:
   ///
@@ -98,5 +109,5 @@ class GeminiConfig {
   /// Cost is bounded in the client, not by a budget alert — see
   /// `BillableApi.gemini` in `api_budget.dart` for why that distinction
   /// matters and what the ceiling actually is.
-  static const String modelName = 'gemini-3.6-flash';
+  static const String modelName = 'gemini-3.5-flash-lite';
 }

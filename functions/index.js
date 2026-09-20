@@ -49,6 +49,7 @@ const {
 const { isExpired, ttlMsFor } = require("./lib/hazard_decay");
 const { PEDESTRIAN_RELEVANT_CATEGORIES, fetchAndExtractLatestReport } = require("./lib/crime_report_ingestion");
 const { collectAdvisories } = require("./lib/news_ingestion");
+const { warnThresholdFor, zonesWorthMentioning, riskKindOf } = require("./lib/risk_threshold");
 
 initializeApp();
 
@@ -417,10 +418,37 @@ exports.checkRouteSafety = onCall(async (request) => {
   const riskScore = Math.max(crimeRisk, hazardRisk);
   const dangerousZones = evaluatedZones.filter((z) => z.effectiveScore > threshold);
 
+  // Whether to *say* something, which is a different question from whether
+  // to route around something — see `lib/risk_threshold.js`. The fixed
+  // threshold above sits between the median and p75 of the night
+  // distribution, so it calls a quarter of Dhaka dangerous after 8pm and
+  // teaches users to ignore the warning. This is compared against the
+  // city's own spread at this hour instead, with the old threshold kept as
+  // a floor so the set of routes that warn is always a subset of the set
+  // that warns today.
+  //
+  // `zones` rather than `hitZones`: the reference distribution is the whole
+  // city, not the handful of thanas this particular route happens to cross.
+  const warnThreshold = warnThresholdFor(zones, dhakaHour, cityTrendMultiplier);
+  const warnZones = zonesWorthMentioning(evaluatedZones, warnThreshold);
+  // A confirmed hazard always warrants saying something, whatever the
+  // ambient crime distribution looks like: it is three independent people
+  // reporting one specific obstruction, not a property of the
+  // neighbourhood, and `hazardWeight` is on a 1-10 scale that a night-time
+  // percentile would swallow whole.
+  const shouldWarn = warnZones.length > 0 || blockingHazards.length > 0;
+
   return {
     safe: dangerousZones.length === 0 && blockingHazards.length === 0,
     riskScore,
     threshold,
+    // Speech-facing, and deliberately separate from `safe`/`threshold`,
+    // which still mean what they always did so route *selection* is
+    // untouched by this.
+    shouldWarn,
+    warnThreshold,
+    warnZones,
+    riskKind: riskKindOf(warnZones, blockingHazards.length > 0),
     evaluatedZones,
     dangerousZones,
     // Module 5 additions. Named separately from `dangerousZones` rather

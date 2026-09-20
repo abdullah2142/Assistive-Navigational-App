@@ -7,12 +7,12 @@ Written against the deployed system on 16 September 2026; revised 21
 September. Companion to `04_module_plan_crime.md`, which is the plan; this is
 what actually runs.
 
-**Two things changed on 21 September and both are load-bearing.** The
+**Three things changed on 21 September and all are load-bearing.** The
 citywide multiplier was found sitting on its floor because `cityTrend` has a
-13-month hole (§3), and a census showed the night threshold already flags 11
-of 41 thanas before any crime data is involved (§6a). The backfills that
-would have made those scores larger are built and held until the threshold
-question in §8.0 is settled.
+13-month hole (§3). A census showed the night threshold flagging 11 of 41
+thanas before any crime data is involved (§6a) — now fixed, down to 4, by
+separating "route around this" from "say something about this" (§8.0). The
+two backfills that make scores larger are built and tested but still unrun.
 
 ---
 
@@ -23,8 +23,13 @@ walk right now?**
 
 `RoutePlanningService` asks Google for every walking alternative, scores each
 through the `checkRouteSafety` Cloud Function, and takes the **first safe
-one**. If none are safe it takes the lowest-risk candidate and flags
-`stillUnsafe`, so the assistant can say so rather than pretend.
+one**. If none are safe it takes the lowest-risk candidate.
+
+Two questions, deliberately answered separately since §8.0: **`safe`** decides
+whether to keep looking for a better route, and **`shouldWarn`** decides
+whether to say anything. They are not the same question, and one number
+answering both is what made the app warn about a quarter of Dhaka every
+night.
 
 The verdict is deliberately time-aware: the same route can be safe at 2pm and
 unsafe at 11pm, because that is true of Dhaka.
@@ -57,6 +62,20 @@ safe = no thana scores above 7  AND  no confirmed hazard on the route
 
 `max`, not a sum or an average, and that is deliberate: one severe signal must
 not be diluted by everything else being quiet.
+
+Whether the app *says* anything is a separate calculation, because 7 is a
+position in a 2009 ranking rather than a level of danger, and at night it
+sits below the city's own 75th percentile:
+
+```
+warnThreshold = max( p90 of every thana's ambient risk at this hour , 7 )
+
+shouldWarn = riskScore > warnThreshold
+             OR a thana on the route has a live advisory and scores above 7
+             OR the route passes a confirmed hazard
+```
+
+See §8.0. `safe` still decides routing; only the spoken warning moved.
 
 ### The five factors
 
@@ -219,7 +238,7 @@ are deliberately Firebase-free so they run anywhere Node runs.
 
 | Function | Trigger | Job |
 | --- | --- | --- |
-| `checkRouteSafety` | callable | scores one route |
+| `checkRouteSafety` | callable | scores one route, and decides separately whether to warn about it (§8.0) |
 | `seedCrimeZones` | callable | writes the 41 thana documents |
 | `scrapeDmpCrimeReports` | 12th monthly | citywide trend from DMP |
 | `ingestCrimeNews` | every 6 h | news → advisories |
@@ -250,10 +269,15 @@ allows create-only under the caller's own uid.
 | `seedCrimeZones` has run | all 41 documents read from the collection by slug, 21 Sep | **Strong** |
 | Kaggle/PHQ rows match the DMP scans | 2024-01 and 2024-06 agree column-for-column with the published images | **Strong** |
 | The citywide multiplier means what it says | **No — it was 0.71 from comparing across a 13-month hole (§3)** | **Refuted** |
+| The warning rule can never warn more than the old one | asserted over all 24 hours x 4 multipliers, `risk_threshold_test.js` | **Strong** |
+| The warning rule still flags the one real outlier | Paltan warns at every hour tested | **Strong** |
+| The new wording helps a real user | nobody has walked with it | **Unverified** |
 
 ---
 
 ## 6a. How much of Dhaka does this call unsafe?
+
+*(Measured before §8.0. Kept as the baseline that change is judged against.)*
 
 Worth stating plainly, because it is not obvious from the design and it
 bears on every other decision here. With **no evidence recorded at all** —
@@ -283,7 +307,12 @@ without a route. But a warning that fires on a quarter of the city every
 night is a warning users learn to talk over, and that failure mode — alarm
 fatigue — is a real risk for someone who cannot see the map to disagree.
 **Not a data problem and not fixable by any backfill; a threshold problem.**
-Unresolved.
+
+**Fixed on 21 September — see §8.0.** The table above still describes what
+`safe` does, because route *selection* was left alone deliberately. What
+changed is what gets spoken: 11 of 41 at night became 4, by comparing a
+route against the city's own spread at that hour instead of against a
+constant. Daytime is unchanged at 1.
 
 ---
 
@@ -313,13 +342,20 @@ Unresolved.
 
 Ordered by value. Everything here is built or scoped; none of it is research.
 
-**8.0 blocks 8.1 and the city-trend repair.** Both backfills are built,
-tested and deliberately *not run*: each makes scores larger, and the open
-question is whether the threshold they are compared against means anything
-in the first place. Making a miscalibrated warning fire more often is not an
-improvement.
+**8.0 is done, which unblocks the two held backfills.** Both make scores
+larger, and the reason for holding them was that the threshold they are
+compared against did not mean anything stable. It does now — and because the
+new rule can only ever warn *less* than the old one, the backfills no longer
+carry the risk that stopped them. They remain unrun pending a decision to
+run them; see 8.1 and 8.3.
 
-### 8.0 The threshold is relative, the cut-off is absolute — **decided to fix first, not yet designed in code**
+### 8.0 The threshold is relative, the cut-off is absolute — **done**
+
+**Built 21 September 2026** in `functions/lib/risk_threshold.js`, wired into
+`checkRouteSafety`, `SafetyVerdict` and the assistant's spoken replies.
+Night-time warnings drop from **13 of 41 thanas to 4**; daytime stays at 1.
+Route *selection* is untouched. What follows is the reasoning; the
+implementation notes are at the end.
 
 §6a is the measurement: **11 of 41 thanas are flagged at 11pm with no crime
 evidence recorded at all**, and essentially all of central Dhaka is in that
@@ -389,12 +425,67 @@ Three changes, in order. No new data — all of this is computable from what
    from "something was reported here this week", which is the distinction
    §6a says is being lost.
 
-#### How to know it worked
+#### What it actually does
 
-The census in §6a is the before. Re-run it after: the night figure should
-fall well below 11 of 41, the daytime figure should stay at 1, and Paltan —
-the one genuinely evidence-backed outlier — should still be flagged at both
-hours. A fix that silences Paltan has gone too far.
+`warnThreshold = max(p90 of the city at this hour, 7)`, and a route speaks
+when its `riskScore` clears that — **or** when one of its thanas carries a
+live advisory and clears 7. `safe`, `threshold` and `dangerousZones` are
+untouched, so the planner's "first safe route, else lowest-risk" loop
+behaves identically.
+
+| | 2pm | 11pm |
+| --- | --- | --- |
+| `warnThreshold` | 7 (the floor binds) | 16.2 (the distribution binds) |
+| warns | 1 of 41 — Paltan | 4 of 41 — Dhanmondi, Kotwali, Motijheel, Paltan |
+| was | 1 of 41 | 13 of 41 |
+
+**It cannot warn where the old rule did not.** The floor *is* the old
+threshold and the rule takes the maximum, so the warned set is always a
+subset. Asserted across all 24 hours × four multipliers rather than argued:
+`risk_threshold_test.js`, "THE load-bearing property".
+
+Worked examples, at 11pm with the live 0.71 multiplier:
+
+| Route | `safe` | risk | speaks |
+| --- | --- | --- | --- |
+| Motijheel→Paltan→Shahbagh | false | 35.5 | **yes** — chronic |
+| Ramna | false | 7.8 | no — unsafe, but ordinary for the hour |
+| Shahbagh | false | 7.3 | no |
+| Shahbagh, live `high` advisory | false | 11.0 | **yes** — acute |
+| Mirpur→Pallabi | true | 2.7 | no |
+
+That fourth row is why the advisory exception exists. A pure percentile
+silenced 11.0 against a threshold of 16.2 — current, sourced reporting
+naming a neighbourhood, buried by the ambient distribution. It was found by
+simulating real routes, not by reading the code. Advisories now need only
+clear the floor.
+
+#### Chronic vs acute
+
+`riskKind` is returned alongside, so the assistant distinguishes a place
+that has been mid-ranking for years from one where something was reported
+this week:
+
+- chronic — *"passes through an area that's riskier than most at this hour"*
+- acute — *"there have been recent reports about an area on the way"*
+
+Only the second is something a pedestrian can act on tonight.
+
+#### How to know it still works
+
+The census in §6a is the before. Night should stay well below 11 of 41,
+daytime at 1, and **Paltan must still warn at every hour** — the one thana
+the source data genuinely supports as an outlier (3.1σ). A recalibration
+that silences Paltan has overshot, which is a test rather than a note.
+
+#### Still open
+
+The two tuning constants are judgement, not measurement. `WARN_PERCENTILE`
+0.9 selects four thanas at both hours; p95 would select two and drop Kotwali
+and Motijheel, which seems the wrong pair to go quiet about, but nobody has
+tested that against real walking. And `ABSOLUTE_FLOOR` stays at 7 purely to
+keep the change conservative — lowering it is a real decision on its own
+evidence, not a tweak to slip in here.
 
 ### 8.1 Run the news backfill — **built and verified; held pending 8.0**
 

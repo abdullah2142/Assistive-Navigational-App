@@ -387,7 +387,14 @@ class FunctionCallExecutor {
       case 'request_route':
         final destination = result['destination'] as String? ?? '';
         final rerouted = result['wasRerouted'] == true;
-        final stillUnsafe = result['stillUnsafe'] == true;
+        // `shouldWarn`, not `stillUnsafe`. The latter is the routing
+        // decision — whether a safer alternative was worth looking for — and
+        // it is false for roughly a quarter of Dhaka after 8pm before any
+        // crime evidence is involved, because the fixed threshold it uses
+        // sits below the 75th percentile of the night distribution. Speaking
+        // on every one of those is how a warning becomes background noise.
+        // See `functions/lib/risk_threshold.js`.
+        final stillUnsafe = result['shouldWarn'] == true;
         // Which way, how far, how long — appended to every outcome below.
         //
         // Reported: after "take me to Labaid" the only thing said was that
@@ -396,11 +403,23 @@ class FunctionCallExecutor {
         // ask "which way?" of a line they cannot look at.
         final summary = _routeSummary(result, language);
         if (stillUnsafe) {
+          // Chronic and acute get different words. Collapsing them is what
+          // made the app say the same sentence about a neighbourhood that
+          // has been rough for twenty years and one where a mugging spree
+          // was reported this week — and "recently reported" is the half a
+          // pedestrian can actually act on tonight.
+          final acute = result['riskKind'] == 'acute';
           return _withHazardNotice(
             bn
-                ? '$destination-এর সবচেয়ে নিরাপদ পথটাও কিছুটা ঝুঁকিপূর্ণ এলাকা দিয়ে যায় — সাবধানে থাকবেন। $summary'
-                : "Even the safest route I found to $destination passes through a somewhat risky area — "
-                    'please stay alert. $summary',
+                ? (acute
+                    ? '$destination-এর পথে একটা এলাকা নিয়ে সম্প্রতি খবর এসেছে — সাবধানে থাকবেন। $summary'
+                    : '$destination-এর সবচেয়ে নিরাপদ পথটাও এমন একটা এলাকা দিয়ে যায় যেটা এ সময়ে '
+                        'তুলনামূলক ঝুঁকিপূর্ণ — সাবধানে থাকবেন। $summary')
+                : (acute
+                    ? 'There have been recent reports about an area on the way to $destination — '
+                        'please stay alert. $summary'
+                    : "Even the safest route I found to $destination passes through an area that's "
+                        'riskier than most at this hour — please stay alert. $summary'),
             result,
             language,
           );
@@ -442,10 +461,15 @@ class FunctionCallExecutor {
         // an alternative is only measured when it is actually taken. Saying
         // nothing here would quietly walk them somewhere the app already
         // knows is worse.
-        final warning = result['stillUnsafe'] == true
-            ? (bn
-                ? ' এই পথটা কিছুটা ঝুঁকিপূর্ণ এলাকা দিয়ে যায় — সাবধানে থাকবেন।'
-                : ' This one passes through a somewhat risky area — please stay alert.')
+        final warning = result['shouldWarn'] == true
+            ? (result['riskKind'] == 'acute'
+                ? (bn
+                    ? ' এই পথের একটা এলাকা নিয়ে সম্প্রতি খবর এসেছে — সাবধানে থাকবেন।'
+                    : ' There have been recent reports about an area on this one — please stay alert.')
+                : (bn
+                    ? ' এই পথটা এ সময়ের তুলনায় ঝুঁকিপূর্ণ একটা এলাকা দিয়ে যায় — সাবধানে থাকবেন।'
+                    : " This one passes through an area that's riskier than most at this hour — "
+                        'please stay alert.'))
             : '';
         return _withHazardNotice('$base$warning $remaining', result, language);
       case 'update_setting':
@@ -1089,6 +1113,8 @@ class FunctionCallExecutor {
               'fromSavedPlace': saved != null,
               'wasRerouted': choice.wasRerouted,
               'stillUnsafe': !choice.verdict.safe,
+              'shouldWarn': choice.verdict.shouldWarn,
+              'riskKind': choice.verdict.riskKind,
               // Which way, how far, how long. Announced rather than kept to
               // ourselves: a user who cannot see the map cannot object to a
               // route they were never told about.
@@ -1169,6 +1195,8 @@ class FunctionCallExecutor {
             'distanceMeters': choice.distanceMeters,
             'durationSeconds': choice.durationSeconds,
             'stillUnsafe': !choice.verdict.safe,
+            'shouldWarn': choice.verdict.shouldWarn,
+            'riskKind': choice.verdict.riskKind,
             'confirmedHazards': choice.verdict.blockingHazards.map((h) => h.subCategory).toList(),
             'reportedHazards': choice.verdict.hazardWarnings.map((h) => h.subCategory).toList(),
           },
@@ -1220,6 +1248,8 @@ class FunctionCallExecutor {
           'distanceMeters': choice.distanceMeters,
           'durationSeconds': choice.durationSeconds,
           'stillUnsafe': !choice.verdict.safe,
+          'shouldWarn': choice.verdict.shouldWarn,
+          'riskKind': choice.verdict.riskKind,
           'alternativeCount': remaining.length,
           'confirmedHazards': choice.verdict.blockingHazards.map((h) => h.subCategory).toList(),
           'reportedHazards': choice.verdict.hazardWarnings.map((h) => h.subCategory).toList(),

@@ -42,20 +42,67 @@ test("all 41 thanas are searched", () => {
   assert.ok(queryUrlFor("Mohammadpur").startsWith("https://news.google.com/rss/search?q="));
 });
 
-test("one incident per month, not per article", () => {
-  // The baseline counts months. Twenty stories in one month and one in the
-  // next is two months either way — and keeping only one per month stops a
-  // single heavily-covered event outweighing a quieter month in which
-  // something genuinely happened.
+test("at most three incidents per month — enough to corroborate, not enough to rank", () => {
+  // This kept ONE per month until 2026-09-21, and the consequence was a
+  // ledger that could not produce a single evidence month:
+  // `evidenceMonthsFromIncidents` needs three distinct incidents in a month
+  // before it counts, so one-per-month never reaches the gate. Measured
+  // live before the fix: 107 incidents, 111 (thana, month) cells, zero
+  // qualifying, no route score moved.
   const incidents = incidentsFrom([
     item({ link: "https://x.com/1", pubDate: "Tue, 01 Sep 2026 10:00:00 +0600" }),
     item({ link: "https://x.com/2", pubDate: "Wed, 09 Sep 2026 10:00:00 +0600" }),
     item({ link: "https://x.com/3", pubDate: "Thu, 10 Sep 2026 10:00:00 +0600" }),
-    item({ link: "https://x.com/4", pubDate: "Fri, 01 Aug 2026 10:00:00 +0600" }),
+    item({ link: "https://x.com/4", pubDate: "Fri, 11 Sep 2026 10:00:00 +0600" }),
+    item({ link: "https://x.com/5", pubDate: "Sat, 12 Sep 2026 10:00:00 +0600" }),
+    item({ link: "https://x.com/6", pubDate: "Fri, 01 Aug 2026 10:00:00 +0600" }),
   ], MOHAMMADPUR, NOW);
 
-  assert.strictEqual(incidents.length, 2);
-  assert.deepStrictEqual(incidents.map((i) => i.period), ["2026-08", "2026-09"]);
+  // Five September stories contribute three; one August story contributes
+  // one. The cap is what stops raw article volume — which encodes
+  // newsworthiness, not incidence — from ranking neighbourhoods.
+  assert.strictEqual(incidents.filter((i) => i.period === "2026-09").length, 3);
+  assert.strictEqual(incidents.filter((i) => i.period === "2026-08").length, 1);
+  assert.strictEqual(incidents.length, 4);
+});
+
+test("a heavily covered month and a barely covered one are still one month each", () => {
+  // The property the old one-per-month rule was protecting, kept intact.
+  const many = incidentsFrom(
+    Array.from({ length: 40 }, (_, i) =>
+      item({ link: `https://x.com/${i}`, pubDate: `Tue, 0${(i % 9) + 1} Sep 2026 10:00:00 +0600` })),
+    MOHAMMADPUR, NOW,
+  );
+  const few = incidentsFrom([
+    item({ link: "https://y.com/1", pubDate: "Tue, 01 Sep 2026 10:00:00 +0600" }),
+    item({ link: "https://y.com/2", pubDate: "Wed, 02 Sep 2026 10:00:00 +0600" }),
+    item({ link: "https://y.com/3", pubDate: "Thu, 03 Sep 2026 10:00:00 +0600" }),
+  ], MOHAMMADPUR, NOW);
+
+  assert.strictEqual(many.length, few.length, "40 stories must weigh the same as 3");
+  assert.strictEqual(new Set(many.map((i) => i.period)).size, 1);
+});
+
+test("one article in a month still fails the corroboration gate", () => {
+  // The gate the cap must not defeat: a single story is news, not a pattern.
+  const { evidenceMonthsFromIncidents } = require("../lib/thana_incident");
+  const lonely = incidentsFrom([
+    item({ link: "https://x.com/only", pubDate: "Tue, 01 Sep 2026 10:00:00 +0600" }),
+  ], MOHAMMADPUR, NOW);
+  assert.strictEqual(lonely.length, 1);
+  assert.deepStrictEqual(evidenceMonthsFromIncidents(lonely, NOW), []);
+});
+
+test("three distinct articles in a month do produce an evidence month", () => {
+  // End to end across the two modules that disagreed: what the backfill
+  // collects must be something the ledger can actually count.
+  const { evidenceMonthsFromIncidents } = require("../lib/thana_incident");
+  const corroborated = incidentsFrom([
+    item({ link: "https://x.com/1", pubDate: "Tue, 01 Sep 2026 10:00:00 +0600" }),
+    item({ link: "https://x.com/2", pubDate: "Wed, 02 Sep 2026 10:00:00 +0600" }),
+    item({ link: "https://x.com/3", pubDate: "Thu, 03 Sep 2026 10:00:00 +0600" }),
+  ], MOHAMMADPUR, NOW);
+  assert.deepStrictEqual(evidenceMonthsFromIncidents(corroborated, NOW), ["2026-09"]);
 });
 
 test("the same run twice picks the same article", () => {

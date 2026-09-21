@@ -30,6 +30,7 @@ const { collectBackfill } = require("../lib/news_backfill");
 const { THANA_CRIME_SEED, densityToScore, isNotoriousHotspot } = require("../data/dhaka_thana_crime_seed");
 const { temporalMultiplier } = require("../lib/temporal_weighting");
 const { learnedAdjustment } = require("../lib/learned_baseline");
+const { evidenceMonthsFromIncidents } = require("../lib/thana_incident");
 
 const FIREBASE_WEB_API_KEY = "AIzaSyAXm0kMvv5odpkkrHKRNZz2Cm6mvTx2uDg";
 const PROJECT_ID = "ant-assistive-nav";
@@ -102,13 +103,21 @@ function projectImpact(results, cityMultiplier) {
     if (!seed) continue;
     const base = densityToScore(seed.densityEstimate);
     const hotspot = isNotoriousHotspot(seed);
-    const learned = learnedAdjustment(r.incidents.map((i) => i.period), nowMs);
+    // Through `evidenceMonthsFromIncidents`, not straight off the incident
+    // periods. Those are different numbers and the difference is the whole
+    // point: the ledger only counts a month once it holds three distinct
+    // incidents. Projecting from raw periods assumes every month with any
+    // reporting counts, which overstated this backfill's effect by a wide
+    // margin before anyone noticed the ledger was producing nothing at all.
+    const evidenceMonths = evidenceMonthsFromIncidents(r.incidents, nowMs);
+    const learned = learnedAdjustment(evidenceMonths, nowMs);
 
     const at = (hour, factor) =>
       base * temporalMultiplier(seed.categoryHint, hour, { isHotspot: hotspot }) * cityMultiplier * factor;
     rows.push({
       name: r.thana.name,
-      months: r.incidents.length,
+      months: evidenceMonths.length,
+      articles: r.incidents.length,
       learned,
       dayBefore: at(DAY_HOUR, 1), dayAfter: at(DAY_HOUR, learned),
       nightBefore: at(NIGHT_HOUR, 1), nightAfter: at(NIGHT_HOUR, learned),
@@ -118,20 +127,20 @@ function projectImpact(results, cityMultiplier) {
 }
 
 function printImpact(results, cityMultiplier, multiplierIsLive) {
-  const rows = projectImpact(results, cityMultiplier).filter((r) => r.months > 0);
+  const rows = projectImpact(results, cityMultiplier).filter((r) => r.articles > 0);
   const f = (n) => n.toFixed(1).padStart(5);
   const crossings = [];
 
   console.log("\nWhat recording this would do to route scoring");
   console.log(`(base x time-of-day x citywide ${cityMultiplier}${multiplierIsLive ? " (live)" : " (assumed)"} x learned;`
     + ` a route is passed over above ${UNSAFE_ABOVE})\n`);
-  console.log(`  ${"thana".padEnd(20)} ${"mo".padStart(3)} ${"x".padStart(5)}  ${"day".padStart(11)}   ${"11pm".padStart(11)}`);
+  console.log(`  ${"thana".padEnd(20)} ${"art".padStart(3)} ${"mo".padStart(3)} ${"x".padStart(5)}  ${"day".padStart(11)}   ${"11pm".padStart(11)}`);
   for (const r of rows) {
     const crosses = r.nightBefore <= UNSAFE_ABOVE && r.nightAfter > UNSAFE_ABOVE;
     const alsoDay = r.dayBefore <= UNSAFE_ABOVE && r.dayAfter > UNSAFE_ABOVE;
     if (crosses || alsoDay) crossings.push(r.name);
     console.log(
-      `  ${r.name.padEnd(20)} ${String(r.months).padStart(3)} ${r.learned.toFixed(2).padStart(5)}`
+      `  ${r.name.padEnd(20)} ${String(r.articles).padStart(3)} ${String(r.months).padStart(3)} ${r.learned.toFixed(2).padStart(5)}`
       + `  ${f(r.dayBefore)}->${f(r.dayAfter)}   ${f(r.nightBefore)}->${f(r.nightAfter)}`
       + `${crosses || alsoDay ? "   <-- newly passed over" : ""}`,
     );

@@ -19,7 +19,10 @@ what actually runs.
    lower it, because a fall in *recorded* crime cannot be told apart from a
    fall in police record-keeping (§3).
 
-Still unrun: the per-thana news backfill (§8.1).
+The per-thana news backfill has also been run (§8.1) — and it turned out the
+collector and the ledger disagreed on what an evidence month is, so it had
+been incapable of producing one. Fixed; the honest effect on routing is still
+nil.
 
 ---
 
@@ -350,7 +353,8 @@ allows create-only under the caller's own uid.
 | DMP extraction is accurate | Aug 2026 and Apr 2025 both match the scan by hand | **Strong** |
 | News pipeline produces admissible advisories | live run: 58 items → 5 street-crime → 1 advisory | **Strong** |
 | Per-thana risk reflects Dhaka today | 2009 data | **Weak — stated** |
-| Backfilled baseline is accurate | dry run only, never recorded | **Unverified** |
+| Backfilled baseline is accurate | 171 incidents recorded, 21 thana-months corroborated; only Mohammadpur clears the 3-month minimum | **Weak — stated** |
+| The backfill changes any route today | it does not; the one learned adjustment is 7% and crosses nothing | **Strong** |
 | `seedCrimeZones` has run | all 41 documents read from the collection by slug, 21 Sep | **Strong** |
 | Kaggle/PHQ rows match the DMP scans | 2024-01 and 2024-06 agree column-for-column with the published images | **Strong** |
 | The citywide multiplier means what it says | **No — it was 0.71 from comparing across a 13-month hole (§3)** | **Refuted** |
@@ -429,8 +433,10 @@ constant. Daytime is unchanged at 1.
 
 Ordered by value. Everything here is built or scoped; none of it is research.
 
-**8.0 is done, and the city-trend repair has been run.** What remains is
-8.1, the per-thana news backfill.
+**All of §8.0–8.5 is now done or decided.** What remains is §8.2's trigger —
+retire `densityEstimate` once ≥30 of 41 thanas hold 3+ evidence months. After
+§8.1's run that count is **1**, so this is a long way off, and §8.1 explains
+why the evidence base is far thinner than it looked.
 
 ### 8.0 The threshold is relative, the cut-off is absolute — **done**
 
@@ -570,9 +576,7 @@ tested that against real walking. And `ABSOLUTE_FLOOR` stays at 7 purely to
 keep the change conservative — lowering it is a real decision on its own
 evidence, not a tweak to slip in here.
 
-### 8.1 Run the news backfill — **built and verified; held pending 8.0**
-
-This is the one that retires the 2009 ranking as the app's idea of Dhaka.
+### 8.1 Run the news backfill — **run, and it retires its own headline claim**
 
 ```bash
 node functions/scripts/backfill_thana_evidence.js --dry-run   # inspect first
@@ -580,55 +584,75 @@ node functions/scripts/backfill_thana_evidence.js             # record
 ```
 
 Must run **outside GCP** — Google News returns 503 to Cloud Functions.
+Idempotent: keyed on source URL, earliest articles of each month.
 
-Dry run on 16 September found **97 incidents across 28 thanas**, 13 of them with
-the 3+ months `learned_baseline` needs before it moves a score:
+**Run 21 September: 171 incidents across 32 thanas.** The honest effect on
+routing is *nothing* — no thana crosses the threshold, at either hour, and
+no route changes. That is a far smaller result than this section used to
+promise, and the gap is worth recording rather than quietly editing out.
 
-| Thana | 2009 score | News months | Rank 2009 → news |
-| --- | --- | --- | --- |
-| Mohammadpur | 3.8 | 10 | 6th → **1st** |
-| Dhanmondi | 6.0 | 8 | 1st → 2nd |
-| Jatrabari | 4.9 | 8 | 3rd → 3rd |
-| Gulshan | 5.4 | 7 | 2nd → 4th |
-| Mirpur | 2.4 | 7 | 8th → 5th |
-| Pallabi | 1.7 | 7 | 11th → 6th |
-| Uttara | 4.1 | 5 | 5th → 7th |
-| Hazaribagh | 1.3 | 4 | 13th → 8th |
-| Shahbagh | 4.7 | 4 | 4th → 10th |
-| Rampura | 3.7 | 4 | 7th → 12th |
-| Demra | 1.0 | 0 | 14th → 14th |
+#### What the old projection got wrong
 
-Mohammadpur going 6th to 1st is the point. `lib/thana_advisory.js`'s own doc
-comment says the seed scores it 3.8, "nowhere near the hotspot threshold, while
-anyone living in Dhaka today would tell you it belongs there." That was an
-assertion in a comment; it is now dated, citable evidence.
+This section claimed 13 thanas with enough evidence to move a score, and
+"Mohammadpur 6th → 1st". Both counted **months in which at least one article
+named the thana**. The engine counts something else:
+`evidenceMonthsFromIncidents` only credits a month once it holds
+`INCIDENTS_PER_EVIDENCE_MONTH` — **three distinct articles** — matching every
+other corroboration threshold in the codebase.
 
-Demra bottom on both sources is a useful control.
+And `news_backfill.js` deliberately recorded exactly **one article per
+month**, reasoning that the baseline counts months so extra articles add
+nothing. The two rules were written against each other: a one-per-month
+ledger can never reach a three-per-month gate.
 
-It is idempotent — keyed on source URL, earliest article per month — so
-re-running refreshes rather than duplicates.
+Measured after the first run: 107 incidents, 111 (thana, month) cells,
+**zero** reaching the threshold. The backfill had been structurally
+incapable of producing a single evidence month, and nothing in the system
+said so — an empty `evidenceMonths` looks exactly like a city with no
+reporting in it.
 
-**Whether it changes routing depends entirely on the citywide multiplier,
-which is why the dry run now reads that multiplier and prints the
-arithmetic.** At the live 0.71 (§3), *no* thana crosses the threshold from
-this evidence: Mohammadpur reaches 6.6 at 11pm, Adabor 5.0. Repair the
-multiplier to ~1.0 first and the same evidence takes Mohammadpur to 9.3 and
-Adabor to 7.1, and Dhanmondi crosses in *daytime*.
+#### The fix, and the real numbers
 
-So the order is not arbitrary. Repair the multiplier first, then re-read this
-dry run — a table produced against a broken multiplier is describing an app
-that does not exist. And both of those come after 8.0, because both make
-scores larger and 8.0 is the question of what the threshold they cross
-actually means.
+`incidentsFrom` now keeps up to three distinct articles per month — exactly
+the gate, no more. A month with one story still fails to count; a month with
+forty contributes the same single evidence month as a month with three, so
+raw volume still cannot rank neighbourhoods.
 
-**After running**, confirm it took:
+Re-run: 171 incidents, **21 (thana, month) cells reaching three**, and under
+the engine's own rule:
+
+| Thana | articles | evidence months | ×learned | 11pm |
+| --- | --- | --- | --- | --- |
+| Mohammadpur | 21 | **4** | 1.07 | 6.4 → 6.8 |
+| Gulshan | 16 | 3 | 1.00 | 17.0 (unchanged) |
+| Jatrabari | 16 | 2 | 1.00 | 15.4 (unchanged) |
+| everything else | — | ≤2 | 1.00 | unchanged |
+
+`learnedAdjustment` returns exactly 1.0 at three months and only begins
+moving at four, so **Mohammadpur is the only thana in Dhaka with any learned
+adjustment at all, and it is 7%.** It does not cross 7.
+
+Two years of Google News coverage, filtered for street crime against a
+person, naming exactly one thana, corroborated three times inside a single
+month, supports precisely one neighbourhood — and weakly. That is the real
+strength of this evidence base, and the earlier table overstated it by
+roughly an order of magnitude.
+
+Mohammadpur being the one that surfaces is still the point
+`lib/thana_advisory.js` makes in its own doc comment: the seed scores it 3.8,
+"nowhere near the hotspot threshold, while anyone living in Dhaka today would
+tell you it belongs there." It is now dated, citable evidence pointing the
+same way. It is just nowhere near enough evidence to move a verdict yet.
+
+**Evidence months land on the hourly sweep**, not at record time — the
+ledger is converted by `recordEvidenceMonths` in `decayHazardZones`:
 
 ```bash
 firebase functions:log --only decayHazardZones --project ant-assistive-nav
 ```
 
-The hourly line has said "0 thanas gained an evidence month" since the day it
-shipped. It should stop saying that.
+The hourly line said "0 thanas gained an evidence month" every run since it
+shipped. That was the symptom nobody read.
 
 ### 8.2 What happens to the 2009 `densityEstimate` — **decided: retire on a condition**
 

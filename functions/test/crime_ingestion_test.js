@@ -127,6 +127,19 @@ test("a present crime table is unaffected by the new flag", () => {
   );
 });
 
+test("both Bangla spellings of a month are recognised in a filename", () => {
+  // February 2026 was skipped by the backfill because its scan is uploaded
+  // as `ফেব্রুয়ারী-২০২৬_page-0001.jpg` — final ী — while the list only had
+  // `ফেব্রুয়ারি` with ি. The page and the image both existed; the month was
+  // simply invisible. Same shape as the site's own `/februuary-2026/` slug.
+  const { BANGLA_MONTHS } = require("../lib/crime_report_ingestion");
+  for (const pair of [["জানুয়ারি", "জানুয়ারী"], ["ফেব্রুয়ারি", "ফেব্রুয়ারী"], ["আগস্ট", "আগষ্ট"]]) {
+    for (const spelling of pair) {
+      assert.ok(BANGLA_MONTHS.includes(spelling), `${spelling} must be recognised`);
+    }
+  }
+});
+
 test("enforcement activity stays out of the pedestrian signal", () => {
   // The table also counts narcotics, arms and explosives *recovery* — police
   // activity, not danger to someone walking. 571 narcotics cases dwarf every

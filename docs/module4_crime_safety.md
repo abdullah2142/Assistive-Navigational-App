@@ -7,12 +7,19 @@ Written against the deployed system on 16 September 2026; revised 21
 September. Companion to `04_module_plan_crime.md`, which is the plan; this is
 what actually runs.
 
-**Three things changed on 21 September and all are load-bearing.** The
-citywide multiplier was found sitting on its floor because `cityTrend` has a
-13-month hole (§3). A census showed the night threshold flagging 11 of 41
-thanas before any crime data is involved (§6a) — now fixed, down to 4, by
-separating "route around this" from "say something about this" (§8.0). The
-two backfills that make scores larger are built and tested but still unrun.
+**Three things changed on 21 September and all are load-bearing.**
+
+1. The night threshold was flagging **11 of 41 thanas** before any crime data
+   was involved (§6a). Fixed, down to 4, by separating "route around this"
+   from "say something about this" (§8.0).
+2. `cityTrend` had a **13-month hole** that pinned the citywide multiplier to
+   its floor, quietly scaling every route in Dhaka down by 29% for 18 days.
+   Backfilled to 80 consecutive months; multiplier **0.71 → 1.05** (§3).
+3. That multiplier is now **one-directional** — it can raise risk and never
+   lower it, because a fall in *recorded* crime cannot be told apart from a
+   fall in police record-keeping (§3).
+
+Still unrun: the per-thana news backfill (§8.1).
 
 ---
 
@@ -76,6 +83,46 @@ shouldWarn = riskScore > warnThreshold
 ```
 
 See §8.0. `safe` still decides routing; only the spoken warning moved.
+
+### Yes, what users report counts — by three separate routes
+
+Worth stating plainly, because the formula above makes crowdsourced reports
+look like a footnote and they are not. A report filed by another user
+reaches routing three different ways, on three different timescales:
+
+**1. Immediately, on the route itself.** `hazardsOnRoute` picks up any
+hazard zone within 25 m of the polyline. Its `hazardWeight` enters
+`riskScore` through the same `max()` as every crime score, so one confirmed
+report outranks a quiet neighbourhood's low base score rather than being
+averaged away:
+
+| | reporters | weight | effect |
+| --- | --- | --- | --- |
+| Yellow flag | 1 | 4 | spoken as a warning, no reroute |
+| Red flag | **3 distinct** within 24 h | 9 | `safe: false` — actively routed around |
+
+A red flag alone is enough to make a route unsafe, with no crime data
+involved at all. It also always triggers speech (§8.0) and is always
+classified `acute`, because a night-time percentile would otherwise swallow
+a 1–10 hazard weight whole.
+
+**2. Over months, into the neighbourhood's standing score.** The hourly
+sweep locates every **confirmed, `category: 'crime'`** hazard inside its
+thana polygon and marks that month as an evidence month for the thana. Three
+such months start moving `learnedFactor`, which is how a place that has
+genuinely deteriorated stops reverting to its 2009 score. This is the only
+mechanism by which app users — rather than journalists — can change what the
+app believes about a neighbourhood long-term.
+
+**3. Never, for anything unconfirmed or non-crime.** A single report, and a
+Red Flag pothole, both stay out of the learned baseline entirely. A pothole
+is a real hazard and says nothing about crime; one report is one person.
+
+The gate throughout is **distinct reporters**, not report count — one device
+cannot manufacture a confirmed hazard and close a road. `hazardZones` is
+`allow write: if false` to every client and is only ever written by Cloud
+Functions through the Admin SDK; `hazardReports` allows create-only under
+the caller's own uid.
 
 ### The five factors
 
@@ -156,23 +203,61 @@ scan), and `/archived-crime-data/` is dead links to 2013–2017 `.doc` files.
 month around the 9th) and reads `dmp.gov.bd/crime_data/{month}-{year}/`.
 
 **It reads exactly one month — the newest — so it can keep the series
-current but can never repair it.** Read directly on 21 September 2026,
-`cityTrend` held 66 months ending **2025-05**, plus a lone **2026-07**: a
-13-month hole. Every row came from a Kaggle mirror of national PHQ reports
-imported on 3 September, or from `police.gov.bd`. Not one came from the DMP
-table this section describes.
+current but can never repair it.** On 21 September 2026 `cityTrend` held 66
+months ending **2025-05** plus a lone **2026-07**: a 13-month hole. Every row
+came from a Kaggle mirror of national PHQ reports imported on 3 September, or
+from `police.gov.bd`. Not one came from the DMP table this section describes.
 
 `updateCityTrendMultiplier` divides the newest month by the average of the
 three before it *in the collection*, with no notion of whether those are
-adjacent months or a year apart. So it compared July 2026 (170
-pedestrian-relevant) against March–May **2025** (~239) and produced **0.71**
-— its clamp floor — which multiplied every route score in Dhaka from 3
-September onward. Nothing errored and nothing logged.
+adjacent months or a year apart. So it compared July 2026 against spring 2025
+and produced **0.71** — its old clamp floor — scaling every route score in
+Dhaka down by 29% from 3 September onward. Nothing errored and nothing
+logged.
 
-`scripts/backfill_city_trend.js` fills the hole; `check_data_health.js` now
-detects it. The Kaggle rows themselves are sound: 2024-01 and 2024-06 were
-checked column-for-column against the DMP scans and match exactly, so the
-backfilled months are comparable with what is already there.
+**Repaired 21 September.** `scripts/backfill_city_trend.js` read the 14
+missing scans; `cityTrend` now holds **80 consecutive months, 2020-01 to
+2026-08**, and the multiplier moved **0.71 → 1.05** (+48% on every route
+score — a correction, not a regression). `check_data_health.js` now reports
+mid-series gaps on its own, and `updateCityTrendMultiplier` **holds at
+neutral unless the four months are consecutive**, so this cannot recur
+silently.
+
+The Kaggle rows are sound: 2024-01 and 2024-06 match the published DMP scans
+column-for-column, so the backfilled months are comparable with them.
+
+### The multiplier can raise risk and never lower it
+
+It measures *recorded* crime — real crime multiplied by the police's
+capacity and willingness to write it down — and those two come apart in
+exactly the conditions where a pedestrian most needs the warning to be right.
+
+| period | pedestrian-relevant | total cases |
+| --- | --- | --- |
+| 2024-06 | 293 | 1612 |
+| 2024-07 | 185 | 1425 |
+| **2024-08** | **77** | **566** |
+| 2024-09 | 149 | 1008 |
+
+A 65% collapse across *every* category at once, during the weeks around the
+July–August 2024 uprising when police stations were attacked and the force
+largely stopped functioning. Kidnapping moved the other way over the same
+months — 1, then 11, then 22 — because those are the cases families escalate
+hard enough to get filed regardless. That is the shape of recording stopping,
+not of crime stopping. The old rule read it as a 30% improvement and pinned
+the multiplier to its 0.70 floor: *make every route in Dhaka look safer*, in
+plausibly the least safe month in the series.
+
+So the clamp is now **[1.0, 1.5]**. The asymmetry is in the evidence, not in
+our caution — a **rise** is unambiguous (more got written down despite the
+friction of writing it down), a **fall** is ambiguous (less crime, or less
+recording, and the number cannot tell you which). `thana_advisory.js` makes
+the same trade for the same reason. The raw ratio is still stored on the
+document, so a fall stays visible as a fall.
+
+Replayed over 62 months of history this is a real dial, which is why its
+direction matters: median 1.02, sd 0.185, only 47% of months within ±10% of
+neutral, month-to-month autocorrelation 0.33.
 
 The table is a **scanned image with no text layer**, so Gemini reads it
 multimodally — no OCR infrastructure. Only pedestrian-relevant categories
@@ -272,6 +357,8 @@ allows create-only under the caller's own uid.
 | The warning rule can never warn more than the old one | asserted over all 24 hours x 4 multipliers, `risk_threshold_test.js` | **Strong** |
 | The warning rule still flags the one real outlier | Paltan warns at every hour tested | **Strong** |
 | The new wording helps a real user | nobody has walked with it | **Unverified** |
+| The citywide trend is contiguous and current | 80 months, 2020-01 to 2026-08, no gaps, read back after the run | **Strong** |
+| Aug 2024's collapse was record-keeping, not crime | every category fell at once while kidnapping rose; timing matches the uprising | **Circumstantial — stated** |
 
 ---
 
@@ -342,12 +429,8 @@ constant. Daytime is unchanged at 1.
 
 Ordered by value. Everything here is built or scoped; none of it is research.
 
-**8.0 is done, which unblocks the two held backfills.** Both make scores
-larger, and the reason for holding them was that the threshold they are
-compared against did not mean anything stable. It does now — and because the
-new rule can only ever warn *less* than the old one, the backfills no longer
-carry the risk that stopped them. They remain unrun pending a decision to
-run them; see 8.1 and 8.3.
+**8.0 is done, and the city-trend repair has been run.** What remains is
+8.1, the per-thana news backfill.
 
 ### 8.0 The threshold is relative, the cut-off is absolute — **done**
 
@@ -630,14 +713,18 @@ straight from Secret Manager without it ever being pasted anywhere:
 GEMINI_API_KEY="$(firebase functions:secrets:access GEMINI_API_KEY --project ant-assistive-nav)" node functions/scripts/backfill_city_trend.js
 ```
 
-**The recording step is held, deliberately.** Filling the hole takes the
-multiplier from 0.71 to roughly 1.0, which raises **every route score in
-Dhaka by about 41%** the moment it lands, and takes the night-flagged count
-from 11 of 41 to 13 (§6a). It is the correct number — 0.71 is an artefact of
-comparing July 2026 against spring 2025 — but "more correct" and "safe to
-ship to people walking tonight" are different claims, and §8.0 is the one
-that decides the second. Verified ready on 21 September: 13 missing months
-identified, all 24 published months resolve, tooling tested.
+**Run on 21 September.** 14 months read, 13 recorded on the first pass;
+`cityTrend` now holds 80 consecutive months and the multiplier moved
+0.71 → 1.05, raising every route score in Dhaka by 48%. That is the
+correction landing, not a regression.
+
+The one failure was instructive. **February 2026 was skipped** — the page
+and the scan both existed, but `findTableImage` did not recognise
+`ফেব্রুয়ারী-২০২৬_page-0001.jpg` as a crime scan, because the month list held
+`ফেব্রুয়ারি` (final ি) and the file uses `ফেব্রুয়ারী` (final ী). The same
+shape as the site's own `/februuary-2026/` slug: DMP spells things more than
+one way. Both spellings of January and February are now recognised, and the
+month was recorded on a re-run.
 
 ### 8.4 Wire more news sources — done, pending one deploy-time check
 

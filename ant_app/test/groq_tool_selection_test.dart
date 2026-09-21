@@ -1,10 +1,11 @@
 // Which tools Qwen is allowed to reach for on a given turn.
 //
-// Groq's free tier meters *input tokens per window*, and this app sends ~5,600
-// of them on every call, of which ~3,718 are the 24 tool declarations. So the
-// declarations are filtered per turn to stay under the limit — and that filter
-// silently decides what the assistant is *capable* of, which is why it needs
-// tests of its own.
+// Groq's free tier meters *input tokens per window*, so the declarations are
+// filtered per turn to stay under it — and that filter silently decides what
+// the assistant is *capable* of, which is why it needs tests of its own.
+//
+// Measured on the serialised request body: all tools ~2,027 tokens, a fixed
+// core of four ~383, a typical filtered turn 383-1,093.
 //
 // The first version was Latin-only. Measured against the 119 real utterances
 // in `ant-diagnostics-*.txt`:
@@ -22,6 +23,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ant_app/core/services/groq_assistant_service.dart';
 
 void main() {
+  _core();
+
   Set<String> toolsFor(String text) => GroqAssistantService.toolNamesFor(text);
 
   group('Bangla reaches the same tools Latin does', () {
@@ -85,12 +88,13 @@ void main() {
     // The substring version fired `go` inside "mango", `add` inside "address"
     // and `set` inside "sunset" — the trap this codebase documents three times
     // over ("no" in "know", "male" in "female", না in নারায়ণগঞ্জ).
-    // Paired with a phrase that matches something *else*, so the no-match
-    // fallback is not what is being measured — it offers a routing tool by
-    // design, which would mask the property under test.
+    // Asserted on `cancel_route` rather than `request_route`: the latter is
+    // in `_coreTools` and is present on every turn by design, so it cannot
+    // show whether a keyword fired. `cancel_route` rides the same routing
+    // group but is filtered normally.
     test('"mango" does not drag in routing', () {
-      expect(toolsFor('change the theme'), isNot(contains('request_route')));
-      expect(toolsFor('change the mango theme'), isNot(contains('request_route')),
+      expect(toolsFor('change the theme'), isNot(contains('cancel_route')));
+      expect(toolsFor('change the mango theme'), isNot(contains('cancel_route')),
           reason: '"go" inside "mango" must not count');
     });
 
@@ -117,5 +121,39 @@ void main() {
       expect(bare, contains('request_route'));
       expect(bare, contains('describe_current_location'));
     });
+  });
+}
+
+// The cached core — see `_coreTools`.
+//
+// Dynamic tool filtering and Groq's prompt caching pull against each other:
+// caching keys on a shared request prefix, and a filter that changes the tool
+// array every turn changes that prefix every turn. Splitting the list into a
+// fixed core plus a sorted tail lets both work.
+void _core() {
+  List<String> orderFor(String text) =>
+      GroqAssistantService.toolOrderFor(text);
+
+  test('the same four lead every request, in the same order', () {
+    const core = ['trigger_emergency', 'request_route', 'describe_current_location', 'alert_caretaker'];
+    for (final said in ['ইবনে সিনার রাস্তা দেখাও', 'change the theme', 'yes', 'বাঁচাও']) {
+      expect(orderFor(said).take(4), core, reason: said);
+    }
+  });
+
+  test('the tail is ordered, so the same choice serialises the same way', () {
+    // An unordered Set would emit two different prefixes for two turns that
+    // picked identical tools — a cache miss for no reason at all.
+    final a = orderFor('show me the map');
+    final b = orderFor('open the map please');
+    expect(a.toSet(), b.toSet(), reason: 'same tools chosen');
+    expect(a, b, reason: 'and therefore the same order');
+  });
+
+  test('no tool is sent twice', () {
+    for (final said in ['বাঁচাও', 'take me to Gulshan', 'save this place']) {
+      final order = orderFor(said);
+      expect(order.toSet().length, order.length, reason: said);
+    }
   });
 }

@@ -97,7 +97,8 @@ class GroqAssistantService {
     ];
 
     final selectedTools = _getRelevantTools(userText);
-    
+    final selectedToolCount = selectedTools.length;
+
     final streamed = await _sendWithRetry(messages, selectedTools);
 
     final textBuffer = StringBuffer();
@@ -119,6 +120,27 @@ class GroqAssistantService {
       } catch (_) {
         continue;
       }
+      // The usage chunk arrives last and carries no choices, so it has to be
+      // read before the `choices` guard below drops it.
+      //
+      // This is the only ground truth about what a turn costs. Everything
+      // else — the prompt trimming, the tool filtering, the cache ordering —
+      // is aimed at a number nobody had measured, and the one estimate that
+      // did exist was out by a factor of four.
+      final usage = chunk['usage'] as Map<String, dynamic>?;
+      if (usage != null) {
+        final prompt = usage['prompt_tokens'];
+        final completion = usage['completion_tokens'];
+        // Groq reports cached prefix tokens separately when a cache hit
+        // happens; those do not count against the per-minute limit, so the
+        // gap between `prompt` and `cached` is what the rate limiter sees.
+        final details = usage['prompt_tokens_details'] as Map<String, dynamic>?;
+        final cached = details?['cached_tokens'] ?? 0;
+        debugPrint('[Groq] tokens: prompt=$prompt (cached=$cached, '
+            'billed≈${prompt is int && cached is int ? prompt - cached : '?'}) '
+            'completion=$completion tools=$selectedToolCount');
+      }
+
       final choices = chunk['choices'] as List<dynamic>?;
       if (choices == null || choices.isEmpty) continue;
       final delta = choices.first['delta'] as Map<String, dynamic>?;
@@ -231,6 +253,18 @@ class GroqAssistantService {
         'temperature': 0.4,
         'max_completion_tokens': 1024,
         'stream': true,
+        // Makes Groq append a final chunk carrying `usage` — without this a
+        // streamed response reports nothing, and the only figure anyone has
+        // is arithmetic over the request body.
+        //
+        // That arithmetic has already been wrong once: the payload was
+        // believed to be ~5k tokens a turn, and measuring the serialised body
+        // put it between 800 and 1,400. Which of those is right decides
+        // whether this app gets one request a minute or six, so it is worth
+        // hearing from the only party that actually counts — and cached
+        // prefix tokens, which do not bill against TPM, are only visible
+        // here.
+        'stream_options': {'include_usage': true},
       });
 
     final streamed = await _client.send(request);
@@ -400,6 +434,44 @@ Live location: $locationLine
     ),
   ];
 
+  /// The tools sent on every turn, in this order, before any others.
+  ///
+  /// ## Why a fixed core exists at all
+  ///
+  /// Dynamic tool filtering and prompt caching pull against each other.
+  /// Groq caches on a shared request *prefix* and cached tokens do not count
+  /// against the per-minute limit — which is the whole reason `c895da7`
+  /// moved the volatile parts of the system prompt to the bottom. But tools
+  /// are a separate top-level field, and a filter that changes them every
+  /// turn changes the prefix every turn, so the cache never hits and that
+  /// work is wasted.
+  ///
+  /// Splitting the list fixes it: these four serialise identically on every
+  /// request and can be cached, while the keyword-selected tail varies and
+  /// pays full price. The tail is sorted for the same reason — an unordered
+  /// `Set` would serialise differently between two turns that chose the same
+  /// tools, defeating the cache for no reason at all.
+  ///
+  /// ## Why these four
+  ///
+  /// `trigger_emergency` is here because it must never be filtered out. It
+  /// used to be keyword-gated, and the keywords missed `bachao`, `sahajjo`,
+  /// `বাঁচাও` and `sos` — so an emergency phrased outside that list reached a
+  /// model with no way to act on it. The local matcher catches most of these
+  /// first, but this is the fallback, and a filter is the wrong place to
+  /// lose one.
+  ///
+  /// The other three are what a sentence with no verb still needs: a bare
+  /// "yes", a place name, an answer to a question the assistant just asked.
+  /// They also happen to be the most-used tools in the app, so pinning them
+  /// costs little and saves the tail from carrying them repeatedly.
+  static const _coreTools = [
+    'trigger_emergency',
+    'request_route',
+    'describe_current_location',
+    'alert_caretaker',
+  ];
+
   /// Emergency terms, kept apart because this group is never filtered out.
   ///
   /// Romanised and Bangla-script forms both, matching the vocabulary
@@ -429,27 +501,23 @@ Live location: $locationLine
       if (hits(group.latin, group.bangla)) names.addAll(group.tools);
     }
 
-    // Always offered, never filtered.
-    //
-    // It was keyword-gated, which meant an emergency phrased in a way the
-    // keywords missed reached a model that had no way to act on it. The
-    // local matcher catches most of these before the model is reached, but
-    // it is the *fallback* that matters here: if it misses, the model was
-    // the last chance, and a filter is the wrong place to lose one.
-    // Costs one tool declaration per call.
-    names.add('trigger_emergency');
     if (hits(_emergencyLatin, _emergencyBangla)) {
       names.add('alert_caretaker');
     }
 
-    // Nothing matched — a bare "yes", a name, an answer to a question the
-    // assistant asked. Offer the handful that make sense with no verb in the
-    // sentence rather than sending nothing.
-    if (names.length == 1) {
-      names.addAll(['describe_current_location', 'alert_caretaker', 'request_route']);
-    }
+    // The core is always present, so nothing needs a "nothing matched"
+    // fallback any more — a bare "yes" or a name still arrives with the four
+    // tools that make sense without a verb in the sentence.
+    names.addAll(_coreTools);
 
-    return _tools.where((t) => names.contains(t['function']['name'])).toList();
+    // Core first, in a fixed order, then the variable tail sorted so the same
+    // set always serialises identically. See [_coreTools] for why the order
+    // is the point.
+    final tail = (names.difference(_coreTools.toSet()).toList()..sort());
+    return [
+      for (final name in [..._coreTools, ...tail])
+        ..._tools.where((t) => t['function']['name'] == name),
+    ];
   }
 
   /// The tool names [_getRelevantTools] would offer for [text].
@@ -458,6 +526,12 @@ Live location: $locationLine
   /// on any given turn, and it is otherwise invisible — the first version
   /// silently removed every tool but three for all Bangla input, and nothing
   /// failed loudly enough to notice.
+  /// The tools for [text] **in the order they are sent**, which is what the
+  /// prompt cache keys on — see [_coreTools].
+  @visibleForTesting
+  static List<String> toolOrderFor(String text) =>
+      _getRelevantTools(text).map((t) => t['function']['name'] as String).toList();
+
   @visibleForTesting
   static Set<String> toolNamesFor(String text) =>
       _getRelevantTools(text).map((t) => t['function']['name'] as String).toSet();
@@ -477,12 +551,14 @@ Live location: $locationLine
             ],
             'Which setting.',
           ),
-          'value': _str('text_size: "0.8"-"2.0". theme: "light"/"dark" (only these two). language: '
-              '"english"/"bangla". verbosity: "minimalist"/"descriptive". voice: e.g. "bn-BD-female-1". '
-              'vision_level: "none"/"low"/"full". mobility_aid: "whiteCane"/"wheelchair"/"unassisted". '
-              'deaf_hearing_mode, crowded_places_anxious, complex_instructions_hard, wake_word_enabled, '
-              'voice_auto_listen: "true"/"false". snapshot_consent: "always"/"askEachTime"/"never". '
-              'home_address/safe_place_address: free text.'),
+          // Compressed from prose to a table. Same information, and the
+          // executor validates every value anyway — an unknown one is
+          // rejected with a spoken reply, not applied. The five booleans used
+          // to be named individually; grouping them is most of the saving.
+          'value': _str('text_size 0.8-2.0 | theme light|dark (no colours) | language english|bangla | '
+              'verbosity minimalist|descriptive | voice e.g. bn-BD-female-1 | vision_level none|low|full | '
+              'mobility_aid whiteCane|wheelchair|unassisted | snapshot_consent always|askEachTime|never | '
+              'home_address, safe_place_address free text | all others true|false'),
         },
         required: ['setting', 'value']),
     _tool('add_emergency_contact', 'Add a Magic Button emergency contact.',
@@ -493,33 +569,42 @@ Live location: $locationLine
         properties: {'message': _str('Message text.')}, required: ['message']),
     _tool('remove_passerby_message', 'Remove a passerby message matching the given text.',
         properties: {'message': _str('Message text to remove.')}, required: ['message']),
+    // Trimmed, but every clause that survived is load-bearing, and this one
+    // is deliberately the least aggressive of the three trims.
+    //
+    // It is now sent on *every* turn (it is never filtered out), so its cost
+    // is paid constantly — but it is also the one tool where under-calling
+    // is the harmful direction. The "can't" clause is item 43: Bangla negates
+    // after the verb, so "আমি নড়তে পারছি না" is a cry for help that reads as
+    // a refusal to a model scanning for negation. The "err toward calling"
+    // instruction is there because the user cannot see whether anything
+    // happened. Neither comes out.
     _tool(
       'trigger_emergency',
-      "Raise the emergency alarm: message contacts with location, call the primary one, route somewhere "
-          "safer. Call for danger, injury, fear, being trapped/followed/taken against their will, or urgent "
-          "help — any wording, including short 'can't' phrases ('I can't get up', 'আমি নড়তে পারছি না') "
-          "treated as calls for help, not refusals. This user is blind/low-vision and can't check if you "
-          "understood, so err toward calling this. Do NOT call for: incidental use of the word 'help', "
-          "questions about the feature, managing contacts, or explicit refusal ('I'm fine'). Nothing sends "
-          "for 5s and the user can say 'cancel'.",
+      "Raise the emergency alarm: messages contacts with location, calls the primary one, routes to "
+          "safety. Call for danger, injury, fear, being trapped/followed/taken, or urgent help, in any "
+          "wording. Short \"can't\" phrases (\"I can't get up\", \"আমি নড়তে পারছি না\") are calls for "
+          "help, not refusals. The user is blind and cannot check whether you understood, so err toward "
+          "calling. Do NOT call for the word 'help' in passing, questions about the feature, managing "
+          "contacts, or a clear \"I'm fine\". A 5s cancel window follows.",
     ),
     _tool('open_passerby_helper', 'Open the Passerby Helper overlay for a nearby stranger to read.'),
+    // `subCategory` is a free string rather than a 25-value enum, which was
+    // ~120 tokens on its own — over half this declaration, spent listing
+    // values the user almost never names precisely.
+    //
+    // Safe because the executor already treats an unrecognised value as
+    // absent: "a wrong prefill must never block the user from filing the
+    // report by hand". So the enum was buying exactness in a field whose
+    // whole contract is that exactness is optional.
     _tool(
       'open_hazard_report',
       'Open the hazard report form. Pass category/subCategory only if the user already named the hazard '
           '(never guess); omit either you\'re unsure of.',
       properties: {
         'category': _enumStr(const ['crime', 'roadHazard', 'accessibilityBlock'], 'Broad kind, if said.'),
-        'subCategory': _enumStr(
-          const [
-            'mugging', 'harassment', 'suspiciousCrowd', 'theftPickpocketing', 'stalking', 'verbalAbuse',
-            'physicalAssault', 'poorLighting', 'pothole', 'flooding', 'construction', 'noSidewalk',
-            'openManhole', 'brokenStreetlight', 'recklessTraffic', 'illegalParking', 'debrisFallenTree',
-            'brokenRamp', 'blockedPath', 'noCurbCut', 'stairsOnly', 'narrowPassage', 'noTactilePaving',
-            'elevatorOutOfService', 'blockedByVendors',
-          ],
-          'Exact hazard, must belong to category.',
-        ),
+        'subCategory': _str('Exact hazard in camelCase if named, e.g. pothole, mugging, openManhole, '
+            'blockedPath. Omit if unsure.'),
       },
     ),
     _tool(

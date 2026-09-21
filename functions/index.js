@@ -49,6 +49,8 @@ const {
 const { isExpired, ttlMsFor } = require("./lib/hazard_decay");
 const { PEDESTRIAN_RELEVANT_CATEGORIES, fetchAndExtractLatestReport } = require("./lib/crime_report_ingestion");
 const { collectAdvisories } = require("./lib/news_ingestion");
+const { warnThresholdFor, zonesWorthMentioning, riskKindOf } = require("./lib/risk_threshold");
+const { areConsecutive, cityTrendMultiplierFrom } = require("./lib/city_trend");
 
 initializeApp();
 
@@ -417,10 +419,37 @@ exports.checkRouteSafety = onCall(async (request) => {
   const riskScore = Math.max(crimeRisk, hazardRisk);
   const dangerousZones = evaluatedZones.filter((z) => z.effectiveScore > threshold);
 
+  // Whether to *say* something, which is a different question from whether
+  // to route around something — see `lib/risk_threshold.js`. The fixed
+  // threshold above sits between the median and p75 of the night
+  // distribution, so it calls a quarter of Dhaka dangerous after 8pm and
+  // teaches users to ignore the warning. This is compared against the
+  // city's own spread at this hour instead, with the old threshold kept as
+  // a floor so the set of routes that warn is always a subset of the set
+  // that warns today.
+  //
+  // `zones` rather than `hitZones`: the reference distribution is the whole
+  // city, not the handful of thanas this particular route happens to cross.
+  const warnThreshold = warnThresholdFor(zones, dhakaHour, cityTrendMultiplier);
+  const warnZones = zonesWorthMentioning(evaluatedZones, warnThreshold);
+  // A confirmed hazard always warrants saying something, whatever the
+  // ambient crime distribution looks like: it is three independent people
+  // reporting one specific obstruction, not a property of the
+  // neighbourhood, and `hazardWeight` is on a 1-10 scale that a night-time
+  // percentile would swallow whole.
+  const shouldWarn = warnZones.length > 0 || blockingHazards.length > 0;
+
   return {
     safe: dangerousZones.length === 0 && blockingHazards.length === 0,
     riskScore,
     threshold,
+    // Speech-facing, and deliberately separate from `safe`/`threshold`,
+    // which still mean what they always did so route *selection* is
+    // untouched by this.
+    shouldWarn,
+    warnThreshold,
+    warnZones,
+    riskKind: riskKindOf(warnZones, blockingHazards.length > 0),
     evaluatedZones,
     dangerousZones,
     // Module 5 additions. Named separately from `dangerousZones` rather
@@ -1113,9 +1142,44 @@ async function ingestCrimeReport(geminiApiKey) {
  *   same-methodology history, comparing within that history is
  *   trustworthy; comparing across the methodology gap isn't.
  * - Once ≥3 months exist: ratio = latest month ÷ (rolling average of the
- *   up-to-3 prior months), clamped to [0.7, 1.5] so one anomalous month
- *   (a data-entry error, a one-off crackdown skewing recovery cases, etc.)
- *   can't wildly swing every route's safety score.
+ *   3 prior months), clamped so one anomalous month (a data-entry error, a
+ *   one-off crackdown skewing recovery cases, etc.) can't wildly swing
+ *   every route's safety score.
+ *
+ * ## It can raise risk and never lower it
+ *
+ * The clamp floor is **1.0**, not 0.7. This measures *recorded* crime,
+ * which is real crime multiplied by the police's capacity and willingness
+ * to write it down — and those two come apart in exactly the conditions
+ * where a pedestrian most needs the warning to be right.
+ *
+ * August 2024 is the case. Total recorded cases fell from ~1600/month to
+ * **566**, with every single category collapsing at once, during the weeks
+ * around the July–August uprising when police stations were attacked and
+ * the force largely stopped functioning. Kidnapping went the other way —
+ * 1, then 11, then 22 — because those are the cases families escalate hard
+ * enough to get filed anyway. The old rule read that as a 30% improvement
+ * and told the app to make every route in Dhaka look safer, in what was
+ * plausibly the least safe month in the series.
+ *
+ * The asymmetry is in the evidence, not in our caution. A **rise** in
+ * recorded crime is unambiguous: more got written down despite the friction
+ * of writing it down. A **fall** is ambiguous: less crime, or less
+ * recording, and the number cannot tell you which. So a rise is acted on
+ * and a fall returns to neutral. This mirrors `thana_advisory.js`, where
+ * advisories can only ever raise risk, for the same reason.
+ *
+ * Measured over 62 months of history: median 1.02, sd 0.185, and only 47%
+ * of months within ±10% of neutral — so this is a real dial, not a rounding
+ * error, which is precisely why its direction matters.
+ *
+ * ## The months must be consecutive
+ *
+ * The ratio is meaningless across a gap, and worse than meaningless because
+ * nothing about it looks wrong. With a 13-month hole in `cityTrend` this
+ * compared July 2026 against spring 2025 and produced 0.71 — the old floor
+ * — which scaled every route in the city for 18 days with no error logged.
+ * Non-consecutive months now hold at neutral instead.
  */
 async function updateCityTrendMultiplier() {
   const db = getFirestore();
@@ -1133,14 +1197,33 @@ async function updateCityTrendMultiplier() {
   }
 
   const [latest, ...priorMonths] = months.slice(0, 4);
+
+  // A ratio across a gap is not a trend, and nothing about the resulting
+  // number looks wrong — which is how 0.71 survived 18 days in production.
+  if (!areConsecutive(months.map((m) => m.period))) {
+    await db.collection("meta").doc("cityTrendMultiplier").set({
+      multiplier: 1.0,
+      basedOnMonths: priorMonths.length,
+      latestPeriod: latest.period,
+      note: `Holding neutral: ${months.map((m) => m.period).reverse().join(", ")} are not consecutive `
+        + "months, so their ratio would compare across a gap. Run scripts/backfill_city_trend.js.",
+      updatedAt: new Date().toISOString(),
+    });
+    return;
+  }
+
   const priorAvg = priorMonths.reduce((sum, m) => sum + m.pedestrianRelevantIncidents, 0) / priorMonths.length;
   const rawRatio = priorAvg > 0 ? latest.pedestrianRelevantIncidents / priorAvg : 1.0;
-  const multiplier = Math.max(0.7, Math.min(1.5, Math.round(rawRatio * 100) / 100));
+  const multiplier = cityTrendMultiplierFrom(rawRatio);
 
   await db.collection("meta").doc("cityTrendMultiplier").set({
     multiplier,
     basedOnMonths: priorMonths.length,
     latestPeriod: latest.period,
+    // Kept so a month that fell is still visible as a fall, even though the
+    // multiplier holds at neutral for it. Losing that would make the
+    // one-directional clamp look like missing data rather than a decision.
+    rawRatio: Math.round(rawRatio * 100) / 100,
     updatedAt: new Date().toISOString(),
   });
 }

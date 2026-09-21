@@ -112,6 +112,10 @@ test("a present crime table is unaffected by the new flag", () => {
     null,
     "a row with no hasCrimeTable field must still pass",
   );
+  // January 2024, read off the scan by hand and independently confirmed
+  // against the Kaggle/PHQ row already in `cityTrend` — the two agree
+  // column for column, which is what makes the backfill's months
+  // comparable with the ones already recorded.
   assert.strictEqual(
     validateExtraction({
       hasCrimeTable: true,
@@ -120,8 +124,20 @@ test("a present crime table is unaffected by the new flag", () => {
       totalCases: 1725,
     }),
     null,
-    "January 2024, read off the scan by hand, must pass",
   );
+});
+
+test("both Bangla spellings of a month are recognised in a filename", () => {
+  // February 2026 was skipped by the backfill because its scan is uploaded
+  // as `ফেব্রুয়ারী-২০২৬_page-0001.jpg` — final ী — while the list only had
+  // `ফেব্রুয়ারি` with ি. The page and the image both existed; the month was
+  // simply invisible. Same shape as the site's own `/februuary-2026/` slug.
+  const { BANGLA_MONTHS } = require("../lib/crime_report_ingestion");
+  for (const pair of [["জানুয়ারি", "জানুয়ারী"], ["ফেব্রুয়ারি", "ফেব্রুয়ারী"], ["আগস্ট", "আগষ্ট"]]) {
+    for (const spelling of pair) {
+      assert.ok(BANGLA_MONTHS.includes(spelling), `${spelling} must be recognised`);
+    }
+  }
 });
 
 test("enforcement activity stays out of the pedestrian signal", () => {

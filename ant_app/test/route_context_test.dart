@@ -126,10 +126,80 @@ void main() {
         location: _here(),
       );
 
-      expect(turn.responseText, contains('passes through a somewhat risky area'));
+      expect(turn.responseText, contains("riskier than most at this hour"));
       expect(turn.responseText, contains('Via Satmasjid Road'));
       expect(turn.responseText, contains('1.2 km'));
       expect(turn.responseText, contains('about 15 minutes'));
+    });
+
+    // §8.0. A route can be unsafe enough to look for an alternative and not
+    // unusual enough to be worth a sentence about — at 11pm that describes
+    // roughly a quarter of Dhaka, because the fixed threshold sits below the
+    // 75th percentile of the night distribution. Saying it every time is how
+    // a warning becomes background noise for someone who cannot see the map.
+    test('an unsafe route below the hour\'s warn threshold is routed around silently', () async {
+      final executor = FunctionCallExecutor(
+        routePlanning: _StubPlanning(
+          verdict: const SafetyVerdict(
+            safe: false,
+            riskScore: 9,
+            threshold: 7,
+            // What 11pm actually looks like: the city's own 90th percentile.
+            warnThreshold: 16.2,
+            dangerousThanaNames: ['X'],
+          ),
+          via: 'Satmasjid Road',
+        ),
+      );
+
+      final turn = await executor.execute(
+        name: 'request_route',
+        args: const {'destination': 'Labaid'},
+        profile: profile,
+        location: _here(),
+      );
+
+      expect(turn.responseText, isNot(contains('riskier than most')));
+      expect(turn.responseText, isNot(contains('stay alert')));
+      // Still routed, and still told which way — going quiet about the risk
+      // must never mean going quiet about the route.
+      expect(turn.responseText, contains('Via Satmasjid Road'));
+    });
+
+    test('a recently reported area is described as recent, not as chronic', () async {
+      // Chronic and acute are different facts and a pedestrian can only act
+      // on one of them tonight.
+      //
+      // Deliberately shaped as the case that forced the advisory exception:
+      // Shahbagh at 11pm with a live `high` advisory scores 11.0 against a
+      // night threshold of 11.5, so the percentile alone would have gone
+      // silent about current sourced reporting. It warns because the
+      // function put it in `warnZones`, not because the score beat the bar.
+      final executor = FunctionCallExecutor(
+        routePlanning: _StubPlanning(
+          verdict: const SafetyVerdict(
+            safe: false,
+            riskScore: 11.0,
+            threshold: 7,
+            warnThreshold: 16.2,
+            riskKind: 'acute',
+            warnThanaNames: ['Shahbagh'],
+            dangerousThanaNames: ['Shahbagh'],
+          ),
+          via: 'Satmasjid Road',
+        ),
+      );
+
+      final turn = await executor.execute(
+        name: 'request_route',
+        args: const {'destination': 'Labaid'},
+        profile: profile,
+        location: _here(),
+      );
+
+      expect(turn.responseText, contains('recent reports'));
+      expect(turn.responseText, isNot(contains('riskier than most')));
+      expect(turn.responseText, contains('Via Satmasjid Road'));
     });
 
     test('a plain route says which way too', () async {
@@ -303,7 +373,7 @@ void main() {
         routeAlternatives: [candidate('a')],
       );
 
-      expect(turn.responseText, contains('risky area'));
+      expect(turn.responseText, contains("riskier than most at this hour"));
     });
   });
 

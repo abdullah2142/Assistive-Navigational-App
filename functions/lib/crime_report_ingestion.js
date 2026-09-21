@@ -222,11 +222,25 @@ function monthIndexOf(label) {
 }
 
 /**
- * Bangla month names as they appear in DMP upload filenames, with the
- * spelling variants the site actually uses (আগস্ট / আগষ্ট).
+ * Bangla month names as they appear in DMP upload filenames, **with every
+ * spelling variant the site actually uses**.
+ *
+ * Three variant pairs are live, and each one silently costs a month if it is
+ * missing:
+ *
+ * - `আগস্ট` / `আগষ্ট` — স vs ষ.
+ * - `জানুয়ারি` / `জানুয়ারী` and `ফেব্রুয়ারি` / `ফেব্রুয়ারী` — the final
+ *   vowel sign, ি vs ী. January 2024 is uploaded with ি and February 2026
+ *   with ী, so neither spelling can be treated as canonical.
+ *
+ * February 2026 was skipped by the backfill for exactly this reason: the
+ * page and the scan both existed, `findTableImage` simply did not recognise
+ * `ফেব্রুয়ারী-২০২৬_page-0001.jpg` as a crime scan. Same failure shape as the
+ * site's `/februuary-2026/` slug — DMP spells things more than one way, and
+ * anything matching its text has to expect that.
  */
 const BANGLA_MONTHS = [
-  "জানুয়ারি", "ফেব্রুয়ারি", "মার্চ", "এপ্রিল", "মে", "জুন",
+  "জানুয়ারি", "জানুয়ারী", "ফেব্রুয়ারি", "ফেব্রুয়ারী", "মার্চ", "এপ্রিল", "মে", "জুন",
   "জুলাই", "আগস্ট", "আগষ্ট", "সেপ্টেম্বর", "অক্টোবর", "নভেম্বর", "ডিসেম্বর",
 ];
 
@@ -431,6 +445,7 @@ async function fetchAndExtractLatestReport(geminiApiKey) {
 module.exports = {
   DMP_CRIME_DATA_URL,
   EARLIEST_CRIME_TABLE_PERIOD,
+  BANGLA_MONTHS,
   PEDESTRIAN_RELEVANT_CATEGORIES,
   normaliseDigits,
   monthIndexOf,

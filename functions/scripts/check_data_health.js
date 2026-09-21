@@ -84,8 +84,8 @@ async function deleteAccount(idToken) {
  *
  * The REST API types every field (`{"stringValue":"..."}`), unlike the Admin
  * SDK's plain objects. Only the shapes this script actually reads are
- * handled — timestamps and the counts below — because guessing at the rest
- * would be inventing a serializer nobody asked for.
+ * handled, because guessing at the rest would be inventing a serializer
+ * nobody asked for.
  */
 function plainValue(field) {
   if (!field || typeof field !== 'object') return undefined;
@@ -143,9 +143,10 @@ const COLLECTIONS = [
     // indistinguishable from a safe neighbourhood. So count against the seed
     // and name what is absent.
     expectCount: THANA_CRIME_SEED.length,
-    // `thanaSlug` imported rather than re-implemented: these ids have to match
-    // what `seedCrimeZones` wrote exactly, and a local copy that drifted by
-    // one character would report all 41 thanas missing from a healthy seed.
+    // `thanaSlug` imported rather than re-implemented: these ids have to
+    // match what `seedCrimeZones` wrote exactly, and a local copy that
+    // drifted by one character would report all 41 thanas missing from a
+    // perfectly healthy seed.
     expectIds: THANA_CRIME_SEED.map((t) => thanaSlug(t.thanaName)),
   },
   {
@@ -177,13 +178,20 @@ const COLLECTIONS = [
   },
   {
     name: 'cityTrend',
-    what: 'monthly citywide DMP figures; the last four set the trend multiplier on every route',
+    what: 'monthly citywide DMP figures; the last four set the multiplier applied to every route',
     emptyMeans:
       'No month has ever been ingested, so the citywide multiplier is pinned at a neutral 1.0. '
-      + 'scrapeDmpCrimeReports fires on the 12th and reads only the newest month, so an empty or '
-      + 'thin collection is the normal state until scripts/backfill_city_trend.js has been run.',
+      + 'scrapeDmpCrimeReports fires on the 12th and reads only the newest month, so gaps in the '
+      + 'middle of the series are never filled. Run scripts/backfill_city_trend.js.',
     // The scraper fires monthly; two months of silence means it has stopped.
     maxAgeHours: 24 * 62,
+    // A count is not the useful question here — a *gap* is. The multiplier
+    // takes the four newest periods and compares the latest to the other
+    // three with no idea whether they are adjacent months or a year apart,
+    // so a hole produces a confident wrong answer rather than a missing one.
+    // Measured live 2026-09-21: 66 months ending 2025-05 plus a lone
+    // 2026-07 put the multiplier on its 0.71 floor.
+    checkContiguity: true,
   },
   {
     name: 'hazardZones',
@@ -201,9 +209,9 @@ const COLLECTIONS = [
 
 /** Best-effort newest timestamp across the field names this project writes. */
 function newestMs(docs) {
-  // Every "when did this happen" field this project actually writes.
-  // `lastReportedAt` and `ingestedAt` were missing until a live run showed
-  // hazardZones reporting "no timestamp field found" on five real documents.
+  // `lastReportedAt`/`firstReportedAt` and `ingestedAt` were missing until a
+  // live run reported "no timestamp field found" against five real
+  // hazardZones documents.
   const fields = [
     'updatedAt', 'createdAt', 'recordedAt', 'publishedAt', 'postedAt',
     'seededAt', 'ingestedAt', 'lastReportedAt', 'firstReportedAt',
@@ -218,6 +226,29 @@ function newestMs(docs) {
     }
   }
   return newest;
+}
+
+/**
+ * The months missing from the middle of a `YYYY-MM`-keyed collection.
+ *
+ * Only the interior matters: a series that simply has not started yet, or
+ * has not caught up to this month yet, is not a hole. A hole is a month with
+ * data on both sides of it.
+ */
+function interiorGaps(periods) {
+  const sorted = [...periods].filter((p) => /^\d{4}-\d{2}$/.test(p)).sort();
+  if (sorted.length < 2) return [];
+  const asIndex = (p) => {
+    const [y, m] = p.split('-').map(Number);
+    return y * 12 + (m - 1);
+  };
+  const present = new Set(sorted.map(asIndex));
+  const gaps = [];
+  for (let i = asIndex(sorted[0]); i < asIndex(sorted[sorted.length - 1]); i++) {
+    if (present.has(i)) continue;
+    gaps.push(`${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`);
+  }
+  return gaps;
 }
 
 function describeAge(ms, nowMs) {
@@ -236,9 +267,10 @@ async function main() {
 
   try {
     for (const c of COLLECTIONS) {
-      // A collection with a completeness expectation is read in full; the
-      // rest are capped, because this is a health check and not an export.
-      const cap = c.expectCount ? c.expectCount * 2 : 50;
+      // A collection with a completeness or contiguity expectation is read
+      // in full; the rest are capped, because this is a health check and not
+      // an export.
+      const cap = c.expectCount ? c.expectCount * 2 : (c.checkContiguity ? 600 : 50);
       let docs;
       try {
         docs = await readCollection(idToken, c.name, cap);
@@ -281,6 +313,21 @@ async function main() {
           problems.push(
             `${c.name} is missing ${missing.length} thana${missing.length === 1 ? '' : 's'} `
             + '— routes through them score as though they were safe. Re-run seedCrimeZones.',
+          );
+        }
+      }
+
+      if (c.checkContiguity) {
+        const gaps = interiorGaps(docs.map((d) => d.id));
+        if (gaps.length === 0) {
+          console.log(`${''.padEnd(18)}   no gaps in the series`);
+        } else {
+          const shown = gaps.length > 6 ? `${gaps.slice(0, 3).join(', ')} … ${gaps.slice(-3).join(', ')}` : gaps.join(', ');
+          console.log(`${''.padEnd(18)}   ${gaps.length} MONTH(S) MISSING mid-series: ${shown}`);
+          problems.push(
+            `${c.name} has a ${gaps.length}-month hole (${gaps[0]} to ${gaps[gaps.length - 1]}). `
+            + 'The citywide multiplier compares the newest month to the three before it in the '
+            + 'collection, so it is comparing across that hole. Run scripts/backfill_city_trend.js.',
           );
         }
       }

@@ -18,48 +18,57 @@ import { isCandidate } from '../lib/thana_match.js';
  *
  * ## Feeds
  *
- * All four confirmed reachable and correctly shaped while this was written
+ * Four direct-publisher feeds, all confirmed reachable and correctly shaped
  * (`thedailystar.net` returns RSS 2.0 with `<a>` markup inside `<title>`;
  * Prothom Alo's `/feed/` 302s to `/stories.rss`). The crime-justice feed is
  * listed first because it is pre-filtered to the right subject, but the
  * general feeds are kept too — neighbourhood crime frequently runs as city
  * news rather than under a crime desk.
+ *
+ * Plus two Google News queries, which reach the outlets that 403 every
+ * direct fetch. See [GOOGLE_NEWS_QUERIES] below for why, and for what is
+ * still unverified about them.
  */
+
 /**
  * The outlets this pipeline cannot fetch directly, reached through Google
  * News instead.
  *
  * ## Why this indirection is worth it
  *
- * Dhaka Tribune, bdnews24 and New Age all return **403 from everywhere** —
- * a publisher bot block, not a datacenter one, so no amount of moving the
+ * Dhaka Tribune, bdnews24 and New Age all return **403 from everywhere** — a
+ * publisher bot block, not a datacenter one, so no amount of moving the
  * fetch around fixes it. They are also three of the outlets most likely to
  * run a neighbourhood mugging as local news. Google News aggregates them,
  * and `functions/lib/news_backfill.js` already makes exactly this trade for
  * the per-thana history.
  *
+ * Measured against the live feeds on 2026-09-21, this is not a marginal
+ * addition: the four direct feeds produced **zero** candidates that run and
+ * Google News produced one — a Shah Ali stabbing, published by The Daily
+ * Star, which the Daily Star's own two feeds did not surface.
+ *
  * ## Why here and not in the Cloud Function
  *
- * Google News RSS returns **503 to Cloud Functions** (probed from a
- * deployed function in `us-central1`, 2026-09-16), which is why
- * `news_backfill.js` is a script you run from a laptop. This Worker is the
- * project's one scheduled, always-on host that is *not* in GCP — the same
- * reason the monthly crime ingest lives here.
+ * Google News RSS returns **503 to Cloud Functions** (probed from a deployed
+ * function in `us-central1`, 2026-09-16), which is why `news_backfill.js` is
+ * a script you run from a laptop. This Worker is the project's one
+ * scheduled, always-on host that is *not* in GCP — the same reason the
+ * monthly crime ingest lives here.
  *
  * **Unverified from `workerd` as of 2026-09-21.** Cloudflare's edge is
  * architecturally unlike a GCP VM and has cleared two of these walls
  * already, but this project's own rule is that reachability from a laptop
- * proves nothing. Run `scripts/probe_feeds.mjs` locally to see the filters
- * work, then hit the deployed `/news` endpoint and check the per-feed
+ * proves nothing. Hit the deployed `/news` endpoint and check the per-feed
  * counts before trusting these. If Google answers 503 here too, `fetchFeed`
  * logs it and returns `[]`, so the four direct feeds carry on exactly as
  * before — this can only add, never subtract.
  *
  * ## Broad queries, not 41 per-thana ones
  *
- * The backfill runs one query per thana because it is a one-off building
- * two years of history. This runs twice a day forever, so it asks two broad
- * questions instead and lets `matchThana` do the locating — same filter
+ * The backfill runs one query per thana because it is a one-off building two
+ * years of history. This runs twice a day forever, so it asks two broad
+ * questions instead and lets `matchThana` do the locating — the same filter
  * every other feed goes through.
  */
 const GOOGLE_NEWS_QUERIES = [
@@ -71,9 +80,9 @@ function googleNewsFeeds() {
   return GOOGLE_NEWS_QUERIES.map((q) => ({
     name: `Google News — ${q.slice(0, 40)}`,
     url: `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-BD&gl=BD&ceid=BD:en`,
-    // Marks the items that need the title/outlet cleanup below. Google News
-    // is a wrapper around other outlets, so its items do not arrive in the
-    // same shape a publisher's own feed produces.
+    // Marks the items needing the title/outlet cleanup below. Google News is
+    // a wrapper around other outlets, so its items do not arrive in the shape
+    // a publisher's own feed produces.
     viaGoogleNews: true,
   }));
 }
@@ -83,21 +92,20 @@ function googleNewsFeeds() {
  *
  * Every Google News title carries the publisher appended after a dash, and
  * leaving it on costs twice: the outlet name is stored inside the headline
- * instead of the `outlet` field, and `matchThana` runs over a few extra
- * words of publisher branding that have nothing to do with where the crime
+ * instead of the `outlet` field, and `matchThana` runs over a few extra words
+ * of publisher branding that have nothing to do with where the crime
  * happened.
  *
  * Only the *last* dash is treated as the separator, and only when something
- * plausible follows it — headlines contain dashes of their own ("Mirpur
- * mugging - police arrest three - Dhaka Tribune").
+ * masthead-shaped follows it — headlines contain dashes of their own
+ * ("Mirpur mugging - police arrest three - Dhaka Tribune"). Truncating a real
+ * headline at its own punctuation would drop the half naming the thana.
  */
 function splitGoogleNewsTitle(title) {
   const raw = String(title || '');
   const cut = raw.lastIndexOf(' - ');
   if (cut < 1) return { title: raw, outlet: null };
   const outlet = raw.slice(cut + 3).trim();
-  // A trailing fragment that is long or sentence-like is part of the
-  // headline, not a masthead.
   if (!outlet || outlet.length > 40 || outlet.split(/\s+/).length > 5) return { title: raw, outlet: null };
   return { title: raw.slice(0, cut).trim(), outlet };
 }
@@ -112,8 +120,9 @@ function titleKey(title) {
  *
  * Order is load-bearing, not cosmetic: `collectNews` keeps the first version
  * of a story it sees, and the first version should be the one whose link is
- * the publisher's own URL rather than a Google redirect. That link is the
- * entire provenance record for an advisory about a real neighbourhood.
+ * the publisher's own URL rather than a Google redirect. That link becomes an
+ * advisory's `sourceUrl` — the entire provenance record for a claim about a
+ * real neighbourhood.
  */
 const NEWS_FEEDS = [
   { name: 'The Daily Star — Crime & Justice', url: 'https://www.thedailystar.net/news/crime-justice/rss.xml' },
@@ -193,11 +202,6 @@ export async function collectNews(geminiApiKey, { now = Date.now() } = {}) {
   const seen = new Set();
   const candidates = [];
 
-  // Direct-publisher feeds are listed before the Google News ones, so when
-  // one story reaches both, the version kept is the one whose `link` is the
-  // publisher's own URL. That link becomes an advisory's `sourceUrl` — the
-  // whole provenance record for a claim about a real neighbourhood — and a
-  // `news.google.com/rss/articles/CBMi…` redirect is a markedly worse one.
   const seenTitles = new Set();
 
   for (const feed of NEWS_FEEDS) {
@@ -215,9 +219,9 @@ export async function collectNews(geminiApiKey, { now = Date.now() } = {}) {
         : { title: raw.title, outlet: null };
 
       // URL dedupe cannot see across sources: Google News rewrites every
-      // link, so the same story arrives under two different URLs and would
+      // link, so one story arrives under two different URLs and would
       // otherwise be classified twice — a second model call for an answer
-      // already paid for.
+      // already bought. Title is what the two versions share.
       const key = titleKey(title);
       if (key && seenTitles.has(key)) continue;
       if (key) seenTitles.add(key);
@@ -227,8 +231,8 @@ export async function collectNews(geminiApiKey, { now = Date.now() } = {}) {
       if (now - Date.parse(item.publishedAt) > MAX_ARTICLE_AGE_MS) continue;
 
       const candidate = isCandidate(item);
-      // The real publisher when Google News named one, so an advisory's
-      // stored outlet says "Dhaka Tribune" rather than "Google News".
+      // The real publisher when Google News named one, so a stored advisory
+      // says "Dhaka Tribune" rather than "Google News".
       if (candidate) candidates.push({ ...candidate, outlet: outlet || feed.name });
     }
   }

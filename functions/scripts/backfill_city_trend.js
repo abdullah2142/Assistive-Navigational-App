@@ -6,17 +6,24 @@
  *     GEMINI_API_KEY=... node scripts/backfill_city_trend.js --dry-run
  *     GEMINI_API_KEY=... node scripts/backfill_city_trend.js
  *
- * ## Why the trend was thin
+ * ## The gap this closes, and why it is not cosmetic
  *
- * `scrapeDmpCrimeReports` fires on the 12th and reads exactly one month: the
- * newest. That is right for staying current and useless for history — every
- * month published before the scraper existed, and every month it missed
- * while `dmp.gov.bd` was behind its bot wall, was simply never read. The
- * citywide multiplier is computed from the last four months
- * (`updateCityTrendMultiplier`), so a thin collection means a multiplier
- * derived from almost nothing.
+ * `updateCityTrendMultiplier` takes the **four newest periods** in
+ * `cityTrend` and divides the latest by the average of the prior three. It
+ * has no concept of the months *between* them. So a hole in the series does
+ * not produce a gap — it produces a confident comparison across the hole.
  *
- * The archive is still up. This reads it.
+ * Measured live on 2026-09-21: `cityTrend` held 66 months ending 2025-05,
+ * plus a single 2026-07. The multiplier was therefore July 2026 (170
+ * pedestrian-relevant) over the average of March–May **2025** (~239), giving
+ * 0.71 — the clamp floor — and every route score in Dhaka had been
+ * multiplied by 0.71 since 2026-09-03. Nothing was broken, nothing logged,
+ * and the number was wrong by a year.
+ *
+ * `scrapeDmpCrimeReports` cannot fix that: it fires on the 12th and reads
+ * exactly one month, the newest. Months published before it existed, and
+ * months it missed while `dmp.gov.bd` was behind its bot wall, were never
+ * going to be read by anything. This reads them.
  *
  * ## What it will and will not attempt
  *
@@ -38,6 +45,14 @@
  * first so that the last write — and therefore the last
  * `updateCityTrendMultiplier` recompute — is the newest month, which is the
  * one the multiplier is anchored on.
+ *
+ * ## Expect the multiplier to move, and expect it to move up
+ *
+ * Closing a hole that was suppressing the multiplier will raise it, and
+ * every route score with it. That is the correction working, not a
+ * regression — but it lands on whoever is holding the app at the time, so
+ * the final line prints the before and after rather than leaving it to be
+ * discovered.
  */
 
 const {
@@ -96,6 +111,18 @@ async function existingPeriods(idToken) {
   return periods;
 }
 
+/** The live citywide multiplier, so the run can report what it changed. */
+async function readMultiplier(idToken) {
+  const res = await fetch(`${FIRESTORE_URL}/meta/cityTrendMultiplier`, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  if (!res.ok) return null;
+  const f = (await res.json()).fields || {};
+  const m = f.multiplier;
+  if (!m) return null;
+  return Number(m.doubleValue ?? m.integerValue);
+}
+
 async function recordMonth(idToken, row) {
   const res = await fetch(RECORD_FN_URL, {
     method: "POST",
@@ -124,18 +151,28 @@ async function main() {
   const { idToken, localId } = await signInAnonymously();
   try {
     const already = await existingPeriods(idToken);
+    const multiplierBefore = await readMultiplier(idToken);
+    const sorted = [...already].sort();
     console.log(`cityTrend already holds ${already.size} month${already.size === 1 ? "" : "s"}`
-      + `${already.size ? `: ${[...already].sort().join(", ")}` : ""}\n`);
+      + `${already.size ? `, ${sorted[0]} to ${sorted[sorted.length - 1]}` : ""}`);
+    console.log(`citywide multiplier is currently ${multiplierBefore ?? "unset"}`);
+
+    // The hole is the whole problem, so name it rather than leaving it to be
+    // inferred from a list of 66 periods.
+    const missing = months.filter((m) => !already.has(m.period)).map((m) => m.period);
+    console.log(`\n${missing.length} published month${missing.length === 1 ? "" : "s"} missing`
+      + `${missing.length ? `: ${missing.join(", ")}` : ""}`);
 
     const todo = force ? months : months.filter((m) => !already.has(m.period));
     if (todo.length === 0) {
-      console.log("Nothing missing. The archive is fully ingested.");
+      console.log("\nNothing missing. The archive is fully ingested.");
       return;
     }
-    console.log(`${todo.length} month${todo.length === 1 ? "" : "s"} to read: ${todo.map((m) => m.period).join(", ")}`);
 
     if (dryRun) {
-      console.log("\n--dry-run: no scan was read and nothing was recorded.");
+      console.log(`\n--dry-run: would read ${todo.length} scan(s) and record them. Nothing was read or written.`);
+      console.log("Recording these will RAISE the citywide multiplier and therefore every route");
+      console.log("score in Dhaka. That is the correction, but it lands on live testers.");
       return;
     }
 
@@ -157,10 +194,16 @@ async function main() {
       }
       await new Promise((r) => setTimeout(r, SPACING_MS));
     }
+
     console.log(`\nRecorded ${recorded} month${recorded === 1 ? "" : "s"}`
       + `${refused.length ? `, skipped ${refused.length}: ${refused.join(", ")}` : ""}.`);
     if (recorded > 0) {
-      console.log("cityTrendMultiplier was recomputed on the last write, from the four newest months.");
+      const multiplierAfter = await readMultiplier(idToken);
+      console.log(`citywide multiplier ${multiplierBefore ?? "unset"} -> ${multiplierAfter ?? "unset"}`);
+      if (multiplierBefore && multiplierAfter) {
+        const pct = Math.round((multiplierAfter / multiplierBefore - 1) * 100);
+        console.log(`every route score in Dhaka just moved by ${pct >= 0 ? "+" : ""}${pct}%.`);
+      }
     }
   } finally {
     await deleteAccount(idToken);

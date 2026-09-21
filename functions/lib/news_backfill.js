@@ -22,10 +22,14 @@
  * call Gulshan dangerous and a poor peripheral thana safe. That is precisely
  * the harm `thana_advisory.js` is structured to refuse.
  *
- * So this counts **distinct months in which a credible crime report named the
- * thana**, which is what `learned_baseline.js` already consumes. A thana needs
- * one article in a month, not many, which damps the attention bias hard and
- * makes the result cap irrelevant — presence per month saturates either way.
+ * So this counts **distinct months in which crime reporting corroborated
+ * itself**, which is what `learned_baseline.js` consumes. A month needs
+ * `INCIDENTS_PER_EVIDENCE_MONTH` distinct articles to count at all, and
+ * contributes no more than that however many it has — so forty stories and
+ * three stories are the same one evidence month, and the attention bias is
+ * damped without the corroboration gate being given up. See
+ * [incidentsFrom]; getting this wrong once produced a ledger that could not
+ * yield a single evidence month.
  *
  * ## Why it cannot run in a Cloud Function
  *
@@ -47,6 +51,7 @@
  */
 
 const { THANA_CRIME_SEED } = require("../data/dhaka_thana_crime_seed");
+const { INCIDENTS_PER_EVIDENCE_MONTH } = require("./thana_incident");
 const {
   CRIME_TERMS,
   EXCLUSION_TERMS,
@@ -85,11 +90,35 @@ function periodOf(ms) {
 /**
  * The incidents one thana's search results justify.
  *
- * Deliberately **one incident per month**, not per article. The baseline
- * counts months, so twenty stories in March and one in April are two months
- * either way — and keeping only the first of each month means a single
- * heavily-covered event cannot outweigh a quieter month in which something
- * genuinely happened.
+ * ## Up to three per month, and why not one
+ *
+ * This kept exactly **one** article per month until 2026-09-21, on the
+ * reasoning that the baseline counts months, so twenty stories in March and
+ * one in April are two months either way. That reasoning was right about
+ * what the baseline counts and wrong about what the ledger requires.
+ *
+ * `evidenceMonthsFromIncidents` only counts a month once it holds
+ * [INCIDENTS_PER_EVIDENCE_MONTH] **distinct** incidents — three, matching
+ * every other corroboration threshold in this codebase. One article per
+ * month can never reach three, so a backfill built this way records a
+ * ledger that is structurally incapable of producing a single evidence
+ * month. Measured live: 107 incidents recorded, 111 (thana, month) cells,
+ * **zero** reaching the threshold, and not one route score moved.
+ *
+ * So the cap rises to exactly the threshold. That keeps both properties
+ * that were actually wanted:
+ *
+ * - **Corroboration survives.** A month with one story still does not
+ *   count, which is the whole point of the gate.
+ * - **Volume bias stays damped.** A month with forty stories contributes
+ *   three incidents and one evidence month, exactly like a month with
+ *   three. Article counts run 29-71 across thanas and encode
+ *   *newsworthiness* — central and affluent areas are covered more — so
+ *   letting raw volume through would rank Gulshan above a poor peripheral
+ *   thana, which is the harm this module exists to refuse.
+ *
+ * Earliest-first within the month, so a re-run records the same set rather
+ * than drifting with Google's ordering.
  */
 function incidentsFrom(items, thana, nowMs) {
   const cutoff = nowMs - BACKFILL_WINDOW_MONTHS * 31 * 24 * 60 * 60 * 1000;
@@ -112,21 +141,29 @@ function incidentsFrom(items, thana, nowMs) {
     if (publishedAtMs > nowMs + 24 * 60 * 60 * 1000) continue;
 
     const period = periodOf(publishedAtMs);
-    const existing = byMonth.get(period);
-    // Earliest article in the month wins, so re-running the backfill produces
-    // the same set rather than drifting with Google's ordering.
-    if (!existing || publishedAtMs < existing.publishedAtMs) {
-      byMonth.set(period, {
-        thanaSlug: thana.slug,
-        sourceUrl: url,
-        publishedAt: new Date(publishedAtMs).toISOString(),
-        publishedAtMs,
-        headline: String(item.title || "").slice(0, 300),
-        period,
-      });
-    }
+    if (!byMonth.has(period)) byMonth.set(period, new Map());
+    // Keyed by URL, because the ledger's own threshold counts *distinct
+    // source URLs* — the same story syndicated twice must not corroborate
+    // itself into an evidence month.
+    byMonth.get(period).set(url, {
+      thanaSlug: thana.slug,
+      sourceUrl: url,
+      publishedAt: new Date(publishedAtMs).toISOString(),
+      publishedAtMs,
+      headline: String(item.title || "").slice(0, 300),
+      period,
+    });
   }
-  return [...byMonth.values()].sort((a, b) => a.publishedAtMs - b.publishedAtMs);
+
+  const incidents = [];
+  for (const perUrl of byMonth.values()) {
+    incidents.push(
+      ...[...perUrl.values()]
+        .sort((a, b) => a.publishedAtMs - b.publishedAtMs)
+        .slice(0, INCIDENTS_PER_EVIDENCE_MONTH),
+    );
+  }
+  return incidents.sort((a, b) => a.publishedAtMs - b.publishedAtMs);
 }
 
 /** Fetches and parses one thana's search results. */

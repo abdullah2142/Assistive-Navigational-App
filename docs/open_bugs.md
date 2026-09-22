@@ -2733,3 +2733,121 @@ colour, semantics label), because colour alone is not a state indicator.
 appears in the Communication Hub when they next look. Their inbox is a panel,
 not a push. That is the same gap on their side that item 28 fixed on the
 user's, and it wants the same treatment.
+
+## Module 6 — Snapshot Vision: what is unverified
+
+Written 21 September 2026, when the module was built. Everything below is a
+claim the code makes that no phone has yet checked.
+
+**Nothing in this module has run on a device.** `flutter analyze` is clean and
+1,167 tests pass, but the test suite deliberately does not fake a camera or a
+TFLite inference, so the parts that need hardware are untested by
+construction:
+
+- **Edge inference timing.** `EdgeHazardDetector` is written against a
+  signature verified by loading the model, but no inference has run in Dart.
+  The `[1,300,300,3]` uint8 packing, the `runForMultipleInputs` output map,
+  and the `[ymin, xmin, ymax, xmax]` box order are all correct on paper. The
+  first device run is what confirms them.
+- **`HazardAssessor.imminentThreshold` (0.42) is a guess.** It is set so a bus
+  filling about a third of the frame, centred and low, trips the alarm. It has
+  never been measured against a real Dhaka street. This is the number that
+  decides whether a blind user is told to stop walking, and it should be
+  treated exactly the way `WakeWordService.defaultDetectionThreshold` was
+  before somebody sat down with a Redmi and counted: a starting point, not a
+  finding. Walk a route, log `[EdgeVision]` lines, and put the line between
+  the real near-misses and the ordinary traffic.
+- **Camera open latency.** `VisionConfig.cameraWarmWindow` assumes a cold open
+  costs 300-600 ms. Unmeasured on the target hardware.
+- **Whether the Volume Up hold conflicts with anything on MIUI.** The Volume
+  Down twin needed two rounds of fixes for MIUI's volume panel stealing focus;
+  this one reuses the same repeat-liveness rule but has not been held on a
+  phone.
+- **Real-world Bangla OCR.** Measured only on rendered signboards, where it was
+  perfect when clean and corrupted a destination name when blurred. A
+  photographed bus in motion at dusk is a different problem, and
+  `VisionConfig.busRouteLookupWins` is the mitigation, not a fix.
+
+**`busRoutes` is empty.** The collection has a rule and a client, and nothing
+has ever been written to it — so `BusRouteDirectory.lookup` currently misses on
+every route and the model's unverified destination reading is what gets
+spoken. That is the failure mode the directory exists to prevent, and it is
+live until the collection is seeded. Seeding it is the single highest-value
+follow-up in this module.
+
+### Ambient scanning and bus identification — added 22 September
+
+**Ambient scanning has never run on a phone, and its battery cost is
+arithmetic, not a measurement.** The 30-second interval is reasoned from
+~1 second of camera and CPU per scan (~3% duty cycle) with the sensor reused
+inside the warm window. Nobody has watched a battery graph for a real walk.
+What to check first: whether the camera warm-window reuse actually happens as
+often as assumed, and whether a Redmi gets measurably hot over twenty minutes.
+
+**`AmbientScanPolicy` is tested; `AmbientHazardScanner` is not.** The split is
+deliberate — the pacing arithmetic is pure and has 14 tests, the timer/camera/
+battery half needs hardware. The untested half is where a leak would live: a
+timer that survives `stop()`, a position stream that is never cancelled, a
+camera that is not released on background.
+
+**Bus identification accuracy is simulated, not observed.** The figures — 152
+of 156 correct undamaged, 144 with two characters of OCR damage, 2 wrong —
+come from randomly corrupting known names, which is not how OCR actually
+fails. Real failures are structured: whole conjuncts misread, glare wiping a
+word, a board at an angle. Expect worse on real photographs, and re-measure
+`BusRouteDirectory.minConfidence` (0.62, a guess) against them.
+
+**`busRoutes` is still empty.** `functions/scripts/seed_bus_routes.js` exists
+and dry-runs correctly but has not been run against the real project. Until it
+is, every bus scan falls back to reading out raw text.
+
+**Seven operator names are shared by more than one corridor** — nine documents
+are `বি আর টিসি বাস`. The app says the operator and refuses the destination in
+that case, which is correct but means BRTC buses get a less useful answer than
+others. The stop list can separate 5 of those 7 groups when the board's
+destinations are legible.
+
+**Overbridge, lift and stairs detection is not built.** OSM carries the tags
+(`highway=steps`, `highway=elevator`) but the routing layer does not request
+them and Dhaka's coverage is patchy. Deferred rather than half-built.
+
+### Depth model for terrain detection — blocked on size, 22 September
+
+The chosen design was depth-offline plus cloud-for-naming. The cloud half is
+built and verified live. **The offline half is blocked on asset size.**
+
+The only publicly downloadable MiDaS TFLite is `model_opt.tflite` from
+isl-org's v2_1 release: **66 MB, float32**, input `[1,256,256,3]`, output
+`[1,256,256,1]` inverse depth. There is no quantized public variant — Kaggle
+and Qualcomm's HuggingFace copies are gated, and TFLite→TFLite float16
+conversion is not a supported path (the converter takes a SavedModel or
+Keras model, not an existing .tflite).
+
+Shrinking it therefore means rebuilding from the ONNX or PyTorch source
+through a TF conversion, which is its own pipeline with its own accuracy
+risk. Not attempted.
+
+What that cost is, concretely: the release APK is currently ~85 MB and this
+would take it to ~150 MB, delivered over mobile data to testers in Dhaka.
+
+**Resolved 22 September: the 66 MB model ships.** The call was that an APK
+size increase is an acceptable trade for a feature that prevents a fall.
+`assets/vision/midas_v21_small.tflite` is in, wired into the ambient scanner,
+and runs on the same frame as the object detector.
+
+What remains open about it:
+
+  - **`DepthProfile.defaultMinScore` (6.0) is a guess and has never met a
+    real kerb.** It decides whether somebody is told to stop walking.
+    Synthetic images cannot settle it — a depth model shown a *drawing* of
+    stairs estimates the depth of a drawing, which was tried and produced
+    profiles indistinguishable from flat ground. The calibration walk is
+    written up in `assets/vision/README.md`; `[Depth]` log lines and
+    `DepthDropoffDetector.lastScore` exist to make it possible.
+  - **Inference cost on a Redmi is unmeasured.** float32 256x256 on four
+    threads, on the same frame as the detector, once per ambient interval.
+    The earlier ~3% duty-cycle estimate for ambient scanning is now
+    optimistic and needs re-measuring with depth included.
+  - **A float16 rebuild via ONNX→TF would roughly halve the asset** if APK
+    size later becomes a problem. Not attempted; it carries its own accuracy
+    risk and would need re-verifying against the float32 original.

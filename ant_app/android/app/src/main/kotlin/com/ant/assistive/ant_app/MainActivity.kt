@@ -44,6 +44,34 @@ class MainActivity : FlutterActivity() {
          * briefly stalled repeat stream, not to time anything.
          */
         private const val REPEAT_GRACE_MS = 700L
+
+        /** Module 6's channel — the Snapshot Vision sweep trigger. */
+        private const val VISION_CHANNEL = "com.ant.assistive.ant_app/vision"
+
+        /**
+         * How long Volume **Up** must be held to start a Stationary Sweep.
+         *
+         * Two seconds, and the number is chosen the same way [SOS_HOLD_MS]
+         * is: long enough that using the key for its actual purpose never
+         * triggers it. Holding Volume Up saturates at maximum volume inside
+         * about a second on every Android device, after which continuing to
+         * hold does nothing a user would keep doing — so a two-second hold
+         * is a gesture nobody performs by accident while adjusting volume.
+         *
+         * Volume Down was not available: Module 9 owns it, and the Magic
+         * Button must not have a competing meaning.
+         *
+         * A hold rather than a press or a double-press is deliberate. Single
+         * and repeated presses are exactly how volume is normally changed —
+         * somebody raising the volume three steps taps three times in under
+         * a second — so any press-count gesture would fire constantly.
+         *
+         * The two seconds cost is real and is spent on the right trigger:
+         * this fires the *sweep*, which is not racing anything. "What bus is
+         * this", which is, stays on the voice and chip paths where it starts
+         * capturing immediately.
+         */
+        private const val SWEEP_HOLD_MS = 2000L
     }
 
     /**
@@ -70,8 +98,15 @@ class MainActivity : FlutterActivity() {
     }
 
     private var emergencyChannel: MethodChannel? = null
+    private var visionChannel: MethodChannel? = null
     private val holdHandler = Handler(Looper.getMainLooper())
     private var holdArmed = false
+
+    /** Volume Up hold state — the same three fields, for the sweep trigger. */
+    private val sweepHandler = Handler(Looper.getMainLooper())
+    private var sweepArmed = false
+    private var sweepSawRepeat = false
+    private var sweepLastKeyDownAt = 0L
 
     /// Whether this device delivered any auto-repeat during the current hold,
     /// and when the last one arrived. See [fireIfStillHeld].
@@ -119,9 +154,38 @@ class MainActivity : FlutterActivity() {
                 sawRepeat = true
                 lastKeyDownAt = SystemClock.elapsedRealtime()
             }
+        } else if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            if (event.repeatCount == 0 && !sweepArmed) {
+                sweepArmed = true
+                sweepSawRepeat = false
+                sweepLastKeyDownAt = SystemClock.elapsedRealtime()
+                window?.decorView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                sweepHandler.postDelayed({ fireSweepIfStillHeld() }, SWEEP_HOLD_MS)
+            } else if (sweepArmed) {
+                sweepSawRepeat = true
+                sweepLastKeyDownAt = SystemClock.elapsedRealtime()
+            }
         }
         // Always falls through: the volume is the system's to change.
         return super.onKeyDown(keyCode, event)
+    }
+
+    /**
+     * The Volume Up twin of [fireIfStillHeld], and it uses the identical
+     * repeat-liveness rule for the identical reason: the volume panel takes
+     * focus on some ROMs (MIUI among them, which is what this is tested on),
+     * so judging liveness from window focus cancels the hold with the very UI
+     * the hold summons. See [fireIfStillHeld] for the full account.
+     */
+    private fun fireSweepIfStillHeld() {
+        if (!sweepArmed) return
+        val quiet = SystemClock.elapsedRealtime() - sweepLastKeyDownAt
+        if (sweepSawRepeat && quiet > REPEAT_GRACE_MS) {
+            sweepArmed = false
+            return
+        }
+        sweepArmed = false
+        visionChannel?.invokeMethod("sweepHeld", null)
     }
 
     /**
@@ -159,6 +223,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) disarmHold()
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) disarmSweep()
         return super.onKeyUp(keyCode, event)
     }
 
@@ -166,6 +231,12 @@ class MainActivity : FlutterActivity() {
         holdArmed = false
         sawRepeat = false
         holdHandler.removeCallbacksAndMessages(null)
+    }
+
+    private fun disarmSweep() {
+        sweepArmed = false
+        sweepSawRepeat = false
+        sweepHandler.removeCallbacksAndMessages(null)
     }
 
     /**
@@ -184,6 +255,8 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         disarmHold()
         emergencyChannel = null
+        visionChannel = null
+        sweepHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
@@ -195,6 +268,10 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             EmergencyBridge.CHANNEL,
         ).apply { setMethodCallHandler { call, result -> emergency.handle(call, result) } }
+
+        // Outbound only — Dart never calls into this one, it only listens for
+        // `sweepHeld`. No handler is registered for that reason.
+        visionChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VISION_CHANNEL)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "start" -> {

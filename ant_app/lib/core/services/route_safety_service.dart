@@ -13,6 +13,8 @@ class RouteHazard {
     required this.subCategory,
     required this.flag,
     required this.reportCount,
+    this.lat,
+    this.lng,
   });
 
   final String zoneId;
@@ -25,6 +27,22 @@ class RouteHazard {
   final String flag;
   final int reportCount;
 
+  /// Where the hazard actually is.
+  ///
+  /// The Cloud Function has always returned these — `hazardsOnRoute` filters
+  /// whole hazard-zone documents by `hazard.lat`/`hazard.lng` and hands them
+  /// back intact — and this parser simply dropped them. Recovered because
+  /// "there is a hazard somewhere on your route" and "there is an open
+  /// manhole twenty metres ahead" are different sentences, and only the
+  /// second is worth interrupting a walk for.
+  ///
+  /// Nullable: an older cached verdict, or a malformed document, must not
+  /// take the whole safety check down.
+  final double? lat;
+  final double? lng;
+
+  bool get hasPosition => lat != null && lng != null;
+
   bool get isConfirmed => flag == 'red';
 
   factory RouteHazard.fromJson(Map<Object?, Object?> json) => RouteHazard(
@@ -33,6 +51,8 @@ class RouteHazard {
         subCategory: json['subCategory'] as String? ?? '',
         flag: json['flag'] as String? ?? 'yellow',
         reportCount: ((json['reportCount'] as num?) ?? 1).toInt(),
+        lat: (json['lat'] as num?)?.toDouble(),
+        lng: (json['lng'] as num?)?.toDouble(),
       );
 }
 

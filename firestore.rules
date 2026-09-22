@@ -111,6 +111,23 @@ service cloud.firestore {
     // Admin SDK. Client-writable would defeat the entire anti-spam layer in
     // one step — the aggregate is precisely the thing users must not be
     // able to set directly.
+    // busRoutes/{routeNumber} — Module 6's known Dhaka transit routes, keyed
+    // by route number as ASCII digits ("6", not "৬"; the client normalises).
+    // Fields: destinationEn, destinationBn, via[].
+    //
+    // Read-only to clients, and that matters more here than it looks. This
+    // collection exists specifically to *override* what the vision model read
+    // off a signboard: measured on a degraded image, the model kept the route
+    // number and corrupted the destination, so the number is used as a key and
+    // the names come from here instead (see `VisionConfig.busRouteLookupWins`).
+    // A client-writable row would therefore let any signed-in device decide
+    // what a blind user is told a bus's destination is — with the app stating
+    // it more confidently than the unverified reading it replaced.
+    match /busRoutes/{routeNumber} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
     match /hazardZones/{zoneId} {
       allow read: if request.auth != null;
       allow write: if false;

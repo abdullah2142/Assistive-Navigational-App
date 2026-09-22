@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 import 'api_budget.dart';
+import 'assistant_service.dart';
 import '../../features/dashboard/models/chat_message.dart';
 import '../../features/dashboard/models/hazard_report.dart';
 import '../../features/dashboard/models/suggested_chip.dart';
@@ -11,6 +12,7 @@ import '../config/gemini_config.dart';
 import '../localization/app_language.dart';
 import 'destination_clarifier.dart';
 import 'function_call_executor.dart';
+import 'vision/vision_scene.dart' show ScanFocus;
 import 'pending_place_save.dart';
 import 'route_planning_service.dart';
 import 'routing_service.dart' show RouteCandidate;
@@ -42,9 +44,18 @@ class AssistantTurn {
     this.hazardPrefill,
     this.clarification,
     this.placeSave,
+    this.scanFocus,
     this.triggersEmergency = false,
     this.cancelsRoute = false,
   });
+
+  /// Non-null when the model called `look_around` — Module 6.
+  ///
+  /// A request rather than a result: the scan needs the camera, and the
+  /// executor has no more business opening a camera than it has opening an
+  /// overlay. The caller runs it, which is also what keeps the single-scan
+  /// guard and the spoken "hold still" prompt in one place.
+  final ScanFocus? scanFocus;
 
   final String responseText;
 
@@ -121,7 +132,10 @@ class AssistantTurn {
 /// a full Gemini round trip for the common, unambiguous cases. This class
 /// still owns the *decision* of which function to call for anything the
 /// local matcher isn't confident about, plus all free-form conversation.
-class GeminiAssistantService {
+class GeminiAssistantService implements AssistantService {
+  @override
+  String get backendName => 'gemini:${GeminiConfig.modelName}';
+
   GeminiAssistantService({
     required String apiKey,
     required FunctionCallExecutor executor,
@@ -157,6 +171,7 @@ class GeminiAssistantService {
   /// [onPartialText] simply never fires for that turn, since Gemini's
   /// function-calling turns don't emit meaningful text ahead of the call
   /// itself in practice.
+  @override
   Future<AssistantTurn> converse({
     required String userText,
     required UserProfile profile,
@@ -209,6 +224,7 @@ class GeminiAssistantService {
     RouteChoice? route;
     List<RouteCandidate>? alternatives;
     HazardReportPrefill? hazardPrefill;
+    ScanFocus? scanFocus;
     DestinationClarification? clarification;
     PendingPlaceSave? placeSave;
     final confirmations = <String>[];
@@ -229,6 +245,7 @@ class GeminiAssistantService {
       if (applied.route != null) route = applied.route;
       if (applied.routeAlternatives != null) alternatives = applied.routeAlternatives;
       hazardPrefill ??= applied.hazardPrefill;
+      scanFocus ??= applied.scanFocus;
       clarification ??= applied.clarification;
       placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
@@ -254,6 +271,7 @@ class GeminiAssistantService {
       route: route,
       routeAlternatives: alternatives,
       hazardPrefill: hazardPrefill,
+      scanFocus: scanFocus,
       clarification: clarification,
       placeSave: placeSave,
     );
@@ -442,6 +460,25 @@ User's message: "$userText"
           "during which the user is told what is about to happen and can say 'cancel'. A false alarm "
           "costs them one word; a missed one costs everything.",
       null,
+    ),
+    // Module 6 — kept in sync with `GroqAssistantService`'s declaration of
+    // the same tool, per that class's doc comment. Groq is what actually
+    // ships; this path stays as the documented revert route.
+    FunctionDeclaration(
+      'look_around',
+      "Use the camera to see for the user. Call when they ask what is in front of them, which bus or "
+          "vehicle this is, what a sign says, whether the path is clear, or whether it is safe to cross. "
+          "The user is blind — they cannot aim the camera, so never ask them to point it anywhere.",
+      Schema.object(
+        properties: {
+          'focus': Schema.enumString(
+            enumValues: const ['vehicle', 'sign', 'surroundings', 'hazard'],
+            description: 'vehicle = which bus/rickshaw/CNG and where it goes. sign = read text. '
+                'hazard = is the path walkable. surroundings = describe the scene.',
+          ),
+        },
+        requiredProperties: const ['focus'],
+      ),
     ),
     FunctionDeclaration(
       'open_passerby_helper',

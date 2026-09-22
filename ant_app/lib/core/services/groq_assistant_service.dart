@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 
 import 'api_budget.dart';
+import 'assistant_service.dart';
 import 'voice_matching.dart';
 import '../../features/dashboard/models/chat_message.dart';
 import '../../features/dashboard/models/hazard_report.dart';
@@ -16,6 +17,7 @@ import '../localization/app_language.dart';
 import 'destination_clarifier.dart';
 import 'function_call_executor.dart';
 import 'gemini_assistant_service.dart' show AssistantTurn;
+import 'vision/vision_scene.dart' show ScanFocus;
 import 'pending_place_save.dart';
 import 'route_planning_service.dart';
 import 'routing_service.dart' show RouteCandidate;
@@ -52,7 +54,10 @@ class AssistantBudgetExhausted implements Exception {
 /// with a thin adapter, because Gemini's `Schema`/`FunctionDeclaration`
 /// types and OpenAI's raw-JSON tool schema aren't compatible enough to
 /// share a builder without obscuring both.
-class GroqAssistantService {
+class GroqAssistantService implements AssistantService {
+  @override
+  String get backendName => 'groq:${GroqConfig.chatModel}';
+
   GroqAssistantService({
     required String apiKey,
     required FunctionCallExecutor executor,
@@ -74,6 +79,7 @@ class GroqAssistantService {
   // per-minute allowance where 8 cost nothing extra in practice.
   static const int _historyTurns = 5;
 
+  @override
   Future<AssistantTurn> converse({
     required String userText,
     required UserProfile profile,
@@ -178,6 +184,7 @@ class GroqAssistantService {
     RouteChoice? route;
     List<RouteCandidate>? alternatives;
     HazardReportPrefill? hazardPrefill;
+    ScanFocus? scanFocus;
     DestinationClarification? clarification;
     PendingPlaceSave? placeSave;
     final confirmations = <String>[];
@@ -206,6 +213,7 @@ class GroqAssistantService {
       if (applied.route != null) route = applied.route;
       if (applied.routeAlternatives != null) alternatives = applied.routeAlternatives;
       hazardPrefill ??= applied.hazardPrefill;
+      scanFocus ??= applied.scanFocus;
       clarification ??= applied.clarification;
       placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
@@ -218,6 +226,7 @@ class GroqAssistantService {
       route: route,
       routeAlternatives: alternatives,
       hazardPrefill: hazardPrefill,
+      scanFocus: scanFocus,
       clarification: clarification,
       placeSave: placeSave,
     );
@@ -425,6 +434,26 @@ Live location: $locationLine
           'নম্বর', 'ফোন', 'বোন', 'ভাই', 'মা', 'বাবা', 'ঠিকানা', 'অ্যাড', 'এড'],
     ),
     (
+      // Module 6. Bangla terms are substring matches for the reason the class
+      // doc gives — `বাস` has to match `বাসটা`/`বাসটি`, and `দেখ` is the stem
+      // under দেখো/দেখুন/দেখাও/দেখতে, which is how the question is actually
+      // asked out loud.
+      tools: ['look_around'],
+      latin: ['see', 'look', 'camera', 'bus', 'sign', 'board', 'read', 'says', 'front',
+          'ahead', 'around', 'cross', 'crossing', 'clear', 'what is this', 'whats this',
+          'vehicle', 'rickshaw', 'cng', 'auto', 'manhole', 'describe',
+          // Phrasings for "is something in my path" that share no word with
+          // the rest of this group — found by a test, not by guessing. Each
+          // is multi-word on purpose: a bare 'walk' belongs to routing and a
+          // bare 'into' is noise.
+          'walk into', 'bump into', 'trip over', 'in my way', 'in the way',
+          'dekho', 'dekhun', 'dekhen', 'dekhte', 'poro', 'porun', 'ki ache', 'samne',
+          'shamne', 'bus ta', 'kon bus', 'rasta clear'],
+      bangla: ['দেখ', 'ক্যামেরা', 'বাস', 'সাইন', 'সাইনবোর্ড', 'লেখা', 'পড়', 'সামনে',
+          'আশেপাশে', 'আশপাশে', 'পার হ', 'রিকশা', 'রিক্সা', 'সিএনজি', 'ম্যানহোল',
+          'গাড়ি', 'কী আছে', 'কি আছে', 'ফাঁকা'],
+    ),
+    (
       tools: ['open_map', 'close_map', 'open_hazard_report', 'resolve_hazard',
           'open_passerby_helper', 'add_passerby_message', 'remove_passerby_message'],
       latin: ['map', 'hazard', 'report', 'stranger', 'passerby', 'screen', 'block', 'broken',
@@ -532,6 +561,16 @@ Live location: $locationLine
   static List<String> toolOrderFor(String text) =>
       _getRelevantTools(text).map((t) => t['function']['name'] as String).toList();
 
+  /// Every tool this service declares, in declaration order.
+  ///
+  /// Exposed for `tool_parity_test.dart`. The duplication between this class
+  /// and `GeminiAssistantService` is deliberate (see this class's doc
+  /// comment) and therefore drifts silently — the two lists are written by
+  /// hand in two incompatible schema languages, and nothing but a test can
+  /// notice when one gains a tool the other did not.
+  @visibleForTesting
+  static List<Map<String, dynamic>> get allTools => _tools;
+
   @visibleForTesting
   static Set<String> toolNamesFor(String text) =>
       _getRelevantTools(text).map((t) => t['function']['name'] as String).toSet();
@@ -587,6 +626,26 @@ Live location: $locationLine
           "help, not refusals. The user is blind and cannot check whether you understood, so err toward "
           "calling. Do NOT call for the word 'help' in passing, questions about the feature, managing "
           "contacts, or a clear \"I'm fine\". A 5s cancel window follows.",
+    ),
+    // Module 6. One tool with a `focus` argument rather than four separate
+    // ones (scan_bus / read_sign / describe_scene / check_path), because
+    // every declaration is input tokens against a per-minute ceiling the
+    // conversation itself is spending — see `VisionConfig.framesUploadedPerScan`.
+    // The four behaviours differ only in prompt and framing, which is an
+    // argument, not four tools.
+    _tool(
+      'look_around',
+      'Use the camera to see for the user. Call when they ask what is in front of them, which bus or '
+          'vehicle this is, what a sign says, whether the path is clear, or whether it is safe to cross. '
+          'The user is blind — they cannot aim the camera, so never ask them to point it anywhere.',
+      properties: {
+        'focus': _enumStr(
+          const ['vehicle', 'sign', 'surroundings', 'hazard'],
+          'vehicle = which bus/rickshaw/CNG and where it goes. sign = read text. '
+              'hazard = is the path walkable. surroundings = describe the scene.',
+        ),
+      },
+      required: ['focus'],
     ),
     _tool('open_passerby_helper', 'Open the Passerby Helper overlay for a nearby stranger to read.'),
     // `subCategory` is a free string rather than a 25-value enum, which was

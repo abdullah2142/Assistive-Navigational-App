@@ -177,9 +177,6 @@ class Dashboard {
   String get chatStillWorking => _t('Still working on that…', 'একটু সময় লাগছে…');
 
   String get chatAskDestination => _t('Where would you like to go?', 'আপনি কোথায় যেতে চান?');
-  String get chatStubBusScan =>
-      _t('Bus sign scanning needs the Snapshot Vision Engine, which is Module 6.', 'বাসের সাইনবোর্ড পড়ে দেওয়ার কাজটি পরে যোগ হবে।');
-
   // Suggested chips
   String get chipRouteToWork => _t('Route to Work', 'কাজের পথ');
   String get chipScanBus => _t('Scan the next bus', 'বাসের নাম্বার দেখুন');
@@ -1160,4 +1157,181 @@ class Dashboard {
 
   String languageLabel(AppLanguage language) =>
       language == AppLanguage.bangla ? _t('Bangla', 'বাংলা') : _t('English', 'ইংরেজি');
+
+  // ---- Module 6, the Snapshot Vision Engine --------------------------------
+  //
+  // Wording rule for this whole block, and it is a safety rule rather than a
+  // style one: **"I could not see" and "there is nothing there" must never
+  // sound alike.** A blind user who hears a confident all-clear from a scan
+  // that never actually ran will step into the road. Every failure string
+  // below names the failure.
+
+  /// Spoken as a sweep starts. Plan Step 1.2.
+  ///
+  /// Rewritten: it used to say "hold still **and** turn your phone", which
+  /// asks for two opposite things at once. The sweep is now three deliberate
+  /// positions with a capture at each, so the instruction says that.
+  String get visionSweepPrompt => _t(
+        'I will take three looks. Point your phone where I say, and hold still.',
+        'তিনবার দেখব। যেদিকে বলি ফোনটা ধরুন, আর একটু স্থির থাকুন।',
+      );
+
+  /// The three sweep positions, in order.
+  ///
+  /// Short because each is spoken while the user is mid-turn and waiting to
+  /// stop. A long sentence here is a sentence they move through, which
+  /// reintroduces the motion blur this design exists to remove.
+  String visionSweepStep(int index) => switch (index) {
+        0 => _t('Left.', 'বাঁয়ে।'),
+        1 => _t('Straight ahead.', 'সোজা সামনে।'),
+        _ => _t('Right.', 'ডানে।'),
+      };
+
+  /// Said once the last frame is in, so the user knows they may move again.
+  String get visionSweepDone => _t('Got it — looking now.', 'হয়েছে — এখন দেখছি।');
+
+  /// A single-frame scan needs no stand-still instruction — it is already
+  /// taken by the time this would be said.
+  String get visionLookingNow => _t('Looking…', 'দেখছি…');
+
+  String get visionAlreadyLooking =>
+      _t('I am still looking — one moment.', 'এখনও দেখছি — একটু দাঁড়ান।');
+
+  String get visionNoCamera => _t(
+        'I cannot use the camera on this phone, so I cannot look for you.',
+        'এই ফোনের ক্যামেরা ব্যবহার করতে পারছি না, তাই দেখতে পারছি না।',
+      );
+
+  String get visionCaptureFailed => _t(
+        'The camera did not take a picture, so I could not look. Try again.',
+        'ক্যামেরা ছবি তুলতে পারেনি, তাই দেখতে পারিনি। আবার চেষ্টা করুন।',
+      );
+
+  /// Said when the edge model aborted the scan — plan Step 2.3. The long
+  /// buzz has already fired by the time this is spoken.
+  ///
+  /// Short on purpose. This is the one sentence in the app that has to land
+  /// before the user's next step, and a clause they have to listen through
+  /// is a clause they are still walking during.
+  String visionHazardAbort(String object) =>
+      _t('Stop. $object right in front of you.', 'থামুন। সামনেই $object।');
+
+  String get visionBudgetSpent => _t(
+        'I have looked too many times just now. Ask me again in a minute.',
+        'একটু আগে অনেকবার দেখেছি। এক মিনিট পরে আবার বলুন।',
+      );
+
+  /// Offline: the local model saw things but nothing could be read.
+  ///
+  /// The "cannot read signs without internet" half is not optional — without
+  /// it this sentence implies the question was answered.
+  String visionOfflineSaw(String things) => _t(
+        'I can see $things. I cannot read any signs without internet.',
+        'আমি $things দেখতে পাচ্ছি। ইন্টারনেট ছাড়া কোনো লেখা পড়তে পারছি না।',
+      );
+
+  String get visionOfflineNothingSeen => _t(
+        'I cannot see anything I recognise, and I have no internet to look properly.',
+        'চেনা কিছু দেখতে পাচ্ছি না, আর ভালো করে দেখার মতো ইন্টারনেটও নেই।',
+      );
+
+  String visionCountedObject(String label, int count) =>
+      count <= 1 ? _t('a $label', '$labelটি') : _t('$count ${label}s', '$countটি $label');
+
+  String get visionListSeparator => _t(', ', ', ');
+
+  /// The verified bus answer — route number from the sign, destination from
+  /// the Firestore directory. See `VisionConfig.busRouteLookupWins`.
+  String visionBusVerified({required String route, required String destination}) => _t(
+        'This is the $route bus, going to $destination.',
+        'এটা $route, $destination যাচ্ছে।',
+      );
+
+  /// When the operator is known but which of its routes this is, is not.
+  ///
+  /// The BRTC case: nine corridors share one name on the signboard. Naming a
+  /// destination here would be a coin flip stated as fact, to somebody who
+  /// boards on the strength of it — so the sentence stops at what is true and
+  /// tells them how to find out the rest.
+  String visionBusNameOnly(String route) => _t(
+        'This is the $route bus. I cannot tell where it goes — ask the helper.',
+        'এটা $route। কোথায় যাচ্ছে বলতে পারছি না — হেলপারকে জিজ্ঞেস করুন।',
+      );
+
+  /// COCO class names, spoken.
+  ///
+  /// `bicycle` and `car` are deliberately vague in Bangla — the detector has
+  /// no rickshaw or CNG class and routinely calls a cycle-rickshaw a bicycle
+  /// and a CNG auto a car. Saying "রিকশা" on that evidence would be
+  /// confidently wrong; "দুই চাকার গাড়ি" is merely imprecise, and imprecise
+  /// is the side to err on when the listener cannot check.
+  String visionObjectLabel(String? cocoLabel) => switch (cocoLabel) {
+        'bus' => _t('a bus', 'বাস'),
+        'truck' => _t('a truck', 'ট্রাক'),
+        'car' => _t('a car', 'গাড়ি'),
+        'motorcycle' => _t('a motorbike', 'মোটরসাইকেল'),
+        'bicycle' => _t('a bike or rickshaw', 'সাইকেল বা রিকশা'),
+        'person' => _t('a person', 'একজন মানুষ'),
+        'train' => _t('a train', 'ট্রেন'),
+        'traffic light' => _t('a traffic light', 'ট্রাফিক বাতি'),
+        'dog' => _t('a dog', 'কুকুর'),
+        'bench' => _t('a bench', 'বেঞ্চ'),
+        null => _t('something', 'কিছু একটা'),
+        _ => _t('something', 'কিছু একটা'),
+      };
+
+  /// Prefixes an answer served from the cooldown cache.
+  ///
+  /// Without it a frame up to twelve seconds old is spoken in the present
+  /// tense, and the user asked again precisely because they thought something
+  /// had changed. Same rule as every other string in this block: what the app
+  /// actually knows has to be distinguishable from what is true now.
+  String visionFromAMomentAgo(String answer) =>
+      _t('A moment ago: $answer', 'একটু আগে: $answer');
+
+  /// The ground stops ahead — a step down, a kerb, an unguarded edge.
+  ///
+  /// The most urgent thing this app says, and the shortest. A fall is the
+  /// injury a blind pedestrian actually suffers, and a sentence they are
+  /// still listening to is a sentence they are still walking through.
+  ///
+  /// Says "drops" rather than "stairs": the depth reading knows the ground
+  /// falls away, not what is below it. Naming stairs when it is an open drain
+  /// would be worse than naming neither.
+  String visionGroundDrops(int paces) => paces <= 1
+      ? _t('Stop. The ground drops right in front of you.',
+          'থামুন। ঠিক সামনেই নিচু হয়ে গেছে।')
+      : _t('Careful — the ground drops about $paces paces ahead.',
+          'সাবধান — প্রায় $paces পা সামনে নিচু হয়ে গেছে।');
+
+  /// Spoken while a ride scan runs.
+  String get visionLookingForRide => _t('Looking for a ride…', 'একটা গাড়ি খুঁজছি…');
+
+  /// No rickshaw, CNG or taxi in view.
+  String get visionNoRideSeen => _t(
+        'I cannot see a rickshaw or CNG right now.',
+        'এখন কোনো রিকশা বা সিএনজি দেখতে পাচ্ছি না।',
+      );
+
+  /// Offered after a ride is spotted — the user cannot wave, so the app
+  /// shows and speaks the request for them. Reuses the Passerby Helper
+  /// overlay, which already exists for exactly this shape of problem.
+  String visionOfferHail(String destination) => destination.isEmpty
+      ? _t('Shall I show a sign asking for a ride?',
+          'গাড়ি চাই লেখা দেখাব?')
+      : _t('Shall I show a sign asking for a ride to $destination?',
+          '$destination যাব লেখা দেখাব?');
+
+  /// What the passerby/driver sees, in large type, and what is spoken aloud.
+  String visionHailSign(String destination) => destination.isEmpty
+      ? _t('I need a ride. I cannot see.', 'আমার একটা গাড়ি লাগবে। আমি দেখতে পাই না।')
+      : _t('I need a ride to $destination. I cannot see.',
+          'আমি $destination যাব। আমি দেখতে পাই না।');
+
+  /// Offered after a scan spots a durable ground hazard — never filed
+  /// automatically. See `SnapshotVisionService._reportableKinds`.
+  String visionOfferReport(String hazard) => _t(
+        'I saw $hazard. Should I report it so others know?',
+        '$hazard দেখলাম। অন্যদের জানাতে রিপোর্ট করব?',
+      );
 }

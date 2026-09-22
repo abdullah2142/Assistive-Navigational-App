@@ -43,6 +43,22 @@
 
          CALL_PHONE places the follow-up call directly rather than dropping
          the user into a dialler they would then have to operate. -->
+    <!-- Module 6, the Snapshot Vision Engine.
+
+         Still capture only. There is no preview stream and no image stream
+         anywhere in this app: `SnapshotCamera` opens the sensor, takes one
+         to three frames, and closes it again. That is the Snapshot
+         Architecture, and it is what keeps a phone in a Dhaka summer from
+         thermally throttling the navigation the user is actually relying on.
+
+         `android.hardware.camera` is declared not-required so the app still
+         installs on a device without one — every other module works fine
+         without a camera, and `SnapshotCamera.isAvailable` degrades the scan
+         feature to a spoken explanation rather than a crash. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+
     <uses-permission android:name="android.permission.SEND_SMS"/>
     <uses-permission android:name="android.permission.CALL_PHONE"/>
     <application

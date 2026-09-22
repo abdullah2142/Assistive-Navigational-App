@@ -128,11 +128,33 @@ class DepthDropoffDetector {
       interpreter.run([input], [output]);
       stopwatch.stop();
 
-      final verdict = _profile.analyse(_groundProfile(output));
+      final profile = _groundProfile(output);
+      final verdict = _profile.analyse(profile);
       lastScore.value = verdict.score;
+
+      // Raw tensor statistics, logged on every scan until drop-off detection
+      // is trusted.
+      //
+      // The 22 September session reported `change=unreadable score=0.0` on
+      // **all 18** scans, and `score=0.0` is produced by both of `analyse`'s
+      // two bail-outs, so the log could not say which had fired. Running
+      // this exact model offline settles half of it: `midas_v21_small`
+      // returns an output range around 900 for every input tried — a real
+      // photo, flat grey, pure black, with and without ImageNet
+      // normalisation — so neither the model nor the missing mean/std
+      // normalisation can be the cause, and a near-zero range can only mean
+      // the output buffer was never written.
+      //
+      // `rows` separates the other bail-out (too few usable rows), and
+      // `min`/`max` say outright whether the tensor came back populated. One
+      // walk with this in now answers a question three sessions have not.
+      final min = profile.isEmpty ? 0.0 : profile.reduce(math.min);
+      final max = profile.isEmpty ? 0.0 : profile.reduce(math.max);
       debugPrint('[Depth] ${stopwatch.elapsedMilliseconds}ms '
           'change=${verdict.change.name} score=${verdict.score.toStringAsFixed(1)} '
-          'paces=${verdict.paces}');
+          'paces=${verdict.paces} '
+          'rows=${profile.length} min=${min.toStringAsFixed(3)} '
+          'max=${max.toStringAsFixed(3)} range=${(max - min).toStringAsFixed(3)}');
       return verdict;
     } catch (e) {
       debugPrint('[Depth] inference failed: $e');

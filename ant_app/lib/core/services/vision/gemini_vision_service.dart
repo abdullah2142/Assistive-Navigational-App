@@ -182,7 +182,20 @@ class GeminiVisionService implements VisionBackend {
 
       return VisionPrompt.parse(text, focus);
     } on TimeoutException {
-      debugPrint('[Vision] $name timed out after ${VisionConfig.cloudTimeout.inSeconds}s');
+      // The payload size is logged with the timeout because the two
+      // hypotheses need separating and nothing so far distinguishes them.
+      //
+      // On 22 September this backend timed out on **5 of 5** attempts at
+      // exactly 12s, while Groq answered the same frames in 650ms-1.4s. A
+      // backend that is merely slower than another does not lose every
+      // single race by a factor of ten; that pattern looks more like a
+      // request that never returns than one that returns late. If the bytes
+      // here are large, it is upload bandwidth on a Dhaka mobile connection
+      // and the timeout is simply too tight. If they are small, the request
+      // itself is wrong and raising the timeout would only make each failure
+      // take longer.
+      debugPrint('[Vision] $name timed out after ${VisionConfig.cloudTimeout.inSeconds}s '
+          '(${jpegs.length} frame(s), ${jpegs.fold<int>(0, (n, j) => n + j.length)} bytes)');
       return null;
     } catch (e) {
       debugPrint('[Vision] $name call failed: $e');

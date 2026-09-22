@@ -1,6 +1,9 @@
-// Reopening the microphone after the assistant asks something — item 60.
+// Keeping the microphone open after the assistant speaks — item 60, widened.
 //
-// Reported: "after ai asks a question, it should reopen mic."
+// Reported first as: "after ai asks a question, it should reopen mic."
+// Reported later, and more importantly, as a worry about the shape of the
+// whole conversation: having to say the wake phrase again after every answer
+// gets in the way of a disabled user. It did, and the rule below is why.
 //
 // The triage read this as auto-listen covering some flows but not a Gemini
 // reply that ends in a question. It was worse than that: `voiceAutoListen` was
@@ -77,20 +80,35 @@ void main() {
         reason: 'the invitation was raised before narration completed');
   });
 
-  test('a statement does not reopen it', () async {
-    // The bus-scan stub is a plain sentence. Reopening after every reply is
-    // what auto-listen does on the *onboarding* screens, where every screen
-    // is a question; a chat surface is mostly not.
+  test('a statement reopens it too', () async {
+    // This used to assert the opposite, on the reasoning that "a chat surface
+    // is mostly not questions". True, and it was the wrong conclusion.
+    //
+    // `auto_listen_rule_test.dart` gives a blind user this setting *without
+    // asking*, because "a microphone that does not open itself is one they do
+    // not have". Under the old rule they got it after "Where do you want to
+    // go?" and not after "Taking you to Gulshan 2, about 1.2 km" — so the
+    // person the feature exists for still had to say the wake phrase after
+    // most turns, which is precisely what it was meant to remove.
+    //
+    // Statements invite a follow-up at least as often as questions: "that is
+    // the route 6 bus" is answered with "take me there".
     final profile = user();
     final result = await run(
-      (c) => c.handleChip(
-        const SuggestedChip(
-          action: SuggestedChipAction.scanBusSign,
-          icon: IconsPlaceholder.icon,
-        ),
-        profile,
-        'Scan the next bus',
-      ),
+      (c) => c.announceStatementForTest('Taking you to Gulshan 2, about 1.2 km.', profile),
+      profile: profile,
+    );
+    expect(result.invitations, 1);
+  });
+
+  test('a hazard warning does not reopen it', () async {
+    // The exception, and the reason `mayInviteAnswer` still exists as a flag
+    // rather than being deleted along with the question-mark rule. Somebody
+    // who has just been told to stop walking is not also being asked to
+    // reply, and an open microphone implies they are.
+    final profile = user();
+    final result = await run(
+      (c) => c.announceAmbientHazard('Stop. The ground drops right in front of you.', profile),
       profile: profile,
     );
     expect(result.invitations, 0);

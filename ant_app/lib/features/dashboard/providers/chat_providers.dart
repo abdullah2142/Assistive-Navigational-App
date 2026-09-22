@@ -691,11 +691,33 @@ class ChatController extends Notifier<ChatState> {
   /// reply can end on the danda or a full-width mark depending on what the
   /// model emits, and a question the app fails to recognise as one is a
   /// microphone that does not open.
-  bool _invitesAnAnswer(String text) {
-    if (state.pendingClarification != null || state.pendingPlaceSave != null) return true;
-    final trimmed = text.trimRight();
-    return trimmed.endsWith('?') || trimmed.endsWith('？');
-  }
+  /// Whether to keep listening after this reply.
+  ///
+  /// **Any spoken reply, not only a question.** It used to be question marks
+  /// only, which matched what onboarding promised — "when ANT asks you
+  /// something, it can start listening straight away" — and contradicted the
+  /// reason the setting exists at all.
+  ///
+  /// `auto_listen_rule_test.dart` states that reason: a blind user gets this
+  /// turned on *without being asked*, because "a microphone that does not
+  /// open itself is one they do not have". Under the old rule they got it
+  /// after "Where do you want to go?" and not after "Taking you to Gulshan 2,
+  /// about 1.2 km" — so the person the feature was built for still had to say
+  /// the wake phrase after most turns, which is the thing it was meant to
+  /// remove.
+  ///
+  /// Statements invite a follow-up at least as often as questions do. "That
+  /// is the route 6 bus to Mirpur" is followed by "take me there"; "I have
+  /// saved that place" by "now take me home".
+  ///
+  /// This cannot loop. The window is one listen session that ends on its own
+  /// silence timeout and re-invites nothing, so a reply the user does not
+  /// answer costs one short window and then silence.
+  ///
+  /// What still does not invite: anything passed `mayInviteAnswer: false` —
+  /// an ambient hazard warning, a caretaker's memo read aloud. Somebody who
+  /// has just been told to stop walking is not also being asked to reply.
+  bool _invitesAnAnswer(String text) => text.trim().isNotEmpty;
 
   /// Speaks an unprompted ambient hazard warning — Module 6.
   ///
@@ -709,6 +731,15 @@ class ChatController extends Notifier<ChatState> {
   /// has just been told to stop walking also expected to reply.
   Future<void> announceAmbientHazard(String line, UserProfile profile) =>
       _appendAssistantReply(line, profile);
+
+  /// Speaks a plain statement, for `reopen_mic_after_question_test.dart`.
+  ///
+  /// The production paths that produce statements — an LLM reply, a scan
+  /// result — need a network or a camera, and the thing under test is the
+  /// invitation rule rather than either of those.
+  @visibleForTesting
+  Future<void> announceStatementForTest(String text, UserProfile profile) =>
+      _appendAssistantReply(text, profile, mayInviteAnswer: true);
 
   /// The Volume-Up hold's entry point — Module 6's physical sweep trigger.
   ///
@@ -753,7 +784,14 @@ class ChatController extends Notifier<ChatState> {
     }
     state = state.copyWith(isAssistantTyping: false);
 
-    await _appendAssistantReply(result.spoken, profile);
+    // Invites a follow-up: "that is the route 6 bus" is answered with "take me
+    // there", and having to say the wake phrase in between is the gap this
+    // whole rule exists to close. The abort below is the exception.
+    await _appendAssistantReply(
+      result.spoken,
+      profile,
+      mayInviteAnswer: !result.abortedForHazard,
+    );
 
     // An abort has already buzzed and already said stop. Offering to file a
     // report on top of that is a second demand on somebody who has just been

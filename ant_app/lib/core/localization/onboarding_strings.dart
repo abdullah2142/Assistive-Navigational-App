@@ -157,10 +157,9 @@ class Onboarding {
   // they cannot see.
   String get autoListenTitle => _t('Should the microphone open on its own?', 'মাইক কি নিজে থেকেই চালু হবে?');
   String get autoListenSubtitle => _t(
-        'After ANT answers, it can keep listening for a few seconds so you can just carry on '
-            'talking, instead of finding the mic button or saying the wake word again.',
-        'ANT উত্তর দেওয়ার পর কয়েক সেকেন্ড শুনতে থাকতে পারে, যাতে আপনি সরাসরি কথা চালিয়ে যেতে পারেন '
-            '— মাইক বোতাম খোঁজা বা আবার জাগানোর শব্দ বলা লাগবে না।',
+        'When ANT asks you something, it can start listening straight away so you do not have to '
+            'find and tap the mic button.',
+        'ANT কিছু জিজ্ঞেস করলে সে সঙ্গে সঙ্গে শুনতে শুরু করতে পারে, যাতে আপনাকে মাইক বোতাম খুঁজে চাপতে না হয়।',
       );
   String get autoListenYesLabel => _t('Yes, open it for me', 'হ্যাঁ, নিজেই চালু হোক');
   String get autoListenYesDescription =>

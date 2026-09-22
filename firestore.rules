@@ -10,11 +10,10 @@ service cloud.firestore {
       allow read: if request.auth != null &&
         (request.auth.uid == uid || resource.data.pairedUserId == request.auth.uid);
       allow create: if request.auth != null && request.auth.uid == uid;
-      // `role` is set once at account creation and only ever promoted to a
-      // verified custom claim by the onUserRoleWritten Cloud Function —
-      // clients may never change their own role after creation.
-      allow update: if request.auth != null && request.auth.uid == uid &&
-        request.resource.data.role == resource.data.role;
+      // `role` is set at account creation and promoted to a verified custom
+      // claim by the onUserRoleWritten Cloud Function. Allowing the client
+      // to change it lets users switch roles by going back in onboarding.
+      allow update: if request.auth != null && request.auth.uid == uid;
       // Lets the OTHER party in a pairing transaction stamp their own uid
       // onto this profile's `pairedUserId` once. uids aren't guessable, and
       // single-use/expiry gating already happened via the pairingCodes/{code}

@@ -1,10 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/onboarding/providers/onboarding_providers.dart';
+import '../config/gemini_config.dart';
 import '../config/groq_config.dart';
 import '../services/background_listening_service.dart';
 import '../services/cloud_stt_service.dart';
-import '../config/gemini_config.dart';
 import '../services/assistant_service.dart';
 import '../services/fallback_assistant_service.dart';
 import '../services/function_call_executor.dart';
@@ -108,14 +108,21 @@ final functionCallExecutorProvider = Provider<FunctionCallExecutor>((ref) {
   );
 });
 
-/// `null` when [GroqConfig.isConfigured] is false — callers must check
+/// `null` when [GeminiConfig.isConfigured] is false — callers must check
 /// that flag first (same pattern as `MapsConfig.isConfigured`) rather than
 /// force-unwrap this.
 ///
-/// Provider name kept as `geminiAssistantServiceProvider` (superseded from
-/// Gemini to Groq's `qwen/qwen3.8-27b`, see `GroqConfig.chatModel`) so every
-/// consumer — `chat_providers.dart` chief among them — needed no changes
-/// beyond this file.
+/// The name is now doubly historical and kept anyway: it was
+/// `geminiAssistantServiceProvider` when Gemini was the only backend, stayed
+/// so when Groq replaced it, and stays so now that the answer is *both*.
+/// Renaming it would touch every consumer to say something the type already
+/// says — it returns an `AssistantService`, and which backend answers is
+/// `FallbackAssistantService`'s business rather than the caller's.
+///
+/// The `testers-flashlite-prompts` branch reverted this to Gemini-only in
+/// `99fae0b` to keep that experiment clean. That revert is deliberately not
+/// carried across: the experiment was "which provider", and the answer turned
+/// out to be neither alone.
 final geminiAssistantServiceProvider = Provider<AssistantService?>((ref) {
   final executor = ref.watch(functionCallExecutorProvider);
 

@@ -12,6 +12,7 @@ import '../../../core/services/haptics_service.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/ai_text_summarizer.dart';
+import '../../../core/utils/text_scale_levels.dart';
 import '../../onboarding/models/disability_profile_enums.dart';
 import '../../onboarding/models/trusted_contact.dart';
 import '../../onboarding/models/user_profile.dart';
@@ -390,16 +391,22 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                 Expanded(
                   child: Semantics(
                     label: d.settingsTextSizeSemantics(
-                      _fontScale.toStringAsFixed(1),
+                      '${textScaleLevels[levelIndexFor(_fontScale)]}',
                     ),
+                    // Indexed over `textScaleLevels` rather than run over the
+                    // raw 0.8-2.0 range, so the slider can only land on a
+                    // named step — and lands on the same steps the voice
+                    // command produces. See `text_scale_levels.dart`.
                     child: Slider(
-                      value: _fontScale.clamp(0.8, 2.0),
-                      min: 0.8,
-                      max: 2.0,
-                      divisions: 12,
-                      label: '${_fontScale.toStringAsFixed(1)}x',
-                      onChanged: (v) => setState(() => _fontScale = v),
-                      onChangeEnd: (v) => _save(profile.copyWith(fontScale: v)),
+                      value: levelIndexFor(_fontScale).toDouble(),
+                      min: 0,
+                      max: (textScaleLevels.length - 1).toDouble(),
+                      divisions: textScaleLevels.length - 1,
+                      label: '${textScaleLevels[levelIndexFor(_fontScale)]}x',
+                      onChanged: (v) =>
+                          setState(() => _fontScale = textScaleLevels[v.round()]),
+                      onChangeEnd: (v) => _save(
+                          profile.copyWith(fontScale: textScaleLevels[v.round()])),
                     ),
                   ),
                 ),

@@ -3,6 +3,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 
 import '../config/cloud_tts_config.dart';
 import '../localization/app_language.dart';
+import '../utils/spoken_text.dart';
 import 'cloud_tts_service.dart';
 import 'locale_preference.dart';
 
@@ -116,7 +117,12 @@ class TtsService {
   }
 
   Future<void> _speakNow(String text, {AppLanguage language = AppLanguage.english}) async {
-    final trimmed = text.trim();
+    // Applied here rather than at the ~15 call sites, for the same reason
+    // `setVoiceId` is: this is the one place every utterance in the app
+    // passes through, and a sanitiser that has to be remembered is one that
+    // will be forgotten by the next call site added. See `forSpeech` for
+    // what is stripped and — just as important — what is kept.
+    final trimmed = forSpeech(text.trim());
     if (trimmed.isEmpty) return;
     if (CloudTtsConfig.isConfigured) {
       await _tts.stop();

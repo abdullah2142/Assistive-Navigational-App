@@ -5,6 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'destination_clarifier.dart';
 import 'route_safety_service.dart';
 import 'routing_service.dart';
+import 'place_categories.dart';
 
 /// A fully planned, safety-checked route — what `ChatState.pendingRoute`
 /// carries to the dashboard's map/arrow, and what the AI Assistant's
@@ -130,6 +131,43 @@ class RoutePlanningService {
   }) async {
     var destination = knownDestination;
     var label = destinationLabel;
+
+    // A *kind* of place is answered by proximity, not by name.
+    //
+    // This is the whole of "nearest bathroom, nearest restaurant, anything
+    // like that didnt route me" from the 22 September session. Every
+    // destination went to `geocodeCandidates`, which asks Nominatim *"where
+    // is this name"* — and nothing in Dhaka is named "the nearest toilet".
+    // The search returned zero candidates, `destination_not_found` came back,
+    // and the user was asked which area they meant about a place they had
+    // never named. The app already owned the right call (`nearbyOfCategory`,
+    // an Overpass `around:` query); routing simply never reached for it.
+    //
+    // Tried first and falling through on empty, rather than replacing the
+    // geocoder: "Apollo Hospital" contains a category word and is still a
+    // name, so a category hit that finds nothing nearby must not stop the
+    // name search from running.
+    if (destination == null) {
+      final category = categoryFor(destinationQuery);
+      if (category != null) {
+        final found = await _routing.nearbyOfCategory(origin: origin, category: category);
+        if (found.isNotEmpty) {
+          final nearest = found.first;
+          debugPrint('[RoutePlanning] "$destinationQuery" read as category '
+              '${category.id} — nearest of ${found.length}');
+          destination = nearest.location;
+          // The OSM name when it has one, so the user hears *which* place
+          // they are being taken to and can tell if it is wrong. Many
+          // toilets and small shops are mapped unnamed, and for those the
+          // category itself is the most honest label available.
+          label ??= nearest.name.isNotEmpty ? nearest.name : destinationQuery;
+        } else {
+          debugPrint('[RoutePlanning] category ${category.id} found nothing nearby — '
+              'falling through to a name search');
+        }
+      }
+    }
+
     if (destination == null) {
       final candidates =
           DestinationClarifier.distinctOptions(await _routing.geocodeCandidates(destinationQuery));

@@ -45,6 +45,34 @@ final _digitRun = RegExp(r'(?<![\d.])\d{4,}');
 /// about how many decimals a float happens to print.
 final _coordinate = RegExp(r'-?(?:[1-9]\d{0,2})\.\d{4,}');
 
+/// An API key or bearer token, in a query string or a header dump.
+///
+/// **Found live.** The 22 September diagnostics file — the one written to be
+/// shared — carried a working Google API key in full, inside the URL of a
+/// Cloud TTS failure:
+///
+///     [CloudTts] error: ... uri=https://texttospeech.googleapis.com/v1/text:synthesize?key=AIza...
+///
+/// The file's own header promises the reader that identifying material has
+/// been replaced with its shape before it was written. A live credential is
+/// the one thing in there that cannot be taken back once the file has been
+/// mailed to somebody, and it was the one thing not covered.
+///
+/// [_uid] did not catch it and could not have: Google keys contain `-` and
+/// `_`, which split the run into pieces below that rule's 20-character
+/// floor, and the leading `AIzaSy…` piece has no digit for its lookahead.
+/// So this is anchored on the *parameter name* instead of on the key's shape —
+/// `key=`, `token=`, `access_token=`, an `Authorization:` header — which is
+/// what actually marks a value as a secret regardless of the alphabet it is
+/// drawn from.
+final _secretParam = RegExp(
+  r'((?:api[-_]?key|key|token|access[-_]?token|auth|secret|password|pwd)\s*[=:]\s*)[A-Za-z0-9_\-.]{8,}',
+  caseSensitive: false,
+);
+
+/// `Authorization: Bearer <token>`.
+final _bearer = RegExp(r'(bearer\s+)[A-Za-z0-9_\-.]{8,}', caseSensitive: false);
+
 /// Firebase uids: 20+ of [A-Za-z0-9] with both cases or a digit present.
 final _uid = RegExp(r'\b(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[a-z])[A-Za-z0-9]{20,}\b');
 
@@ -75,6 +103,12 @@ String redactLogLine(String line) {
   // where raw and redacted part company.
   if (DiagnosticsConfig.logRawTranscripts) return line;
   var out = line.replaceAllMapped(_quoted, (m) => _describeQuoted(m.group(1)!));
+  // Secrets first, and before every shape-based rule. A key that reaches the
+  // uid or digit rule comes out *partly* redacted, which is worse than
+  // either extreme: it still leaks most of the credential while looking in
+  // the file as though it had been handled.
+  out = out.replaceAllMapped(_secretParam, (m) => '${m.group(1)}<redacted>');
+  out = out.replaceAllMapped(_bearer, (m) => '${m.group(1)}<redacted>');
   out = out.replaceAll(_coordinate, '<coord>');
   out = out.replaceAllMapped(_uid, (m) => _tagFor(m.group(0)!));
   out = out.replaceAllMapped(_digitRun, (m) => '<digits:${m.group(0)!.length}>');

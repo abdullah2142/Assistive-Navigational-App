@@ -30,12 +30,37 @@ void main() {
   }) =>
       HapticsService(probeOverride: (motor: motor, amplitude: amplitude))..intensity = intensity;
 
-  group('the dictionary is exactly three patterns', () {
+  group('the dictionary stays small, and every entry earns its place', () {
     test('and no more', () {
-      // The restriction is the design. A larger vocabulary is something the
-      // user has to remember while walking, which is the cognitive load this
-      // app exists to avoid.
-      expect(HapticCue.values, hasLength(3));
+      // The restriction is still the design: a larger vocabulary is
+      // something the user has to remember while walking, which is the
+      // cognitive load this app exists to avoid.
+      //
+      // Five, not three, since the 22 September report — "might confuse user
+      // about which direction to turn". The two additions are not new
+      // *meanings*, they are the one meaning `navigation` already had, split
+      // by the single fact a turn cue has to carry and did not: which way.
+      // Nothing here is a concept the user must learn cold; "one buzz left,
+      // two buzzes right" is learned from the spoken instruction that always
+      // accompanies it.
+      expect(HapticCue.values, hasLength(5));
+    });
+
+    test('left and right are genuinely distinguishable', () {
+      // The whole point of the split. If these ever collapse to the same
+      // pattern the feature is back to marking that *a* turn is coming
+      // while saying nothing about which one.
+      expect(HapticCue.turnLeft, isNot(HapticCue.turnRight));
+    });
+
+    test('a turn cue is never silently dropped by the throttle', () {
+      // Only `hazard` is throttled. A user walking a route with turns close
+      // together must feel every one of them — a swallowed turn cue is a
+      // missed corner, and this app's whole navigation contract is that a
+      // manoeuvre is announced on every channel the user has.
+      final s = service();
+      expect(() => s.play(HapticCue.turnLeft), returnsNormally);
+      expect(() => s.play(HapticCue.turnRight), returnsNormally);
     });
   });
 

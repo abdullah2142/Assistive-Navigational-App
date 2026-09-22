@@ -16,6 +16,7 @@ import '../../features/onboarding/models/user_profile.dart';
 import '../../features/onboarding/services/pairing_service.dart';
 import '../localization/app_language.dart';
 import '../localization/dashboard_strings.dart';
+import '../utils/text_scale_levels.dart';
 import 'gemini_assistant_service.dart' show AssistantTurn;
 import 'destination_clarifier.dart';
 import 'route_planning_service.dart';
@@ -36,6 +37,7 @@ class _AppliedCall {
     this.clarification,
     this.placeSave,
     this.scanFocus,
+    this.scanQuestion,
     this.triggersEmergency = false,
     this.cancelsRoute = false,
   });
@@ -60,6 +62,10 @@ class _AppliedCall {
   /// Set when the model called `look_around` — Module 6. See
   /// [AssistantTurn.scanFocus] for why this is a request and not a result.
   final ScanFocus? scanFocus;
+
+  /// The user's own wording, when they asked something more specific than
+  /// the focus enum can express. See [AssistantTurn.scanQuestion].
+  final String? scanQuestion;
 
   /// Set when the model called `trigger_emergency`.
   final bool triggersEmergency;
@@ -666,6 +672,7 @@ class FunctionCallExecutor {
           const {'ok': true},
           null,
           scanFocus: _scanFocusFrom(args),
+          scanQuestion: (args['question'] as String?)?.trim(),
         );
 
       case 'open_passerby_helper':
@@ -1038,7 +1045,14 @@ class FunctionCallExecutor {
     switch (setting) {
       case 'text_size':
         final scale = double.tryParse(value);
-        if (scale != null) updated = profile.copyWith(fontScale: scale.clamp(0.8, 2.0));
+        // Snapped, not just clamped. A model told "a number between 0.8 and
+        // 2.0" will happily answer 1.37, and an off-ladder value is one the
+        // slider cannot display and no label can name — see
+        // `text_scale_levels.dart`.
+        if (scale != null) {
+          updated = profile.copyWith(
+              fontScale: snapToLevel(scale.clamp(minTextScale, maxTextScale)));
+        }
       case 'theme':
         final t = _enumOrNull(ThemePreference.values, value);
         if (t != null) updated = profile.copyWith(themePreference: t);
@@ -1084,12 +1098,42 @@ class FunctionCallExecutor {
   /// walking alternative the routing backend offers against the live
   /// `crimeZones` data and picking the safest one — see
   /// `RoutePlanningService`.
+  /// How long routing may wait for a live GPS fix when there is no cached
+  /// one. Long enough for a warm start indoors, short enough that a user who
+  /// is never going to get a fix is told so rather than left listening to
+  /// silence.
+  static const Duration _routeFixBudget = Duration(seconds: 10);
+
   Future<_AppliedCall> _applyRequestRoute(
     Map<String, Object?> args,
     UserProfile profile,
     Position? location,
   ) async {
-    if (location == null) {
+    // Routing is the one call that genuinely needs a fix, so it is the one
+    // call allowed to wait for one.
+    //
+    // Everything upstream runs on `getLastKnownPosition`, deliberately — a
+    // chat reply should not stall behind a GPS lock. But a *route* computed
+    // from no origin is not a degraded route, it is no route, and on a fresh
+    // launch there is no cached fix at all. The 22 September log shows the
+    // map building with `myLocation=null`, and every request_route in that
+    // window could only ever have returned `no_location`: "I can't tell where
+    // you are right now", to a user who had just asked to be taken somewhere.
+    //
+    // Bounded, and falling back to the failure it would have returned anyway,
+    // so the worst case is unchanged and the common case now works.
+    var origin = location;
+    if (origin == null) {
+      try {
+        origin = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+        ).timeout(_routeFixBudget);
+        debugPrint('[Assistant] no cached fix — took a live one for routing');
+      } catch (e) {
+        debugPrint('[Assistant] could not get a fix for routing: $e');
+      }
+    }
+    if (origin == null) {
       return _AppliedCall(profile, const {'ok': false, 'error': 'no_location'}, null);
     }
     final destination = (args['destination'] as String?)?.trim() ?? '';
@@ -1128,7 +1172,7 @@ class FunctionCallExecutor {
         destinationLabel: saved?.label,
         knownDestination:
             saved != null && saved.hasCoordinates ? LatLng(saved.lat!, saved.lng!) : null,
-        origin: LatLng(location.latitude, location.longitude),
+        origin: LatLng(origin.latitude, origin.longitude),
       );
       switch (result) {
         case RoutePlanAmbiguous(:final options):

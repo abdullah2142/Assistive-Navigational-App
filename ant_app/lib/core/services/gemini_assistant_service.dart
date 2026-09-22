@@ -51,6 +51,7 @@ class AssistantTurn {
     this.clarification,
     this.placeSave,
     this.scanFocus,
+    this.scanQuestion,
     this.triggersEmergency = false,
     this.cancelsRoute = false,
   });
@@ -62,6 +63,16 @@ class AssistantTurn {
   /// overlay. The caller runs it, which is also what keeps the single-scan
   /// guard and the spoken "hold still" prompt in one place.
   final ScanFocus? scanFocus;
+
+  /// The user's own question, when they asked something the [ScanFocus] enum
+  /// cannot express — "what colour is the rabbit", "what is written on this
+  /// page".
+  ///
+  /// The vision prompt was built purely from the focus, so every such
+  /// question arrived as `surroundings` and was answered with a description
+  /// of the path ahead. The user had asked about a rabbit and was told about
+  /// a footpath, which reads as the camera not working at all.
+  final String? scanQuestion;
 
   final String responseText;
 
@@ -231,6 +242,7 @@ class GeminiAssistantService implements AssistantService {
     List<RouteCandidate>? alternatives;
     HazardReportPrefill? hazardPrefill;
     ScanFocus? scanFocus;
+    String? scanQuestion;
     DestinationClarification? clarification;
     PendingPlaceSave? placeSave;
     final confirmations = <String>[];
@@ -252,6 +264,7 @@ class GeminiAssistantService implements AssistantService {
       if (applied.routeAlternatives != null) alternatives = applied.routeAlternatives;
       hazardPrefill ??= applied.hazardPrefill;
       scanFocus ??= applied.scanFocus;
+      scanQuestion ??= applied.scanQuestion;
       clarification ??= applied.clarification;
       placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
@@ -278,6 +291,7 @@ class GeminiAssistantService implements AssistantService {
       routeAlternatives: alternatives,
       hazardPrefill: hazardPrefill,
       scanFocus: scanFocus,
+      scanQuestion: scanQuestion,
       clarification: clarification,
       placeSave: placeSave,
     );
@@ -413,7 +427,8 @@ User's message: "$userText"
           description: 'Which setting to change.',
         ),
         'value': Schema.string(
-          description: 'The new value. text_size: a number as text between "0.8" and "2.0". '
+          description: 'The new value. text_size: one of "0.8", "1.0", "1.25", "1.5", "2.0" '
+              '— for "bigger"/"smaller" move ONE step from the current size, never jump to an end. '
               'theme: "light" or "dark". language: "english" or "bangla". verbosity: "minimalist" or '
               '"descriptive". voice: a voice id such as "bn-BD-female-1". vision_level: "none", "low", or '
               '"full". mobility_aid: "whiteCane", "wheelchair", or "unassisted". deaf_hearing_mode, '
@@ -487,6 +502,11 @@ User's message: "$userText"
             enumValues: const ['vehicle', 'sign', 'surroundings', 'hazard'],
             description: 'vehicle = which bus/rickshaw/CNG and where it goes. sign = read text. '
                 'hazard = is the path walkable. surroundings = describe the scene.',
+          ),
+          'question': Schema.string(
+            description: "The user's own question, copied as they asked it, when it is more "
+                "specific than the focus — e.g. 'what colour is the rabbit', "
+                "'what is written on this page'. Omit for a general look.",
           ),
         },
         requiredProperties: const ['focus'],

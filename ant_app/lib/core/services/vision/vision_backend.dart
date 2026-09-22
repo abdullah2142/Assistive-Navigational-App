@@ -56,5 +56,8 @@ abstract class VisionBackend {
     required ScanFocus focus,
     required AppLanguage language,
     List<String> edgeLabels = const [],
+    /// The user's own question, when more specific than [focus]. See
+    /// `VisionPrompt.build`.
+    String? question,
   });
 }

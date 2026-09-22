@@ -31,6 +31,26 @@ class CloudSttService {
   StreamSubscription<StreamingRecognizeResponse>? _resultSub;
   bool _listening = false;
 
+  /// The recorder's stream, relayed through a controller this class owns
+  /// rather than handed to `google_speech` directly.
+  ///
+  /// Handing `startStream`'s stream straight to `endlessStreamingRecognize`
+  /// gives this class no way to stop the flow: the package subscribes
+  /// internally, and `stop()` can only dispose it. Stopping the recorder
+  /// first is necessary but **not sufficient** — frames already emitted are
+  /// queued as pending microtasks and are still delivered after `dispose()`
+  /// has closed the package's own sink, which is the
+  /// "Bad state: Cannot add new events after calling close" the zone guard
+  /// caught **41 times in one session** on 22 September, in bursts of four
+  /// or five every time a listen ended and the wake word restarted.
+  ///
+  /// With a relay in between, [stop] can cancel the upstream subscription —
+  /// which drops anything still queued — and then close the relay, which
+  /// ends the package's input stream the way it expects rather than pulling
+  /// it out from underneath.
+  StreamSubscription<List<int>>? _audioSub;
+  StreamController<List<int>>? _audioRelay;
+
   static const int _sampleRate = 16000;
 
   bool get isListening => _listening;
@@ -159,9 +179,28 @@ class CloudSttService {
         },
       );
 
+      // `sync: false` on purpose: a synchronous controller would deliver
+      // each frame during the recorder's own emit, which puts the cancel in
+      // `stop()` back in the same race it is there to remove.
+      final relay = StreamController<List<int>>();
+      _audioRelay = relay;
+      _audioSub = audioStream.cast<List<int>>().listen(
+        (frame) {
+          if (relay.isClosed) return;
+          relay.add(frame);
+        },
+        onError: (Object e) {
+          if (!relay.isClosed) relay.addError(e);
+        },
+        onDone: () {
+          if (!relay.isClosed) unawaited(relay.close());
+        },
+        cancelOnError: false,
+      );
+
       service.endlessStreamingRecognize(
         config,
-        audioStream.cast<List<int>>(),
+        relay.stream,
         // Cloud Speech-to-Text's own hard cap on a single streaming
         // request is ~5 minutes; restarting under the hood at 4 is a
         // buffer under that, and — unlike the on-device approximation —
@@ -185,14 +224,26 @@ class CloudSttService {
     _listening = false;
     await _resultSub?.cancel();
     _resultSub = null;
-    // Recorder first, streaming service second.
+
+    // Order is the whole fix here, and each step is load-bearing.
     //
-    // The other order closed the streaming service's sink while the recorder
-    // was still delivering audio into it, and every screen transition after a
-    // listen logged "Bad state: Cannot add new events after calling close"
-    // (seen on device, caught by the zone guard rather than crashing).
-    // Silencing the source before closing the destination leaves nothing in
-    // flight to land on a closed stream.
+    // 1. Cancel the relay's upstream subscription. This is what stopping the
+    //    recorder alone could not do: it drops every frame already queued
+    //    behind it, so nothing is left in flight to be delivered later.
+    await _audioSub?.cancel();
+    _audioSub = null;
+
+    // 2. Close the relay, which ends `google_speech`'s input stream the way
+    //    the package expects — a normal done event — rather than having its
+    //    sink disposed out from under a live source.
+    final relay = _audioRelay;
+    _audioRelay = null;
+    if (relay != null && !relay.isClosed) await relay.close();
+
+    // 3. Only then silence the hardware. Kept before the service dispose for
+    //    the original reason this order was chosen: a recorder still running
+    //    while the destination goes away is how the first version of this bug
+    //    happened.
     try {
       await _recorder.stop();
     } catch (_) {

@@ -7,7 +7,6 @@ import 'package:http/http.dart' as http;
 
 import 'api_budget.dart';
 import 'assistant_service.dart';
-import 'voice_matching.dart';
 import '../../features/dashboard/models/chat_message.dart';
 import '../../features/dashboard/models/hazard_report.dart';
 import '../../features/dashboard/models/suggested_chip.dart';
@@ -105,6 +104,7 @@ class GroqAssistantService implements AssistantService {
         'content': _buildPrompt(profile: profile, location: location),
       },
       ..._historyToMessages(recentHistory),
+      _locationMessage(location),
       {'role': 'user', 'content': userText},
     ];
 
@@ -191,6 +191,7 @@ class GroqAssistantService implements AssistantService {
     List<RouteCandidate>? alternatives;
     HazardReportPrefill? hazardPrefill;
     ScanFocus? scanFocus;
+    String? scanQuestion;
     DestinationClarification? clarification;
     PendingPlaceSave? placeSave;
     final confirmations = <String>[];
@@ -220,6 +221,7 @@ class GroqAssistantService implements AssistantService {
       if (applied.routeAlternatives != null) alternatives = applied.routeAlternatives;
       hazardPrefill ??= applied.hazardPrefill;
       scanFocus ??= applied.scanFocus;
+      scanQuestion ??= applied.scanQuestion;
       clarification ??= applied.clarification;
       placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
@@ -233,6 +235,7 @@ class GroqAssistantService implements AssistantService {
       routeAlternatives: alternatives,
       hazardPrefill: hazardPrefill,
       scanFocus: scanFocus,
+      scanQuestion: scanQuestion,
       clarification: clarification,
       placeSave: placeSave,
     );
@@ -332,14 +335,27 @@ class GroqAssistantService implements AssistantService {
   /// Identical prompt to `GeminiAssistantService.buildPrompt` — see that
   /// method for the reasoning behind every rule. Kept in this file (not
   /// shared) per this class's doc comment.
+  /// The **stable** half of the prompt. Nothing that changes turn-to-turn
+  /// may be added here.
+  ///
+  /// The live GPS fix used to be the last line of this string, at five
+  /// decimal places — roughly one metre, so it differed on essentially every
+  /// turn. Tool declarations and the system prompt render into the head of
+  /// the token sequence, which means one volatile line at the top made the
+  /// entire prefix behind it uncacheable: the tools, the rules, all of it.
+  /// That is the mechanism behind `cached=0` on all 208 token lines of the
+  /// 22 September session, and behind the per-minute budget being spent on
+  /// tokens that were identical to the previous turn's.
+  ///
+  /// It now rides in its own message at the **end** of the conversation —
+  /// see [_locationMessage] — where a change invalidates nothing in front of
+  /// it. The profile lines stay because they change when the user changes a
+  /// setting, which is rare and is a real prefix change.
   static String _buildPrompt({
     required UserProfile profile,
     Position? location,
   }) {
     final bn = profile.language == AppLanguage.bangla;
-    final locationLine = location == null
-        ? 'Not available right now.'
-        : '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}';
 
     return '''
 You are ANT, a navigational assistant for a disabled person in Dhaka. Be brief.
@@ -353,15 +369,45 @@ Rules:
 - Caretaker memo -> send_caretaker_message. General check -> alert_caretaker.
 - Where am I -> describe_current_location. Do not guess street names from coords.
 - Setting changes -> update_setting. (theme is only light/dark).
+  This includes turning the wake word or auto-listen off, in either language.
 - Save/forget fact -> remember_about_me / forget_about_me.
+  "What do you know about me" -> read back the notes you were given above.
+- ANYTHING about what is visible -> look_around. Colour, text on a sign or a
+  page, what an object is, how many there are, what is ahead. You have a
+  camera; never answer such a question from imagination and never refuse it
+  by saying you are a navigation assistant.
+- The user STATING a hazard ("there is a manhole here", "the footpath is
+  blocked") is a report, not a question -> open_hazard_report. They are
+  telling you so the next person is warned.
+- You can hold an ordinary conversation. A question that needs no tool gets a
+  short, direct, friendly answer. Refusing to engage because it is not about
+  navigation is wrong.
 - No live POI database exists. Don't invent specific businesses.
+- If your own last message asked the user a question, read their reply as the
+  ANSWER to it. A word in an answer is not a command: "dangerous" replying to
+  "is it safe?" is a description, not a hazard report. A clear new instruction
+  is still an instruction.
 
 Profile: vision=${profile.visionLevel.name}, mobility=${profile.mobilityAid.name}, deaf/hoh=${profile.isDeafOrHardOfHearing}, crowd-anxious=${profile.crowdedPlacesAnxious}, reply=${profile.verbosity.name}, paired=${profile.pairedUserId != null}
 ${profile.magicButtonContacts.isEmpty ? '' : 'Contacts: ${profile.magicButtonContacts.map((c) => '${c.name}: ${c.phoneNumber}').join('; ')}'}
 ${profile.savedPlaces.isEmpty ? '' : 'Saved places: ${profile.savedPlaces.map((p) => p.label).join('; ')}'}
-Live location: $locationLine
+${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${profile.rememberedNotes.map((n) => '- $n').join('\n')}'}
 ''';
   }
+
+  /// The volatile half: where the user is right now.
+  ///
+  /// Placed immediately before the user's own turn so everything ahead of it
+  /// — system rules and the full tool list, ~2,400 tokens — stays a stable,
+  /// cacheable prefix. Sent as a `system` message rather than folded into the
+  /// user's text so it cannot be mistaken for something they said.
+  static Map<String, dynamic> _locationMessage(Position? location) => {
+        'role': 'system',
+        'content': location == null
+            ? 'Live location: Not available right now.'
+            : 'Live location: ${location.latitude.toStringAsFixed(5)}, '
+                '${location.longitude.toStringAsFixed(5)}',
+      };
 
   /// The keywords that put each group of tools in front of the model.
   ///
@@ -401,159 +447,54 @@ Live location: $locationLine
   ///
   /// Over-inclusion costs tokens; under-inclusion costs the feature. When a
   /// term is ambiguous, it goes in.
-  static const _toolKeywords = <({List<String> tools, List<String> latin, List<String> bangla})>[
-    (
-      tools: ['request_route', 'request_alternative_route', 'cancel_route', 'replan_route',
-          'describe_current_location'],
-      latin: ['go', 'going', 'take', 'route', 'where', 'near', 'nearest', 'closest', 'find',
-          'navigate', 'directions', 'cancel', 'stop', 'lost', 'alternative', 'toilet', 'food',
-          'eat', 'hungry', 'hospital', 'doctor', 'restaurant', 'way', 'walk',
-          'kothay', 'jabo', 'jaabo', 'jete', 'niye', 'chalo', 'rasta', 'jayga', 'kache',
-          'kachakachi', 'bondho', 'batil', 'koro'],
-      bangla: ['যাব', 'যেতে', 'যাচ্ছি', 'নিয়ে', 'পথ', 'রাস্তা', 'কোথায়', 'কাছে', 'কাছাকাছি',
-          'নিকট', 'আশেপাশে', 'দেখাও', 'চলো', 'বাতিল', 'থাম', 'হারিয়ে', 'টয়লেট', 'শৌচাগার',
-          'হাসপাতাল', 'ডাক্তার', 'রেস্টুরেন্ট', 'খাওয়া', 'খিদে', 'জায়গা', 'ঘুরতে'],
-    ),
-    (
-      tools: ['update_setting'],
-      latin: ['set', 'setting', 'settings', 'change', 'theme', 'dark', 'light', 'voice',
-          'language', 'size', 'font', 'speak', 'mode', 'bangla', 'english', 'bigger', 'smaller',
-          'lekha', 'boro', 'choto', 'bhasha'],
-      bangla: ['লেখা', 'বড়', 'ছোট', 'থিম', 'ভাষা', 'কণ্ঠ', 'আকার', 'গাঢ়', 'উজ্জ্বল',
-          'সেটিং', 'বাংলা', 'ইংরেজি', 'পরিবর্তন', 'বদলাও'],
-    ),
-    (
-      tools: ['pair_with_caretaker', 'send_caretaker_message', 'record_caretaker_voice_memo',
-          'alert_caretaker'],
-      latin: ['caretaker', 'carer', 'guardian', 'message', 'tell', 'alert', 'send', 'memo',
-          'record', 'code', 'pair', 'janao', 'bolo', 'pathao'],
-      bangla: ['দেখাশোনাকারী', 'অভিভাবক', 'জানাও', 'বার্তা', 'পাঠাও', 'রেকর্ড', 'কোড',
-          'যুক্ত', 'খবর'],
-    ),
-    (
-      tools: ['save_place', 'remove_place', 'remember_about_me', 'forget_about_me',
-          'add_emergency_contact', 'remove_emergency_contact'],
-      latin: ['save', 'saved', 'remember', 'forget', 'add', 'remove', 'delete', 'contact',
-          'number', 'phone', 'sister', 'brother', 'mother', 'father',
-          'seve', 'mone', 'jog', 'nombor', 'bon', 'bhai'],
-      bangla: ['সেভ', 'সংরক্ষণ', 'মনে', 'ভুলে', 'যোগ', 'বাদ', 'মুছে', 'পরিচিতি', 'নাম্বার',
-          'নম্বর', 'ফোন', 'বোন', 'ভাই', 'মা', 'বাবা', 'ঠিকানা', 'অ্যাড', 'এড'],
-    ),
-    (
-      // Module 6. Bangla terms are substring matches for the reason the class
-      // doc gives — `বাস` has to match `বাসটা`/`বাসটি`, and `দেখ` is the stem
-      // under দেখো/দেখুন/দেখাও/দেখতে, which is how the question is actually
-      // asked out loud.
-      tools: ['look_around'],
-      latin: ['see', 'look', 'camera', 'bus', 'sign', 'board', 'read', 'says', 'front',
-          'ahead', 'around', 'cross', 'crossing', 'clear', 'what is this', 'whats this',
-          'vehicle', 'rickshaw', 'cng', 'auto', 'manhole', 'describe',
-          // Phrasings for "is something in my path" that share no word with
-          // the rest of this group — found by a test, not by guessing. Each
-          // is multi-word on purpose: a bare 'walk' belongs to routing and a
-          // bare 'into' is noise.
-          'walk into', 'bump into', 'trip over', 'in my way', 'in the way',
-          'dekho', 'dekhun', 'dekhen', 'dekhte', 'poro', 'porun', 'ki ache', 'samne',
-          'shamne', 'bus ta', 'kon bus', 'rasta clear'],
-      bangla: ['দেখ', 'ক্যামেরা', 'বাস', 'সাইন', 'সাইনবোর্ড', 'লেখা', 'পড়', 'সামনে',
-          'আশেপাশে', 'আশপাশে', 'পার হ', 'রিকশা', 'রিক্সা', 'সিএনজি', 'ম্যানহোল',
-          'গাড়ি', 'কী আছে', 'কি আছে', 'ফাঁকা'],
-    ),
-    (
-      tools: ['open_map', 'close_map', 'open_hazard_report', 'resolve_hazard',
-          'open_passerby_helper', 'add_passerby_message', 'remove_passerby_message'],
-      latin: ['map', 'hazard', 'report', 'stranger', 'passerby', 'screen', 'block', 'broken',
-          'danger', 'dekhao', 'bipod', 'screen dekhao'],
-      bangla: ['ম্যাপ', 'মানচিত্র', 'বিপদ', 'বিপদজনক', 'রিপোর্ট', 'স্ক্রিন', 'স্ক্রীন',
-          'পথচারী', 'ভাঙা', 'বন্ধ'],
-    ),
-  ];
-
-  /// The tools sent on every turn, in this order, before any others.
+  /// Every tool, on every turn, in a fixed order.
   ///
-  /// ## Why a fixed core exists at all
+  /// ## Why the keyword filter is gone
   ///
-  /// Dynamic tool filtering and prompt caching pull against each other.
-  /// Groq caches on a shared request *prefix* and cached tokens do not count
-  /// against the per-minute limit — which is the whole reason `c895da7`
-  /// moved the volatile parts of the system prompt to the bottom. But tools
-  /// are a separate top-level field, and a filter that changes them every
-  /// turn changes the prefix every turn, so the cache never hits and that
-  /// work is wasted.
+  /// It decided what the assistant was *capable* of from a hand-written list
+  /// of trigger words, and a list of trigger words cannot enumerate how
+  /// people talk. It had already been patched twice for exactly this — the
+  /// first version was Latin-only and dropped **100% of Bangla utterances**
+  /// to a three-tool fallback — and the 22 September session shows the same
+  /// failure again in new clothes, measured straight off the device log:
   ///
-  /// Splitting the list fixes it: these four serialise identically on every
-  /// request and can be cached, while the keyword-selected tail varies and
-  /// pays full price. The tail is sorted for the same reason — an unordered
-  /// `Set` would serialise differently between two turns that chose the same
-  /// tools, defeating the cache for no reason at all.
+  /// | what was said | tools offered | what was missing |
+  /// |---|---|---|
+  /// | "what colour is the rabbit" | 4 | `look_around` — so it cannot use the camera and answers that it is a navigation assistant |
+  /// | "what is written on this file" | 4 | `look_around` |
+  /// | "what do you know about me" | 4 | `remember_about_me`, `forget_about_me` |
+  /// | "there is a manhole in front of me" | 5 | `open_hazard_report` — it can look, but cannot report |
+  /// | "the sidewalk is blocked" | 4 | `open_hazard_report` |
+  /// | "হেই অ্যান্ট বন্ধ করো" (turn off Hey ANT) | 11 | `update_setting` |
   ///
-  /// ## Why these four
+  /// `tools=4` appears **68 times** in that session, more than any other
+  /// value. Each of those turns is one where the model was asked to do
+  /// something and had not been handed the tool for it — which reads to the
+  /// user as a feature that used to work and stopped.
   ///
-  /// `trigger_emergency` is here because it must never be filtered out. It
-  /// used to be keyword-gated, and the keywords missed `bachao`, `sahajjo`,
-  /// `বাঁচাও` and `sos` — so an emergency phrased outside that list reached a
-  /// model with no way to act on it. The local matcher catches most of these
-  /// first, but this is the fallback, and a filter is the wrong place to
-  /// lose one.
+  /// ## Why sending all of them is also the cheaper option
   ///
-  /// The other three are what a sentence with no verb still needs: a bare
-  /// "yes", a place name, an answer to a question the assistant just asked.
-  /// They also happen to be the most-used tools in the app, so pinning them
-  /// costs little and saves the tail from carrying them repeatedly.
-  static const _coreTools = [
-    'trigger_emergency',
-    'request_route',
-    'describe_current_location',
-    'alert_caretaker',
-  ];
-
-  /// Emergency terms, kept apart because this group is never filtered out.
+  /// The filter existed to stay under Groq's input-token window. It was
+  /// defeating the mechanism that actually solves that problem.
   ///
-  /// Romanised and Bangla-script forms both, matching the vocabulary
-  /// `LocalIntentMatcher._emergencyStrong` carries — `bachao` was the single
-  /// most likely thing a frightened Bangla speaker says and it was absent
-  /// here, as were `sahajjo`, `বাঁচাও`, `সাহায্য` and `sos`.
-  static const _emergencyLatin = [
-    'help', 'danger', 'scared', 'emergency', 'sos', "can't", 'cant', 'save me',
-    'bachao', 'bachaw', 'banchao', 'sahajjo', 'shahajjo', 'bipode', 'bhoy', 'bhay',
-  ];
-  static const _emergencyBangla = [
-    'বাঁচাও', 'বাঁচান', 'সাহায্য', 'বিপদে', 'জরুরি', 'ভয়',
-  ];
-
-  /// Selects the subset of tools worth sending, to stay under Groq's input
-  /// token limit — see [_toolKeywords] for how, and for what the first
-  /// version of this cost.
-  static List<Map<String, dynamic>> _getRelevantTools(String text) {
-    final lower = text.toLowerCase();
-    final words = voiceWords(text);
-    final names = <String>{};
-
-    bool hits(List<String> latin, List<String> bangla) =>
-        latin.any((t) => containsTerm(words, t)) || bangla.any(lower.contains);
-
-    for (final group in _toolKeywords) {
-      if (hits(group.latin, group.bangla)) names.addAll(group.tools);
-    }
-
-    if (hits(_emergencyLatin, _emergencyBangla)) {
-      names.add('alert_caretaker');
-    }
-
-    // The core is always present, so nothing needs a "nothing matched"
-    // fallback any more — a bare "yes" or a name still arrives with the four
-    // tools that make sense without a verb in the sentence.
-    names.addAll(_coreTools);
-
-    // Core first, in a fixed order, then the variable tail sorted so the same
-    // set always serialises identically. See [_coreTools] for why the order
-    // is the point.
-    final tail = (names.difference(_coreTools.toSet()).toList()..sort());
-    return [
-      for (final name in [..._coreTools, ...tail])
-        ..._tools.where((t) => t['function']['name'] == name),
-    ];
-  }
+  /// Groq bills the per-minute window on **uncached** prefix tokens, and a
+  /// prefix is only cacheable if it is byte-identical to the last one. Tool
+  /// declarations render into the head of the prompt, so a tool list that
+  /// changes with the user's wording changes the prefix on every turn and
+  /// nothing downstream of it can ever be cached. The fixed `_coreTools`
+  /// head was an attempt to keep part of it stable; it could not work,
+  /// because the system prompt in front of it was volatile too (see
+  /// [_buildPrompt] and the live-location line it used to end with).
+  ///
+  /// The measurement is unambiguous. Across **208 token lines** in the 22
+  /// September session, every single one reads `cached=0`. Not a low hit
+  /// rate — no hit, ever.
+  ///
+  /// A constant tool list plus a constant system prompt makes that whole
+  /// ~2,400-token head a stable prefix: paid once, then cached, and cached
+  /// tokens do not count against the window. The filter was trading
+  /// correctness for a saving it was simultaneously making impossible.
+  static List<Map<String, dynamic>> _getRelevantTools(String text) => _tools;
 
   /// The tool names [_getRelevantTools] would offer for [text].
   ///
@@ -600,7 +541,7 @@ Live location: $locationLine
           // executor validates every value anyway — an unknown one is
           // rejected with a spoken reply, not applied. The five booleans used
           // to be named individually; grouping them is most of the saving.
-          'value': _str('text_size 0.8-2.0 | theme light|dark (no colours) | language english|bangla | '
+          'value': _str('text_size one of 0.8|1.0|1.25|1.5|2.0 — for "bigger"/"smaller" move ONE step from the current size, never jump to an end | theme light|dark (no colours) | language english|bangla | '
               'verbosity minimalist|descriptive | voice e.g. bn-BD-female-1 | vision_level none|low|full | '
               'mobility_aid whiteCane|wheelchair|unassisted | snapshot_consent always|askEachTime|never | '
               'home_address, safe_place_address free text | all others true|false'),
@@ -649,6 +590,16 @@ Live location: $locationLine
           const ['vehicle', 'sign', 'surroundings', 'hazard'],
           'vehicle = which bus/rickshaw/CNG and where it goes. sign = read text. '
               'hazard = is the path walkable. surroundings = describe the scene.',
+        ),
+        // Without this, the camera only ever answered the four canned
+        // questions the focus enum names. "What colour is the rabbit" and
+        // "what is written on this file" both arrived as `surroundings` and
+        // came back as a description of the path ahead — reported on
+        // 22 September as scene description giving no answer.
+        'question': _str(
+          "The user's own question, copied as they asked it, when it is more "
+          "specific than the focus — e.g. 'what colour is the rabbit', "
+          "'what is written on this page'. Omit for a general look.",
         ),
       },
       required: ['focus'],

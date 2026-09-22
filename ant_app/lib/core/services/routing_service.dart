@@ -6,6 +6,8 @@ import 'dart:math' as math;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
+import 'place_categories.dart';
+
 import '../config/maps_config.dart';
 import '../config/routing_config.dart';
 import 'api_budget.dart';
@@ -579,6 +581,99 @@ class RoutingService {
       radiusMeters: radiusMeters,
       timeout: timeout,
     );
+  }
+
+  /// The nearest places of a given [category], nearest first.
+  ///
+  /// The generalisation of [nearbyRefuges], which could only ever ask for
+  /// hospital/clinic/police because those were hard-coded into its Overpass
+  /// query. Routing needed the same question asked about toilets, pharmacies,
+  /// restaurants and bus stops, and having no way to ask it is why "take me
+  /// to the nearest toilet" was sent to a *name* geocoder and came back
+  /// "I don't know where that is" — see `place_categories.dart`.
+  ///
+  /// Overpass only, deliberately. [nearbyRefuges] pays for Google Places
+  /// because it runs when somebody is already in trouble and a volunteer
+  /// service is a poor thing to have in that path. This one runs on ordinary
+  /// requests, many times a day, for things like a shop — that is exactly the
+  /// volume that should not be billed, and a failure here costs a spoken
+  /// "I couldn't find one nearby" rather than a missed emergency.
+  Future<List<NearbyRefuge>> nearbyOfCategory({
+    required LatLng origin,
+    required PlaceCategory category,
+    double radiusMeters = 1500,
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final r = radiusMeters.round();
+    final lat = origin.latitude;
+    final lng = origin.longitude;
+    // `nwr` rather than `node`: a toilet block, a hospital or a supermarket is
+    // very often mapped as a building way or a relation, not a point, and
+    // asking only for nodes silently misses most of them. `center` gives each
+    // one a usable coordinate.
+    final clauses = category.osmFilters
+        .map((f) => 'nwr[$f](around:$r,$lat,$lng);')
+        .join();
+    final query = '[out:json][timeout:8];($clauses);out center $_categoryResultLimit;';
+    try {
+      final response = await _client
+          .post(
+            Uri.https('overpass-api.de', '/api/interpreter'),
+            headers: {'User-Agent': _osmUserAgent, 'Content-Type': 'text/plain; charset=utf-8'},
+            body: query,
+          )
+          .timeout(timeout);
+      if (response.statusCode != 200) {
+        debugPrint('[Routing] category search returned HTTP ${response.statusCode}');
+        return const [];
+      }
+      final decoded = jsonDecode(response.body);
+      final elements = decoded is Map<String, dynamic> ? decoded['elements'] : null;
+      if (elements is! List) return const [];
+      final out = <NearbyRefuge>[];
+      for (final element in elements) {
+        if (element is! Map) continue;
+        // A node carries lat/lon directly; a way or relation carries them
+        // under `center` because of `out center` above.
+        final centre = element['center'];
+        final rawLat = element['lat'] ?? (centre is Map ? centre['lat'] : null);
+        final rawLng = element['lon'] ?? (centre is Map ? centre['lon'] : null);
+        if (rawLat is! num || rawLng is! num) continue;
+        final tags = element['tags'];
+        final name = tags is Map && tags['name'] is String ? tags['name'] as String : '';
+        out.add((
+          name: name,
+          location: LatLng(rawLat.toDouble(), rawLng.toDouble()),
+          kind: category.id,
+        ));
+      }
+      out.sort((a, b) => _haversineMeters(origin, a.location)
+          .compareTo(_haversineMeters(origin, b.location)));
+      debugPrint('[Routing] category ${category.id}: ${out.length} within ${r}m');
+      return out;
+    } catch (e) {
+      debugPrint('[Routing] category search failed: $e');
+      return const [];
+    }
+  }
+
+  static const int _categoryResultLimit = 30;
+
+  /// Great-circle distance in metres.
+  ///
+  /// Local to this file rather than shared with `NavigationNarrator`'s copy:
+  /// Overpass's `around:` filter is a radius, not an ordering, so the results
+  /// come back in whatever order the database yields them. Sorting them is
+  /// what makes "the **nearest** toilet" true rather than "a toilet".
+  static double _haversineMeters(LatLng a, LatLng b) {
+    const earthRadius = 6371000.0;
+    double rad(double deg) => deg * math.pi / 180;
+    final dLat = rad(b.latitude - a.latitude);
+    final dLng = rad(b.longitude - a.longitude);
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.sin(dLng / 2) * math.sin(dLng / 2) *
+            math.cos(rad(a.latitude)) * math.cos(rad(b.latitude));
+    return 2 * earthRadius * math.asin(math.min(1, math.sqrt(h)));
   }
 
   /// Places API **Nearby Search (New)**.

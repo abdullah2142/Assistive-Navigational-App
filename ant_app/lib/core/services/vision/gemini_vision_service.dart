@@ -84,6 +84,9 @@ class GeminiVisionService implements VisionBackend {
     required ScanFocus focus,
     required AppLanguage language,
     List<String> edgeLabels = const [],
+    /// The user's own question, when more specific than [focus]. See
+    /// `VisionPrompt.build`.
+    String? question,
   }) async {
     if (!isConfigured) {
       debugPrint('[Vision] no Gemini key — $name unavailable');

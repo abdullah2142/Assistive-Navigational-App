@@ -271,7 +271,7 @@ void _fifthChip() {
       await tester.pumpAndSettle();
 
       final rows = rowsOf(tester, chips);
-      expect(rows.first, [strings.chipRouteToWork, strings.chipScanBus]);
+      expect(rows.first, [strings.chipPath, strings.chipCamera]);
       expect(rows.last.take(2), [strings.chipShowScreen, strings.chipReportHazard]);
     });
 
@@ -284,7 +284,7 @@ void _fifthChip() {
           .getSize(find.ancestor(of: find.text(label), matching: find.byType(InkWell)).first)
           .width;
 
-      final top = [strings.chipRouteToWork, strings.chipScanBus].map(cellWidth).toList();
+      final top = [strings.chipPath, strings.chipCamera].map(cellWidth).toList();
       final bottom = [strings.chipShowScreen, strings.chipReportHazard, strings.chipVoiceMemo]
           .map(cellWidth)
           .toList();

@@ -123,8 +123,8 @@ void main() {
       for (final paired in [null, 'caretaker-1']) {
         await pumpPanel(tester, pairedUserId: paired);
         for (final label in [
-          strings.chipRouteToWork,
-          strings.chipScanBus,
+          strings.chipPath,
+          strings.chipCamera,
           strings.chipShowScreen,
           strings.chipReportHazard,
         ]) {

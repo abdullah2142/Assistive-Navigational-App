@@ -94,6 +94,15 @@ class SnapshotVisionService {
   VisionScene? _lastScene;
   DateTime? _lastCloudCallAt;
 
+  /// The question [_lastScene] answers, normalised. Part of the cache key —
+  /// see [_cachedScene].
+  String? _lastQuestion;
+
+  static String? _normalisedQuestion(String? raw) {
+    final trimmed = raw?.trim().toLowerCase();
+    return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+  }
+
   /// True while a scan is running, so the UI can say "looking…" and a second
   /// trigger does not open the camera twice.
   final ValueNotifier<bool> isScanning = ValueNotifier(false);
@@ -105,21 +114,43 @@ class SnapshotVisionService {
   /// sweep; the rest take a single frame, because the plan's own worked
   /// example — "what bus is this?" — cannot afford three seconds of standing
   /// still before the question is even sent.
+  /// [narrate] speaks the sweep's aiming cues — "Left.", "Straight ahead.",
+  /// "Right." — one before each frame.
+  ///
+  /// Passed per call rather than held on the instance because the caller is
+  /// the only party that knows the user's current language and owns the TTS
+  /// chain these have to queue into. The constructor's [_speak] remains as
+  /// the injection point for tests; this wins when both are present.
+  ///
+  /// **It had no caller at all.** `snapshotVisionServiceProvider` built this
+  /// service with `haptics:` and nothing else, so `_speak` was null in every
+  /// real build and the sweep ran as three unexplained buzzes. Reported from
+  /// the 22 September session as "the ai doesnt say aim straight, right left
+  /// or anything, and the buzzes are out of sync" — the buzzes were in time,
+  /// but with nothing naming the positions there was no way to tell which
+  /// buzz meant which direction, which is the same thing from where the user
+  /// is standing. The strings, the ordering and the settle delay were all
+  /// already written and localised; only the wire was missing.
   Future<ScanResult> scan({
     required ScanFocus focus,
     required AppLanguage language,
+    Future<void> Function(String text)? narrate,
+    /// The user's own question, when more specific than [focus] can say. See
+    /// `VisionPrompt.build`.
+    String? question,
   }) async {
     final d = Dashboard.of(language);
     if (isScanning.value) return ScanResult(spoken: d.visionAlreadyLooking);
     isScanning.value = true;
     try {
-      return await _run(focus, language, d);
+      return await _run(focus, language, d, narrate ?? _speak, question);
     } finally {
       isScanning.value = false;
     }
   }
 
-  Future<ScanResult> _run(ScanFocus focus, AppLanguage language, Dashboard d) async {
+  Future<ScanResult> _run(ScanFocus focus, AppLanguage language, Dashboard d,
+      Future<void> Function(String text)? narrate, String? question) async {
     // Asked before the camera opens, because it decides what the capture
     // does. A three-frame sweep is only worth taking when a backend that can
     // read three is going to be tried — with Gemini unconfigured this
@@ -130,7 +161,7 @@ class SnapshotVisionService {
     );
     final frames = await _camera.capture(
       count: frameCount,
-      onBeforeFrame: frameCount > 1 ? (i) => _cueSweepPosition(i, d) : null,
+      onBeforeFrame: frameCount > 1 ? (i) => _cueSweepPosition(i, d, narrate) : null,
     );
     if (frames.isEmpty) {
       return ScanResult(
@@ -181,7 +212,7 @@ class SnapshotVisionService {
     // they are not sure they were heard, and spending a minute's shared token
     // allowance on that is the failure `VisionConfig.cloudScanCooldown`
     // exists to prevent — but so is stonewalling them.
-    final cached = _cachedScene(focus);
+    final cached = _cachedScene(focus, question);
     if (cached != null) {
       debugPrint('[Vision] answering from cache (cooldown)');
       return ScanResult(
@@ -208,9 +239,11 @@ class SnapshotVisionService {
         focus: focus,
         language: language,
         edgeLabels: worst.detections.map((e) => e.label).toSet().toList(),
+        question: question,
       );
       if (scene != null) {
         _lastCloudCallAt = _now();
+        _lastQuestion = _normalisedQuestion(question);
         scene = await _verifyRoutes(scene, language);
         _lastScene = scene;
       }
@@ -259,9 +292,19 @@ class SnapshotVisionService {
   /// while the phone is still moving is motion-blurred, and blur is what was
   /// measured turning `গুলশান` into `ঠানশান`. Waiting is cheaper than an
   /// unreadable frame.
-  Future<void> _cueSweepPosition(int index, Dashboard d) async {
-    await _haptics.play(HapticCue.navigation);
-    final speak = _speak;
+  Future<void> _cueSweepPosition(
+      int index, Dashboard d, Future<void> Function(String text)? narrate) async {
+    // The same buzz for all three positions said only "a frame is coming",
+    // which is the half of the instruction the user already knew. One pulse
+    // for left and two for right — the same vocabulary the turn cues use, so
+    // it is one thing to learn rather than two — leaves the haptic channel
+    // carrying the direction even when the words are lost to traffic.
+    await _haptics.play(switch (index) {
+      0 => HapticCue.turnLeft,
+      1 => HapticCue.navigation,
+      _ => HapticCue.turnRight,
+    });
+    final speak = narrate;
     if (speak != null) {
       try {
         await speak(d.visionSweepStep(index));
@@ -274,11 +317,23 @@ class SnapshotVisionService {
     await Future<void>.delayed(VisionConfig.sweepSettleDelay);
   }
 
-  VisionScene? _cachedScene(ScanFocus focus) {
+  /// The last scene, if it answers *this* question and is still fresh.
+  ///
+  /// Keyed on the question as well as the focus. The focus alone was enough
+  /// while the only questions were the six the enum names, but a free-text
+  /// question makes two different asks share a focus — "what colour is the
+  /// rabbit" and "what is written on that sign" are both `surroundings`.
+  /// Answering the second from the first's cache would read back a confident
+  /// reply to something the user did not ask, which for somebody who cannot
+  /// see the street is indistinguishable from the app having looked and
+  /// checked. That is the exact failure the focus check was already written
+  /// to prevent; the question simply widened the space it has to cover.
+  VisionScene? _cachedScene(ScanFocus focus, String? question) {
     final last = _lastCloudCallAt;
     final scene = _lastScene;
     if (last == null || scene == null) return null;
     if (scene.focus != focus) return null;
+    if (_normalisedQuestion(question) != _lastQuestion) return null;
     final age = _now().difference(last);
     if (age >= VisionConfig.cloudScanCooldown) return null;
     if (age >= VisionConfig.sceneCacheLifetime) return null;

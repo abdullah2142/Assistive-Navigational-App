@@ -1,4 +1,11 @@
+import 'dart:async';
+
+// The `awaitAuth` seam below is named for the caller while the field is
+// private, which is this codebase's convention.
+// ignore_for_file: prefer_initializing_formals
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../localization/app_language.dart';
@@ -114,11 +121,18 @@ class BusRouteMatch {
 /// *and* on two stops, and the agreement of two noisy signals is far stronger
 /// than either alone. That is what [BusRouteMatch.why] records.
 class BusRouteDirectory {
-  BusRouteDirectory({FirebaseFirestore? firestore, List<BusRoute>? seed})
-      : _injectedDb = firestore,
+  BusRouteDirectory({
+    FirebaseFirestore? firestore,
+    List<BusRoute>? seed,
+    @visibleForTesting Future<void> Function()? awaitAuth,
+  })  : _injectedDb = firestore,
+        _awaitAuth = awaitAuth,
         _all = seed == null ? null : List.unmodifiable(seed);
 
   final FirebaseFirestore? _injectedDb;
+
+  /// Overridable so a test can resolve immediately without a Firebase app.
+  final Future<void> Function()? _awaitAuth;
 
   /// Built lazily: `FirebaseFirestore.instance` throws when no Firebase app
   /// is initialized, which would make this class unconstructible in tests
@@ -146,10 +160,47 @@ class BusRouteDirectory {
   /// 156 documents is small enough to hold entirely, and fuzzy matching needs
   /// every candidate anyway — there is no query that narrows it, because the
   /// input is misspelt by definition. One read per session, then free.
+  /// Blocks until Firebase Auth has a user, so the read is made as one.
+  ///
+  /// `busRoutes` is `allow read: if request.auth != null`, and this class is
+  /// first asked for a match by a camera scan that can happen within seconds
+  /// of launch — before anonymous sign-in has resolved. On 22 September that
+  /// produced, at 35 seconds in:
+  ///
+  ///     [BusRoutes] load failed: [cloud_firestore/permission-denied]
+  ///
+  /// which is not a permissions problem at all. The rule is right; the read
+  /// was simply early. The symptom is the worst kind for this feature — no
+  /// crash, no retry prompt, just an empty directory, so every bus for the
+  /// rest of that session was identified by the vision model's unverified
+  /// reading with nothing to correct it against. That is precisely the
+  /// failure `VisionConfig.busRouteLookupWins` exists to prevent.
+  ///
+  /// Bounded, because waiting forever would be a worse failure than the one
+  /// being fixed: a scan that never answers. On timeout the read is attempted
+  /// anyway — if auth did land, it succeeds; if not, `catchError` clears
+  /// `_loading` and the next scan tries again.
+  Future<void> _waitForAuth() async {
+    final override = _awaitAuth;
+    if (override != null) return override();
+    try {
+      if (FirebaseAuth.instance.currentUser != null) return;
+      await FirebaseAuth.instance
+          .authStateChanges()
+          .firstWhere((user) => user != null)
+          .timeout(_authWait);
+    } catch (e) {
+      debugPrint('[BusRoutes] proceeding without a confirmed sign-in: $e');
+    }
+  }
+
+  static const Duration _authWait = Duration(seconds: 8);
+
   Future<List<BusRoute>> _load() {
     final cached = _all;
     if (cached != null) return Future.value(cached);
-    return _loading ??= _db.collection(collection).get().then((snap) {
+    return _loading ??=
+        _waitForAuth().then((_) => _db.collection(collection).get()).then((snap) {
       final routes = [
         for (final doc in snap.docs) ?BusRoute.fromSnapshot(doc.id, doc.data()),
       ];

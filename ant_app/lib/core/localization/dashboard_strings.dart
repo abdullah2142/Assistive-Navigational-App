@@ -178,8 +178,45 @@ class Dashboard {
 
   String get chatAskDestination => _t('Where would you like to go?', 'আপনি কোথায় যেতে চান?');
   // Suggested chips
-  String get chipRouteToWork => _t('Route to Work', 'কাজের পথ');
-  String get chipScanBus => _t('Scan the next bus', 'বাসের নাম্বার দেখুন');
+  /// Was "Route to Work" / "কাজের পথ" — a chip that could only ever mean one
+  /// destination, and which did not actually know one (it asked). Now the
+  /// single entry point to *anywhere*: it opens the destination sheet, where
+  /// a place can be searched for, pinned on the map, typed, or spoken.
+  String get chipPath => _t('Go somewhere', 'পথ');
+
+  /// Was "Scan the next bus". The camera is not a bus-only instrument and
+  /// labelling it as one hid every other thing it does — reading a sign,
+  /// checking the ground, saying what is ahead. This chip now *is* the
+  /// camera button, which is why there is no longer one on the input row.
+  String get chipCamera => _t('Camera', 'ক্যামেরা');
+
+  /// The destination sheet opened by [chipPath].
+  String get pathSheetTitle => _t('Where do you want to go?', 'কোথায় যেতে চান?');
+  String get pathSearchLabel => _t('Search for a place', 'জায়গা খুঁজুন');
+  String get pathSearchHint => _t('Type a place name', 'জায়গার নাম লিখুন');
+  String get pathPinOnMap => _t('Pin it on the map', 'ম্যাপে পিন করুন');
+  String get pathPinOnMapHint =>
+      _t('Open the map and tap where you want to go', 'ম্যাপ খুলে যেখানে যেতে চান সেখানে চাপুন');
+  String get pathSpeak => _t('Say it out loud', 'বলে দিন');
+  String get pathSpeakHint => _t('Tap, then say the place name', 'চাপুন, তারপর জায়গার নাম বলুন');
+  String get pathPinConfirm => _t('Go here', 'এখানে যান');
+  /// Said back after a pin, when the reverse geocode produced nothing.
+  /// Deliberately not coordinates: "23.81, 90.41" confirms nothing to
+  /// somebody checking they pinned the right place.
+  String get pathPinnedFallback =>
+      _t('the place you picked on the map', 'ম্যাপে বেছে নেওয়া জায়গা');
+
+  /// The transcript entry for a pin, so the conversation records what was
+  /// asked for even though nothing was said or typed.
+  String pathPinnedRequest(String place) =>
+      _t('Take me to $place', '$place-এ নিয়ে চলুন');
+
+  String get pathPinUnroutable => _t(
+      "I couldn't find a walking route to that point. Try pinning somewhere closer to a road.",
+      'ওই জায়গায় হেঁটে যাওয়ার পথ পেলাম না। রাস্তার কাছাকাছি কোথাও পিন করে দেখুন।');
+
+  String get pathPinInstruction =>
+      _t('Tap the map to choose a destination', 'গন্তব্য বেছে নিতে ম্যাপে চাপুন');
   /// Short enough to sit in a one-third-width cell without wrapping to five
   /// lines. The full sentence is still what a screen reader announces — see
   /// [chipShowScreenSemantics] and `SuggestedChip.semanticsLabelFor`.

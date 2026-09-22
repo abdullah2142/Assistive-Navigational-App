@@ -24,6 +24,7 @@ import '../services/chat_history_store.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 
 import '../../../core/services/destination_clarifier.dart';
+import '../../../core/utils/text_scale_levels.dart';
 import '../models/hazard_report.dart';
 import '../models/suggested_chip.dart';
 
@@ -360,14 +361,19 @@ class ChatController extends Notifier<ChatState> {
 
   Map<String, Object?> _resolveLocalIntentArgs(LocalIntent intent, UserProfile profile) {
     if (intent.name != 'update_setting' || intent.args['setting'] != 'text_size') return intent.args;
-    final delta = switch (intent.args['value']) {
-      '_bigger' => 0.15,
-      '_smaller' => -0.15,
+    // One rung of `textScaleLevels`, not a fixed 0.15. The old delta put the
+    // voice command on values the slider could not show and no label named
+    // — "bigger" three times from 1.0 reached 1.45, which is nothing the
+    // user could have chosen by hand. Stepping by index also guarantees the
+    // change is visible, which a 0.15 nudge near the 2.0 ceiling was not.
+    final steps = switch (intent.args['value']) {
+      '_bigger' => 1,
+      '_smaller' => -1,
       _ => null,
     };
-    if (delta == null) return intent.args;
-    final newScale = (profile.fontScale + delta).clamp(0.8, 2.0);
-    return {'setting': 'text_size', 'value': newScale.toStringAsFixed(2)};
+    if (steps == null) return intent.args;
+    final newScale = stepScale(profile.fontScale, steps);
+    return {'setting': 'text_size', 'value': newScale.toString()};
   }
 
   /// Handles one turn of the "where is that, exactly?" conversation.
@@ -405,8 +411,20 @@ class ChatController extends Notifier<ChatState> {
       if (message.sender == ChatSender.user) continue;
       final text = message.text.trim();
       if (text.isEmpty) return false;
+      // Must *end* in a question. `contains('?')` was far too broad: a reply
+      // that answers something and then adds "Anything else?" — or simply
+      // mentions a question mark anywhere — latched this on, and every
+      // command on the following turn was discarded as though it were an
+      // answer. That is the 22 September report's "open map did not work",
+      // "didnt auto open map" and "asked about my location, answer is
+      // inconsistent", all from one heuristic:
+      //
+      //     [Chat] <- Gemini ... (overlay=SuggestedChipAction.showMap, ...)
+      //     [Chat] model overlay SuggestedChipAction.showMap suppressed — answering a question
+      //
+      // The model had already decided, with the full history in front of it,
+      // that this was a command. This threw that away.
       if (text.endsWith('?')) return true;
-      if (text.contains('?')) return true;
       final lower = text.toLowerCase();
       return _questionOpeners.any((q) => lower.startsWith(q) || lower.contains('. $q'));
     }
@@ -550,6 +568,83 @@ class ChatController extends Notifier<ChatState> {
           pending: updated,
         );
         return true;
+    }
+  }
+
+  /// Routes to a point the user pinned on the map.
+  ///
+  /// Separate from [sendFreeText] because a pin has no name. Everything else
+  /// that asks for a route hands a *string* to a geocoder; this already has
+  /// the coordinates and there is nothing to look up, so it goes straight in
+  /// through `knownDestination` — the same door a saved place uses.
+  ///
+  /// The reverse geocode is for the **sentence**, not for the route. The
+  /// route is already fully determined by the pin, so a failed or slow
+  /// lookup must not block it: the user hears "the place you picked on the
+  /// map" instead of a street name, and still gets taken there. Naming the
+  /// destination out loud matters more than usual here — pinning is the one
+  /// input method where the user never said where they were going, so the
+  /// read-back is their only chance to catch a mis-aimed pin before they
+  /// start walking.
+  Future<void> routeToCoordinates({
+    required double latitude,
+    required double longitude,
+    required UserProfile profile,
+  }) async {
+    final d = Dashboard.of(profile.language);
+    final destination = LatLng(latitude, longitude);
+
+    Position? location;
+    try {
+      location = await Geolocator.getLastKnownPosition().timeout(_lastFixBudget);
+    } catch (_) {
+      location = null;
+    }
+    if (location == null) {
+      await _appendAssistantReply(d.mapUnavailableSubtitle, profile);
+      return;
+    }
+
+    state = state.copyWith(isAssistantTyping: true);
+    final planner = ref.read(routePlanningServiceProvider);
+
+    String? label;
+    try {
+      label = await planner.describeLocation(destination).timeout(_lastFixBudget);
+    } catch (e) {
+      debugPrint('[Chat] could not name the pinned point: $e');
+    }
+    final spokenLabel = (label == null || label.trim().isEmpty) ? d.pathPinnedFallback : label;
+    _appendUserMessage(d.pathPinnedRequest(spokenLabel));
+
+    final result = await planner.plan(
+      destinationQuery: spokenLabel,
+      destinationLabel: spokenLabel,
+      knownDestination: destination,
+      origin: LatLng(location.latitude, location.longitude),
+    );
+    state = state.copyWith(isAssistantTyping: false);
+
+    switch (result) {
+      case RoutePlanned(:final choice, :final alternatives):
+        state = state.copyWith(
+          pendingRoute: choice,
+          routeAlternatives: alternatives,
+          clearClarification: true,
+        );
+        await _appendAssistantReply(
+          '${d.savedPlaceRouting(choice.destinationLabel)} '
+          '${d.routeSummary(via: choice.viaSummary, distanceMeters: choice.distanceMeters, durationSeconds: choice.durationSeconds)}',
+          profile,
+        );
+        _startNavigation(choice, profile);
+      // A pin cannot be ambiguous and cannot be "not found" — it is already a
+      // point. Anything else here is a genuine routing failure (no walkable
+      // path, backend down), and is reported as one rather than reopening the
+      // "where exactly?" conversation, which has no question to ask about a
+      // place the user pointed at.
+      default:
+        await _appendAssistantReply(d.pathPinUnroutable, profile);
     }
   }
 
@@ -728,7 +823,7 @@ class ChatController extends Notifier<ChatState> {
   /// is spoken, lands in the transcript for a Deaf-blind user or one who has
   /// muted the voice, and is persisted by `ChatHistoryStore` like anything
   /// else.
-  Future<void> _runScan(ScanFocus focus, UserProfile profile) async {
+  Future<void> _runScan(ScanFocus focus, UserProfile profile, {String? question}) async {
     final d = Dashboard.of(profile.language);
     final vision = ref.read(snapshotVisionServiceProvider);
 
@@ -744,7 +839,27 @@ class ChatController extends Notifier<ChatState> {
     state = state.copyWith(isAssistantTyping: true);
     ScanResult result;
     try {
-      result = await vision.scan(focus: focus, language: profile.language);
+      result = await vision.scan(
+        focus: focus,
+        language: profile.language,
+        // The user's own wording, so "what colour is the rabbit" is asked of
+        // the camera as that question rather than reduced to the focus
+        // enum's "describe the path ahead".
+        question: question,
+        // Spoken straight through the TTS chain rather than through
+        // `_appendAssistantReply`: "Left." / "Straight ahead." / "Right."
+        // are aiming instructions, not conversation, and three bubbles per
+        // scan would bury the answer the user actually asked for. They still
+        // queue behind the "I will take three looks" line above, because it
+        // is the same serialised chain.
+        //
+        // Nothing is said to a Deaf or hard-of-hearing user — for them the
+        // buzz before each frame is the instruction, which is what the
+        // fixed left-ahead-right order exists to make learnable.
+        narrate: profile.isDeafOrHardOfHearing
+            ? null
+            : (text) => ref.read(ttsServiceProvider).speak(text, language: profile.language),
+      );
     } catch (e) {
       debugPrint('[Chat] scan failed: $e');
       state = state.copyWith(isAssistantTyping: false);
@@ -845,6 +960,41 @@ class ChatController extends Notifier<ChatState> {
   /// that. What this does is make the *result* unusable, which is the part
   /// the user experiences.
   int _turnGeneration = 0;
+
+  /// Silences the assistant immediately, for when the user opens the
+  /// microphone while it is still talking.
+  ///
+  /// Reported from the 22 September session: pressing the mic mid-reply left
+  /// the queue intact, so the app went on reading **every** utterance still
+  /// behind it — old answers, one after another — over the user's new
+  /// question. For someone who cannot see the screen, a voice that will not
+  /// stop is not a cosmetic annoyance: the microphone is open underneath it,
+  /// the app is talking into its own recognizer, and there is no visible way
+  /// out. Pressing the button again only queued more.
+  ///
+  /// Both halves are needed and they do different jobs. [TtsService.stop]
+  /// cuts what is playing and abandons what is already queued behind it; the
+  /// generation bump stops the *producer*, so a reply still streaming in
+  /// cannot enqueue its next sentence a moment later. Stopping only the
+  /// player left the chunker feeding a queue that had just been emptied.
+  /// Appends a reply that may reopen the microphone, for tests of that rule.
+  ///
+  /// The rule — invite an answer only after a question, and only once it has
+  /// finished being spoken — used to be exercised through the "Route to Work"
+  /// chip, whose handler asked "Where would you like to go?". That chip is
+  /// now `openPath` and opens the destination sheet instead, so the
+  /// behaviour it happened to cover lost its only test entry point while the
+  /// behaviour itself did not change. Every remaining caller is behind a
+  /// network backend or the camera.
+  @visibleForTesting
+  Future<void> replyForTest(String text, UserProfile profile) =>
+      _appendAssistantReply(text, profile, mayInviteAnswer: true);
+
+  void interruptNarration() {
+    _turnGeneration++;
+    unawaited(ref.read(ttsServiceProvider).stop());
+    if (state.isAssistantTyping) state = state.copyWith(isAssistantTyping: false);
+  }
 
   Future<void> sendFreeText(String text, UserProfile profile) async {
     final trimmed = text.trim();
@@ -1002,7 +1152,7 @@ class ChatController extends Notifier<ChatState> {
       }
       await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
       if (turn.scanFocus != null) {
-        await _runScan(turn.scanFocus!, profile);
+        await _runScan(turn.scanFocus!, profile, question: turn.scanQuestion);
       }
       if (turn.overlayAction != null) {
         state = state.copyWith(
@@ -1198,34 +1348,33 @@ class ChatController extends Notifier<ChatState> {
       } else {
         await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
       }
+      // No "answering a question" guard here any more, and that is the fix
+      // rather than an oversight.
+      //
+      // It was added on 16 Sep for a real case — the user said "বিপদজনক"
+      // ("dangerous") while answering a question about whether a toilet was
+      // safe, and the hazard report opened. But suppressing the *model's*
+      // decision is the wrong lever for it. The local matcher is
+      // context-blind and genuinely needs the guard; the model is handed the
+      // conversation, its own question included, so when it still chooses
+      // `open_map` it has strictly more information than a heuristic over
+      // the last message's punctuation. Overriding it inverted that.
+      //
+      // The cost was the whole "it used to work" cluster: map, route,
+      // setting and location commands all discarded mid-conversation. The
+      // genuine multi-turn cases are protected where they belong — by
+      // `_continuePlaceSave` and `_continueClarification`, which own the
+      // next message outright and return before reaching here — and the
+      // system prompt now tells the model not to act on words inside an
+      // answer to its own question.
       if (turn.overlayAction != null) {
-        // The same guard the local path has had, applied to what the model
-        // decides. Confirmed live on 16 Sep: the user said "বিপদজনক"
-        // ("dangerous") while answering a question about whether a toilet was
-        // safe. The local matcher recognised the hazard keyword and correctly
-        // suppressed it — and Gemini then opened the hazard report anyway,
-        // because suppression stopped at the local branch. A word inside an
-        // answer is not a command, whichever half of the app reads it.
-        if (answeringQuestion) {
-          debugPrint('[Chat] model overlay ${turn.overlayAction} suppressed — answering a question');
-        } else {
-          state = state.copyWith(
-            pendingOverlayAction: turn.overlayAction,
-            pendingHazardPrefill: turn.hazardPrefill,
-          );
-        }
+        state = state.copyWith(
+          pendingOverlayAction: turn.overlayAction,
+          pendingHazardPrefill: turn.hazardPrefill,
+        );
       }
-      // Suppressed while answering a question for the same reason as an
-      // overlay, and the cost here is higher: a scan opens a camera and
-      // spends a cloud call, so a `look_around` triggered by the word "bus"
-      // inside an answer to "where do you want to go?" would be both wrong
-      // and expensive.
       if (turn.scanFocus != null) {
-        if (answeringQuestion) {
-          debugPrint('[Chat] model scan ${turn.scanFocus} suppressed — answering a question');
-        } else {
-          await _runScan(turn.scanFocus!, profile);
-        }
+        await _runScan(turn.scanFocus!, profile, question: turn.scanQuestion);
       }
       if (turn.route != null) {
         state = state.copyWith(
@@ -1285,19 +1434,13 @@ class ChatController extends Notifier<ChatState> {
   /// dashboard screen handles those directly rather than routing them
   /// through here.
   Future<void> handleChip(SuggestedChip chip, UserProfile profile, String chipLabel) async {
-    final d = Dashboard.of(profile.language);
     _appendUserMessage(chipLabel);
     switch (chip.action) {
-      case SuggestedChipAction.routeToWork:
-        // No fixed "work" address exists in the profile (only Home/Safe
-        // Place) — matches this app's "ask the AI" philosophy instead of
-        // adding a new onboarding field: the assistant asks, and that
-        // question sitting in the recent-message history Gemini sees is
-        // enough context for `request_route` to pick up a bare place name
-        // on the very next turn (see `GeminiAssistantService._buildPrompt`).
-        await _appendAssistantReply(d.chatAskDestination, profile, mayInviteAnswer: true);
-      case SuggestedChipAction.scanBusSign:
-        await _runScan(ScanFocus.vehicle, profile);
+      case SuggestedChipAction.cameraScan:
+        // The wide sweep, not the bus-only frame this chip used to take.
+        // Same path Volume Up and `look_around` use.
+        await runSweep(profile);
+      case SuggestedChipAction.openPath:
       case SuggestedChipAction.showScreenToPasserby:
       case SuggestedChipAction.reportHazard:
       case SuggestedChipAction.sendCaretakerVoiceMemo:

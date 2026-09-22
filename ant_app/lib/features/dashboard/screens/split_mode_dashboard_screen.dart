@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 
 import '../../guardian/providers/guardian_providers.dart';
 import '../../guardian/services/live_location_publisher.dart';
@@ -15,7 +19,9 @@ import '../widgets/crowdsource_reporting_hub.dart';
 import '../widgets/caretaker_inbox_listener.dart';
 import '../widgets/dashboard_map_panel.dart';
 import '../providers/chat_providers.dart';
+import '../widgets/destination_sheet.dart';
 import '../widgets/passerby_message_picker.dart';
+import 'map_pin_picker_screen.dart';
 import 'my_settings_screen.dart';
 
 /// The Disabled User's home screen — Split-Mode Dashboard: chat (60%) over
@@ -179,10 +185,76 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
             _mapFullScreen = false;
           });
         }
-      case SuggestedChipAction.routeToWork:
-      case SuggestedChipAction.scanBusSign:
+      case SuggestedChipAction.cameraScan:
         break; // Handled inside the chat panel itself.
+      case SuggestedChipAction.openPath:
+        unawaited(_openPathSheet());
     }
+  }
+
+  /// The destination sheet — search, pin, speak or type — and what to do
+  /// with what it hands back.
+  ///
+  /// A named place goes through `sendFreeText` rather than straight to the
+  /// router, deliberately: that is the path with the destination
+  /// clarification conversation on it ("which Gulshan?"), the saved-place
+  /// matcher, and the transcript entry. Bypassing it to save one hop would
+  /// mean a place typed here resolves by different rules than the same place
+  /// spoken at the main microphone, and only one of the two would ask when
+  /// it was unsure.
+  ///
+  /// A **pin** cannot take that path — it has no name to send, and inventing
+  /// one ("23.81, 90.41") would be handed to a geocoder that has no idea
+  /// what to do with it. It goes to the router as coordinates.
+  Future<void> _openPathSheet() async {
+    final choice = await showModalBottomSheet<DestinationChoice>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: false,
+      builder: (_) => DestinationSheet(
+        profile: profile,
+        onPickOnMap: _pickOnMap,
+      ),
+    );
+    if (choice == null || !mounted) return;
+
+    final controller = ref.read(chatControllerProvider.notifier);
+    if (choice.isPin) {
+      await controller.routeToCoordinates(
+        latitude: choice.latitude!,
+        longitude: choice.longitude!,
+        profile: profile,
+      );
+      return;
+    }
+    final text = choice.text?.trim() ?? '';
+    if (text.isEmpty) return;
+    await controller.sendFreeText(text, profile);
+  }
+
+  /// Opens the full-screen pin picker, centred on the user when their
+  /// position is already known.
+  ///
+  /// The fix is best-effort and short: this is the map's opening camera, not
+  /// a navigation fix, and a picker that hangs on a GPS lock before it will
+  /// draw anything is worse than one that opens over Dhaka.
+  Future<DestinationChoice?> _pickOnMap() async {
+    LatLng? centre;
+    try {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) centre = LatLng(last.latitude, last.longitude);
+    } catch (e) {
+      debugPrint('[Map] pin picker could not read a last-known position: $e');
+    }
+    if (!mounted) return null;
+    return Navigator.of(context).push<DestinationChoice>(
+      MaterialPageRoute(
+        builder: (_) => MapPinPickerScreen(
+          language: profile.language,
+          initialCentre: centre,
+        ),
+      ),
+    );
   }
 
   @override

@@ -106,15 +106,22 @@ class _FakeVision implements VisionBackend {
   int calls = 0;
   int? sawFrameCount;
 
+  /// The user's own question, as forwarded by the router. Recorded so the
+  /// router cannot quietly stop passing it on — a dropped question means the
+  /// camera answers the focus enum's canned task instead of what was asked.
+  String? sawQuestion;
+
   @override
   Future<VisionScene?> describe({
     required List<Uint8List> jpegs,
     required ScanFocus focus,
     required AppLanguage language,
     List<String> edgeLabels = const [],
+    String? question,
   }) async {
     calls++;
     sawFrameCount = jpegs.length;
+    sawQuestion = question;
     if (failWith != null) throw failWith!;
     if (!answers) return null;
     return VisionScene(focus: focus, spoken: 'seen by $name');

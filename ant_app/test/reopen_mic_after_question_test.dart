@@ -20,6 +20,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ant_app/core/localization/app_language.dart';
+import 'package:ant_app/core/localization/dashboard_strings.dart';
 import 'package:ant_app/core/providers/tts_providers.dart';
 import 'package:ant_app/core/services/tts_service.dart';
 import 'package:ant_app/features/dashboard/models/suggested_chip.dart';
@@ -51,14 +52,12 @@ void main() {
     return (invitations: container.read(chatControllerProvider).answerInvitations, tts: tts);
   }
 
-  Future<void> askDestination(ChatController c, UserProfile profile) => c.handleChip(
-        const SuggestedChip(
-          action: SuggestedChipAction.routeToWork,
-          icon: IconsPlaceholder.icon,
-        ),
-        profile,
-        'Route to Work',
-      );
+  /// The assistant asking where to go — the canonical question this rule
+  /// exists for. Driven through `replyForTest` rather than a chip: the chip
+  /// that used to ask it now opens the destination sheet, and every other
+  /// caller of this path sits behind a network backend or the camera.
+  Future<void> askDestination(ChatController c, UserProfile profile) =>
+      c.replyForTest(Dashboard.of(profile.language).chatAskDestination, profile);
 
   test('a question reopens the microphone', () async {
     // "Where would you like to go?" — the assistant is waiting on an answer
@@ -85,7 +84,7 @@ void main() {
     final result = await run(
       (c) => c.handleChip(
         const SuggestedChip(
-          action: SuggestedChipAction.scanBusSign,
+          action: SuggestedChipAction.cameraScan,
           icon: IconsPlaceholder.icon,
         ),
         profile,

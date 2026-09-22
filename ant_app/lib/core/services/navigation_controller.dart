@@ -179,26 +179,26 @@ class NavigationController {
 
     switch (cue.kind) {
       case NavigationCueKind.turnAhead:
-        unawaited(_haptics.play(HapticCue.navigation));
+        _cue(turnCueFor(step!.maneuver));
         await _speak(d.navigateTurnAhead(
-          kind: step!.maneuver,
+          kind: step.maneuver,
           meters: cue.distanceMeters,
           streetName: step.streetName,
         ));
       case NavigationCueKind.turnNow:
-        // Single buzz — "turn", per the haptics module plan.
-        unawaited(_haptics.play(HapticCue.navigation));
+        // One pulse for left, two for right — see `HapticCue.turnLeft`.
+        _cue(turnCueFor(step!.maneuver));
         await _speak(cue.isFinalStep
-            ? d.navigateFinalTurn(kind: step!.maneuver, streetName: step.streetName)
-            : d.navigateTurnNow(kind: step!.maneuver, streetName: step.streetName));
+            ? d.navigateFinalTurn(kind: step.maneuver, streetName: step.streetName)
+            : d.navigateTurnNow(kind: step.maneuver, streetName: step.streetName));
       case NavigationCueKind.offRoute:
         // Long buzz — the "something is wrong" pattern.
-        unawaited(_haptics.play(HapticCue.hazard));
+        _cue(HapticCue.hazard);
         await _speak(d.navigateOffRoute);
       case NavigationCueKind.arrived:
         // Double buzz — "confirmed". One call now: the pattern is the
         // service's, not two impacts and a sleep spelled out at the call site.
-        unawaited(_haptics.play(HapticCue.confirmation));
+        _cue(HapticCue.confirmation);
         await _speak(d.navigateArrived);
         await stop(silent: true);
         // Set *after* `stop`, which clears it: arriving is a state the map
@@ -207,6 +207,40 @@ class NavigationController {
         // "no route was ever planned".
         progress.value = const NavigationProgress(arrived: true);
     }
+  }
+
+  /// Starts [cue] alongside the instruction it belongs to.
+  ///
+  /// Deliberately **not** awaited, and that is a correctness requirement
+  /// rather than a preference. Awaiting `play()` was tried and is a real
+  /// regression, caught by `navigation_controller_test`: with no vibration
+  /// plugin behind the platform channel the future never completes, so
+  /// `_announce` never reached `_speak` and every turn instruction was
+  /// silently dropped. Bounding it with a timeout only trades that for
+  /// serialising announcements behind the timeout. A cue must never be able
+  /// to delay or prevent the thing it accompanies — the same rule the earcon
+  /// in `ChatStreamPanel._beginListening` documents.
+  ///
+  /// ## On "the haptics are out of sync"
+  ///
+  /// What the 22 September report describes is real, and the half of it this
+  /// class can fix is fixed: the buzz now **says which way** (one pulse
+  /// left, two right — see `HapticCue.turnLeft`), where before every turn in
+  /// either direction felt identical.
+  ///
+  /// The remaining gap is not an ordering bug. Both calls start in the same
+  /// microtask; what separates them is that speech has a start-up cost the
+  /// motor does not — engine warm-up on device, and a synthesis round trip
+  /// on Cloud TTS — so the buzz lands first and the words follow a few
+  /// hundred milliseconds later. Closing that needs a start-of-utterance
+  /// signal from `TtsService`, which resolves on *completion* and has no
+  /// "now speaking" callback to hang this on. Adding one is the fix; faking
+  /// it with a fixed delay here would be guessing at a latency that varies
+  /// between the cloud and on-device paths by an order of magnitude.
+  void _cue(HapticCue cue) {
+    unawaited(_haptics.play(cue).catchError((Object e) {
+      debugPrint('[Navigation] haptic cue failed: $e');
+    }));
   }
 
   Future<void> _speak(String text) async {

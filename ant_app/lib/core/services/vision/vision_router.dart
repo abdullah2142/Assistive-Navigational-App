@@ -99,6 +99,9 @@ class VisionRouter {
     required ScanFocus focus,
     required AppLanguage language,
     List<String> edgeLabels = const [],
+    /// The user's own question, when more specific than [focus]. See
+    /// `VisionPrompt.build`.
+    String? question,
   }) async {
     final backends = orderFor(focus);
     if (backends.isEmpty) {
@@ -120,6 +123,7 @@ class VisionRouter {
           focus: focus,
           language: language,
           edgeLabels: edgeLabels,
+          question: question,
         );
         if (scene != null) {
           if (i > 0) {

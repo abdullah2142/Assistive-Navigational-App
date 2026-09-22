@@ -419,8 +419,28 @@ class LocalIntentMatcher {
     'get to', 'go to', 'route to', 'directions', 'navigate', 'take me to',
     'save my', 'save this', 'save as', 'set up', 'change my', 'turn off',
     'turn on', 'switch off', 'switch on', 'message saying', 'emergency contact',
-    'যেতে চাই', 'যাব', 'যাবো',
   ];
+
+  /// The Bangla half of [_emergencyErrandPhrases], matched on word
+  /// boundaries rather than as substrings — see [containsBnWord].
+  ///
+  /// Split out because a plain `contains` here fails **towards silence**.
+  /// These phrases *suppress* emergency detection, and `যাব` is a substring
+  /// of `ল্যাব` ("lab"), so "আমি ল্যাবে পড়ে গেছি, উঠতে পারছি না" — I fell at
+  /// the lab, I can't get up — read as somebody planning a trip and the SOS
+  /// was cancelled. Every other list in this file fails towards a wrong
+  /// answer; this one failed towards no answer at all.
+  static const _emergencyErrandPhrasesBn = ['যেতে চাই', 'যাবো', 'যাব'];
+
+  /// Whether [phrase] appears in [text] as a whole Bangla word.
+  ///
+  /// Bangla writes conjuncts without any break ASCII `\b` can see, so a
+  /// substring test matches across what a reader sees as one word. Both
+  /// sides are asserted: nothing from the Bangla block immediately before
+  /// the phrase, and nothing immediately after.
+  @visibleForTesting
+  static bool containsBnWord(String text, String phrase) =>
+      RegExp('(?<![ঀ-৿])${RegExp.escape(phrase)}(?![ঀ-৿])').hasMatch(text);
 
   /// True when [text] is a call for help rather than a mention of one.
   static LocalIntent? _matchEmergency(String lower, String text) {
@@ -437,7 +457,8 @@ class LocalIntentMatcher {
       return null;
     }
     if (_emergencyErrandPhrases.any(lower.contains) ||
-        _emergencyErrandPhrases.any(text.contains)) {
+        _emergencyErrandPhrases.any(text.contains) ||
+        _emergencyErrandPhrasesBn.any((p) => containsBnWord(text, p))) {
       return null;
     }
 
@@ -787,10 +808,20 @@ class LocalIntentMatcher {
       // assumption the wake phrase would be renamed to match the app; it has
       // not been, so a user who says "turn off Hey Jarvis" — the only name
       // they have ever heard — was matching nothing at all.
+      //
+      // The Bangla spellings are the ones testers actually say and the
+      // recognizer actually returns, not the ones that look tidiest. On
+      // 22 September "হেই অ্যান্ট বন্ধ করো" matched **nothing**: the list had
+      // `হে অ্যান্ট` (হে) and the user said `হেই` (হেই), one vowel sign apart
+      // and a total miss. `এন্ট` alongside `অ্যান্ট` for the same reason —
+      // both are ordinary transliterations of "ANT" and Google STT returns
+      // either. `ওয়েকওয়ার্ড` unspaced because compound loanwords are
+      // frequently transcribed without the space.
       subject: VoicePhrase(anchors: [
         'hey jarvis', 'jarvis', 'হেই জার্ভিস', 'জার্ভিস',
         'hey ant', 'wake word', 'wakeword', 'wake-word',
-        'হে অ্যান্ট', 'ওয়েক ওয়ার্ড',
+        'হে অ্যান্ট', 'হেই অ্যান্ট', 'হে এন্ট', 'হেই এন্ট',
+        'অ্যান্ট', 'ওয়েক ওয়ার্ড', 'ওয়েকওয়ার্ড', 'ভয়েস ট্রিগার',
       ]),
     ),
     (
@@ -802,9 +833,15 @@ class LocalIntentMatcher {
     ),
   ];
 
-  static const _onWords = ['on', 'enable', 'enabled', 'activate', 'start', 'switch on', 'চালু'];
+  static const _onWords = [
+    'on', 'enable', 'enabled', 'activate', 'start', 'switch on',
+    'চালু', 'অন', 'চালাও',
+  ];
+  // `অফ` is the English word as Bangla speakers use it — "অফ করো" is at least
+  // as common as "বন্ধ করো" and matched nothing.
   static const _offWords = [
-    'off', 'disable', 'disabled', 'deactivate', 'stop', 'switch off', 'turn off', 'বন্ধ',
+    'off', 'disable', 'disabled', 'deactivate', 'stop', 'switch off', 'turn off',
+    'বন্ধ', 'অফ', 'বন্ধো',
   ];
 
   static LocalIntent? _matchToggle(List<String> words) {
@@ -1155,7 +1192,24 @@ class LocalIntentMatcher {
   /// the actual place name. Only the affirmative "going" verbs — not "নিয়ে
   /// চলো/যাও" ("take this/them"), which is ambiguous with "take this
   /// object somewhere" and isn't reliably about *the user* travelling.
-  static final _routeBnPattern = RegExp(r'(.+?)\s*(?:যেতে চাই|যাব|যাবো)');
+  ///
+  /// The boundary assertions are load-bearing, not tidiness. Bangla is
+  /// written without word-internal breaks that ASCII `\b` can see, and
+  /// `যাব` is a **substring of ordinary place names**: `ল্যাব` ("lab") is
+  /// ল + ্ + য + া + ব, whose last three characters are exactly `যাব`. With
+  /// a bare alternation the non-greedy capture stopped at the first such
+  /// hit, so "ধানমন্ডি ল্যাব এইড যেতে চাই" geocoded **"ধানমন্ডি ল্"** — a
+  /// name cut mid-conjunct that resolves nowhere. Confirmed from a device
+  /// log: every Bangla route request to Labaid, Dhaka's most-named medical
+  /// destination, failed this way and dropped the user into the
+  /// "where exactly?" clarification loop instead of a route.
+  ///
+  /// So the verb must *begin* a word (nothing Bangla immediately before it)
+  /// and *end* one (nothing Bangla immediately after). The trailing
+  /// assertion also retires a latent ordering bug: `যাব` listed before
+  /// `যাবো` used to win on "যাবো" and leave a stranded ো behind.
+  static final _routeBnPattern =
+      RegExp(r'(.+?)\s*(?<![ঀ-৿])(?:যেতে চাই|যাবো|যাব)(?![ঀ-৿])');
 
   /// "আমি অফিসে যাব না" (I will *not* go to the office) must not trigger a
   /// route request. Checked as a whole *word* — see [_bnNegationParticles]

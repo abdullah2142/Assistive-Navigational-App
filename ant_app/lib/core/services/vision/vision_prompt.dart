@@ -28,11 +28,25 @@ class VisionPrompt {
   /// instruction, and on Groq every one of those comes off a per-minute
   /// ceiling shared with the user's conversation. The reply is still Bangla —
   /// that is what `say` is for.
+  /// [question] is the user's own wording when it is more specific than
+  /// [focus] can express, and it **replaces** the canned task.
+  ///
+  /// The focus enum has six values and a person has an unbounded number of
+  /// questions. "What colour is the rabbit" and "what is written on this
+  /// file" both reduce to `surroundings`, whose task string asks for "the
+  /// path ahead, anything blocking it, and any vehicle or person close by" —
+  /// so the model dutifully described a footpath and said nothing about
+  /// either. Reported on 22 September as scene description giving no answers.
+  ///
+  /// The safety framing around it is kept either way: the honesty rules
+  /// below are what stop a covered lens producing an all-clear, and they are
+  /// not the model's to negotiate whatever is being asked.
   static String build({
     required ScanFocus focus,
     required AppLanguage language,
     List<String> edgeLabels = const [],
     int frameCount = 1,
+    String? question,
   }) {
     final lang = language == AppLanguage.bangla ? 'Bangla (বাংলা)' : 'English';
 
@@ -89,8 +103,18 @@ class VisionPrompt {
             'Say whether the way ahead is walkable.',
     };
 
+    // The user's own words win over the canned task, but the scene framing
+    // stays: they are still blind, still in Dhaka, and the answer still has
+    // to be about what is actually in the frame.
+    final asked = question == null || question.trim().isEmpty ? null : question.trim();
+    final instruction = asked == null
+        ? task
+        : 'Answer this question about what is in the image, directly and '
+            'specifically: "$asked" If the image does not show enough to '
+            'answer it, say exactly that and say what you can see instead.';
+
     return '''
-You are the eyes of a blind pedestrian in Dhaka, Bangladesh. $task$framing$hint
+You are the eyes of a blind pedestrian in Dhaka, Bangladesh. $instruction$framing$hint
 
 Report ONLY what is actually visible. Never guess a route number, a
 destination or a hazard you cannot see — this person cannot check what you

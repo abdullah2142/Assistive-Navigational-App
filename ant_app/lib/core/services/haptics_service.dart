@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:vibration/vibration.dart';
 
 import '../../features/onboarding/models/disability_profile_enums.dart';
+import 'routing_service.dart' show ManeuverKind;
 
 // The named parameters below are deliberately not initializing formals:
 // they are named for the caller ('store', 'tts') while the fields are
@@ -21,8 +22,33 @@ import '../../features/onboarding/models/disability_profile_enums.dart';
 /// turn and `mediumImpact` when a mic opens say the same thing about two
 /// unrelated events, and none of it could be scaled for a weak motor.
 enum HapticCue {
-  /// A standard navigation turn. Always accompanied by a voice prompt.
+  /// A navigation event whose direction is not left or right — setting off,
+  /// carrying straight on, a re-plan. Always accompanied by a voice prompt.
   navigation,
+
+  /// Turn **left**: one pulse.
+  ///
+  /// Reported from the 22 September session — "the haptics are out of sync"
+  /// and "might confuse user about which direction to turn". Every turn, in
+  /// either direction, played the identical single [navigation] buzz, so the
+  /// haptic channel carried the *timing* of a turn and none of its content.
+  /// A user walking with a cane, phone in a pocket, felt the same thing at a
+  /// left as at a right and had only the speech to go on — and speech is the
+  /// channel most easily lost to traffic noise, which is exactly when a
+  /// pedestrian crossing needs it most.
+  ///
+  /// Encoded by **count**, one versus two, because count survives a weak
+  /// motor and a thick pocket where a duration difference does not. Both
+  /// turn cues use a faster pulse and a wider gap than [confirmation] so
+  /// "turn right" and "that worked" are not the same two taps.
+  ///
+  /// Still never the sole carrier: the spoken instruction always names the
+  /// direction too. This makes the haptic agree with it instead of being
+  /// silent about it.
+  turnLeft,
+
+  /// Turn **right**: two pulses. See [turnLeft].
+  turnRight,
 
   /// Positive reinforcement — arrival, an SOS that went out, a confirmed
   /// selection.
@@ -31,6 +57,19 @@ enum HapticCue {
   /// Immediate danger. Stop moving.
   hazard,
 }
+
+/// The turn cue for [kind], or [HapticCue.navigation] when the manoeuvre has
+/// no left/right sense to encode.
+///
+/// Slight and sharp turns map onto their own side rather than to a fourth
+/// and fifth pattern: the plan's point about a small dictionary stands, and
+/// "which side" is the question the cue has to answer. How sharp it is, the
+/// voice says.
+HapticCue turnCueFor(ManeuverKind kind) => switch (kind) {
+      ManeuverKind.slightLeft || ManeuverKind.left || ManeuverKind.sharpLeft => HapticCue.turnLeft,
+      ManeuverKind.slightRight || ManeuverKind.right || ManeuverKind.sharpRight => HapticCue.turnRight,
+      _ => HapticCue.navigation,
+    };
 
 /// Speaks the haptic language, at the strength the user asked for.
 ///
@@ -70,6 +109,12 @@ class HapticsService {
   static const int _navigationMs = 100;
   static const int _confirmationGapMs = 50;
   static const int _hazardMs = 1000;
+
+  /// Turn cues: shorter pulse, wider gap than [_navigationMs]/
+  /// [_confirmationGapMs], so two-pulse "right" cannot be mistaken for
+  /// two-pulse "confirmed". See [HapticCue.turnLeft].
+  static const int _turnMs = 70;
+  static const int _turnGapMs = 90;
 
   /// Probes the motor once. The answer does not change while the app runs,
   /// and each probe is a platform channel round trip on the path of a cue
@@ -142,6 +187,13 @@ class HapticsService {
       switch (cue) {
         case HapticCue.navigation:
           await Vibration.vibrate(duration: _navigationMs, amplitude: amplitude ?? -1);
+        case HapticCue.turnLeft:
+          await Vibration.vibrate(duration: _turnMs, amplitude: amplitude ?? -1);
+        case HapticCue.turnRight:
+          await Vibration.vibrate(
+            pattern: const [0, _turnMs, _turnGapMs, _turnMs],
+            intensities: amplitude == null ? const [] : [0, amplitude, 0, amplitude],
+          );
         case HapticCue.confirmation:
           await Vibration.vibrate(
             pattern: const [0, _navigationMs, _confirmationGapMs, _navigationMs],
@@ -171,6 +223,14 @@ class HapticsService {
   Future<void> _playFallback(HapticCue cue) async {
     switch (cue) {
       case HapticCue.navigation:
+      case HapticCue.turnLeft:
+        await HapticFeedback.selectionClick();
+      case HapticCue.turnRight:
+        // The count is the signal, so it has to survive the fallback path
+        // too — a platform without an amplitude-capable motor still gets one
+        // tap for left and two for right.
+        await HapticFeedback.selectionClick();
+        await Future<void>.delayed(const Duration(milliseconds: _turnGapMs));
         await HapticFeedback.selectionClick();
       case HapticCue.confirmation:
         await HapticFeedback.mediumImpact();

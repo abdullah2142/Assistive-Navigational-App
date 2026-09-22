@@ -12,6 +12,18 @@ import '../../../core/localization/dashboard_strings.dart';
 /// recorder from where it sits.
 enum SuggestedChipAction {
   routeToWork,
+  // Module 6's wide "what's around me" sweep deliberately has **no chip**.
+  //
+  // It was built with one and the chip was removed: five permanent chips
+  // become six once a caretaker is paired, and `SuggestedChipRow` is built so
+  // that never becomes a third row — "a third row would eat the chat above
+  // it". A row of four cells at Dhaka-typical text scales is not a tappable
+  // target either.
+  //
+  // Nothing is lost. The sweep is reachable by asking for it out loud, by
+  // holding Volume Up (`MainActivity.SWEEP_HOLD_MS`), and by the assistant
+  // calling `look_around` — three routes, none of which needs sight, which is
+  // more than the chip offered a user who cannot see it.
   scanBusSign,
   showScreenToPasserby,
   reportHazard,

@@ -51,6 +51,12 @@ dependencies:
   google_generative_ai: ^0.4.7
   speech_to_text: ^7.4.0
   tflite_flutter: ^0.12.1
+  # Module 6, the Snapshot Vision Engine. `camera` takes discrete stills only
+  # — no preview stream and no image stream, per the Snapshot Architecture's
+  # ban on live video. `image` does the letterboxing, sharpness comparison and
+  # downscale-for-upload that both vision tiers need in pure Dart.
+  camera: ^0.11.0
+  image: ^4.3.0
   google_speech: ^5.3.0
   vibration: ^3.2.1
   share_plus: ^13.3.0
@@ -82,6 +88,9 @@ flutter:
     - assets/wakeword/melspectrogram.tflite
     - assets/wakeword/embedding_model.tflite
     - assets/wakeword/hey_jarvis_v0.1.tflite
+    - assets/vision/ssd_mobilenet_v1.tflite
+    - assets/vision/labelmap.txt
+    - assets/vision/midas_v21_small.tflite
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

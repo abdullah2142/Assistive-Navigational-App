@@ -16,7 +16,7 @@ import '../config/routing_config.dart';
 /// and the 24 tool declarations are roughly 5,200 tokens of the ~5,600 sent
 /// on an average turn, whatever the user actually said. A call is therefore
 /// a good proxy for a fixed slice of money.
-enum BillableApi { geocoding, routes, places, gemini }
+enum BillableApi { geocoding, routes, places, gemini, vision, visionGemini }
 
 /// Decides whether one more billable Google call may be made.
 ///
@@ -100,6 +100,44 @@ class MonthlyApiBudget implements ApiBudget {
     // (a retry loop, a stuck wake word) from spending the budget, not to
     // ration ordinary use.
     BillableApi.gemini: 30000,
+    // Module 6's cloud tier, counted separately from [gemini] even though
+    // both are Groq calls on the same key and the same free tier.
+    //
+    // Separate because they compete rather than add up. Groq's free tier
+    // meters *input tokens per minute* — measured at 7,000 — and one scan
+    // costs 2,142 of them, measured live against the real prompt. The image
+    // is ~1,821 of that and does not shrink with resolution: verified across
+    // 320x240, 448x336, 640x480 and 800x600 on 21 September, identical token
+    // count every time. So three vision calls consume a minute's entire input
+    // allowance, and every one of those tokens is taken from the user's
+    // ability to *speak to the app*.
+    //
+    // For somebody who cannot see the screen, the voice channel is the whole
+    // interface. A scan that silently costs a minute of conversation is a
+    // much worse trade than a scan that is refused, so vision gets its own
+    // ceiling and its own cooldown (`VisionConfig.cloudScanCooldown`) rather
+    // than sharing a pool with chat and quietly draining it.
+    //
+    // 6,000/month is ~200 scans a day, far beyond any real walking pattern —
+    // the per-minute cooldown is the control that actually binds, and this is
+    // the backstop against a stuck retry loop.
+    BillableApi.vision: 6000,
+    // Module 6's Gemini vision backend, counted apart from [vision] because
+    // it is a different provider on a different free tier — a Groq ITPM
+    // exhaustion cannot touch it, which is the entire reason it is there.
+    //
+    // Higher than the Groq line because it is the cheaper call in every
+    // sense: 1,082 input tokens against 2,142 for one image, and the tokens
+    // do not come out of the pool the user's conversation runs on.
+    //
+    // **This ceiling is the only visibility there is.** Gemini returns no
+    // rate-limit headers at all — verified 21 September, where Groq exposes
+    // `x-ratelimit-remaining-tokens` on every response. So the Groq path can
+    // be watched from outside and this one cannot, which makes a client-side
+    // counter the difference between noticing an exhaustion and discovering
+    // it the way the 3 September one was discovered: from a tester saying
+    // the assistant had stopped answering.
+    BillableApi.visionGemini: 9000,
   };
 
   Map<String, int>? _cached;

@@ -4,7 +4,11 @@ import '../../features/onboarding/providers/onboarding_providers.dart';
 import '../config/groq_config.dart';
 import '../services/background_listening_service.dart';
 import '../services/cloud_stt_service.dart';
+import '../config/gemini_config.dart';
+import '../services/assistant_service.dart';
+import '../services/fallback_assistant_service.dart';
 import '../services/function_call_executor.dart';
+import '../services/gemini_assistant_service.dart';
 import '../services/groq_assistant_service.dart';
 import '../services/navigation_controller.dart';
 import '../services/route_planning_service.dart';
@@ -15,6 +19,8 @@ import '../services/haptics_service.dart';
 import '../services/location_permission_primer.dart';
 import '../services/stt_service.dart';
 import '../../core/providers/tts_providers.dart';
+import '../services/vision/ambient_hazard_scanner.dart';
+import '../services/vision/snapshot_vision_service.dart';
 import '../services/wake_word_service.dart';
 
 final wakeWordServiceProvider = Provider<WakeWordService>((ref) {
@@ -110,9 +116,26 @@ final functionCallExecutorProvider = Provider<FunctionCallExecutor>((ref) {
 /// Gemini to Groq's `qwen/qwen3.8-27b`, see `GroqConfig.chatModel`) so every
 /// consumer — `chat_providers.dart` chief among them — needed no changes
 /// beyond this file.
-final geminiAssistantServiceProvider = Provider<GroqAssistantService?>((ref) {
-  if (!GroqConfig.isConfigured) return null;
-  return GroqAssistantService(apiKey: GroqConfig.apiKey, executor: ref.watch(functionCallExecutorProvider));
+final geminiAssistantServiceProvider = Provider<AssistantService?>((ref) {
+  final executor = ref.watch(functionCallExecutorProvider);
+
+  final groq = GroqConfig.isConfigured
+      ? GroqAssistantService(apiKey: GroqConfig.apiKey, executor: executor)
+      : null;
+  final gemini = GeminiConfig.isConfigured
+      ? GeminiAssistantService(apiKey: GeminiConfig.apiKey, executor: executor)
+      : null;
+
+  // Groq leads on latency — measured sub-second against Gemini flash-lite's
+  // 1.2-6.9 s — and Gemini follows because its free tier is a *separate* pool
+  // that a Groq ITPM exhaustion cannot touch. See `FallbackAssistantService`
+  // for the twelve logged 429s this is built for.
+  //
+  // With only Gemini configured it becomes the primary outright, which is
+  // also the documented revert path if Groq's free tier ever stops being
+  // viable. With neither, null, and every caller already checks for that.
+  if (groq == null) return gemini;
+  return FallbackAssistantService(primary: groq, secondary: gemini);
 });
 
 
@@ -126,4 +149,34 @@ final navigationControllerProvider = Provider<NavigationController>((ref) {
   );
   ref.onDispose(controller.dispose);
   return controller;
+});
+
+/// Periodic, edge-only hazard scanning for blind users (Module 6).
+///
+/// Built on the *same* camera and detector as `snapshotVisionServiceProvider`
+/// — see `SnapshotVisionService.camera` for why sharing them is not an
+/// optimisation but a correctness requirement.
+final ambientHazardScannerProvider = Provider<AmbientHazardScanner>((ref) {
+  final vision = ref.watch(snapshotVisionServiceProvider);
+  final scanner = AmbientHazardScanner(
+    camera: vision.camera,
+    edge: vision.edge,
+    haptics: ref.read(hapticsServiceProvider),
+  );
+  ref.onDispose(scanner.dispose);
+  return scanner;
+});
+
+/// The Snapshot Vision Engine (Module 6).
+///
+/// A single instance, and that matters for three separate pieces of state it
+/// owns: the TFLite interpreter (loading it twice would cost a second copy of
+/// the model in memory on a phone that has little), the camera's warm window
+/// (two services would each keep a sensor open), and the cloud cooldown —
+/// which is what stops a user asking twice from spending a minute of the
+/// shared token allowance their own conversation runs on.
+final snapshotVisionServiceProvider = Provider<SnapshotVisionService>((ref) {
+  final service = SnapshotVisionService(haptics: ref.read(hapticsServiceProvider));
+  ref.onDispose(service.dispose);
+  return service;
 });

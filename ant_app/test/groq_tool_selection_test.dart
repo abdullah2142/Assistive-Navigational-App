@@ -64,6 +64,35 @@ void main() {
     });
   });
 
+  group('Module 6 — look_around reaches the model', () {
+    // The local matcher catches the common phrasings first and never calls
+    // Groq at all. This group is the other half: everything phrased outside
+    // that list has to still arrive at a model that *has* the tool, or the
+    // camera is unreachable for anyone who does not use one of the handful
+    // of sentences `LocalIntentMatcher._lookAround` knows.
+    for (final said in [
+      'can you check whether the pavement ahead is dug up',
+      'tell me what that board over there says',
+      'am i about to walk into anything',
+      'সামনের ফুটপাতটা কি ভাঙা',
+      'বাসটা কোথায় যাচ্ছে বলতে পারবে',
+      'ম্যানহোল খোলা আছে কিনা দেখো',
+      'রিকশা আসছে কি',
+    ]) {
+      test('"$said" offers look_around', () {
+        expect(toolsFor(said), contains('look_around'));
+      });
+    }
+
+    test('ordinary routing talk does not drag the camera in', () {
+      // Over-inclusion costs input tokens on a budget measured at 7,000 per
+      // minute and shared with the conversation — but a scan is also a camera
+      // open and a cloud call, so a spurious offer here is dearer than most.
+      expect(toolsFor('change the theme to dark'), isNot(contains('look_around')));
+      expect(toolsFor('save this place as home'), isNot(contains('look_around')));
+    });
+  });
+
   group('the emergency tool is never filtered out', () {
     // It used to be keyword-gated, so an emergency phrased in a way the
     // keywords missed reached a model that had no way to act on it. The local

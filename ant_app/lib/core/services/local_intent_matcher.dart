@@ -127,6 +127,10 @@ class LocalIntentMatcher {
     // and it is the one intent where a slower answer is a worse answer.
     return _matchPairing(text) ??
         _matchResolveHazard(lower, text) ??
+        // Before `_matchOverlay`: "what's blocking the road" contains the
+        // hazard-report vocabulary, and a user asking what is in front of
+        // them wants to be told, not handed a reporting form.
+        _matchLookAround(lower, text) ??
         _matchOverlay(lower, text, bn) ??
         _matchBooleanSetting(lower, text) ??
         _matchTheme(lower, text) ??
@@ -538,6 +542,112 @@ class LocalIntentMatcher {
   /// for other people, so a false one costs more than a missed one.
   static const _reportVerbsEn = ['report', 'flag', 'there is a', "there's a", 'there is an', "there's an", 'i see a', 'i see an'];
   static const _reportVerbsBn = ['জানাও', 'রিপোর্ট', 'আছে'];
+
+  // ---- look_around (Module 6) -------------------------------------------
+
+  /// Phrasings that mean "use the camera", and the focus each implies.
+  ///
+  /// This exists for latency, not for tokens. "What bus is this?" is asked
+  /// with a bus already pulling in, and a Groq round trip to decide that the
+  /// answer is `look_around(vehicle)` spends about a second the user does not
+  /// have before the camera has even opened. Matching locally starts the
+  /// capture immediately and the model is never consulted.
+  ///
+  /// Ordered most-specific first, and matched in that order: "which bus is
+  /// this" is both a vehicle question and a generic "what is this", and the
+  /// vehicle reading is the useful one.
+  ///
+  /// Every entry is a multi-word phrase. A bare "দেখ" or "see" is far too
+  /// common in ordinary speech to open a camera on, and this file's whole
+  /// contract is that a local match is more certain than a model call, not
+  /// less — see the class doc.
+  static const _lookAround = <({String focus, List<String> en, List<String> bn})>[
+    (
+      focus: 'vehicle',
+      en: [
+        'what bus', 'which bus', 'what number bus', 'which number bus',
+        'is this bus', 'what vehicle', 'which vehicle', 'what is this bus',
+        'kon bus', 'ki bus', 'bus ta kon', 'kon gari',
+      ],
+      bn: [
+        'কোন বাস', 'কী বাস', 'কি বাস', 'বাসটা কোন', 'বাসটি কোন',
+        'কত নম্বর বাস', 'কোন গাড়ি', 'বাসের নম্বর',
+      ],
+    ),
+    (
+      focus: 'sign',
+      en: [
+        'what does the sign', 'what does that sign', 'read the sign',
+        'read this sign', 'what does it say', 'what is written',
+        'read the board', 'sign e ki', 'lekha ta ki', 'ki lekha',
+      ],
+      bn: [
+        'সাইনে কী', 'সাইনে কি', 'সাইনবোর্ডে', 'কী লেখা', 'কি লেখা',
+        'লেখাটা পড়', 'সাইনটা পড়', 'বোর্ডে কী',
+      ],
+    ),
+    (
+      focus: 'hazard',
+      en: [
+        'is it safe to cross', 'can i cross', 'safe to cross', 'is the road clear',
+        'is the path clear', 'anything in my way', 'is anything blocking',
+        'is the way clear', 'can i walk', 'is it clear ahead',
+        'rasta clear', 'rasta ki clear', 'par hote parbo', 'jete parbo ki',
+      ],
+      bn: [
+        'পার হওয়া', 'পার হতে পারব', 'রাস্তা কি ফাঁকা', 'রাস্তা ফাঁকা',
+        'পথ পরিষ্কার', 'সামনে কিছু আছে', 'কিছু আটকে', 'যেতে পারব',
+      ],
+    ),
+    (
+      focus: 'surroundings',
+      en: [
+        'what is in front of me', "what's in front of me", 'what is ahead',
+        "what's ahead", 'what is around me', "what's around me",
+        'what do you see', 'what can you see', 'describe what you see',
+        'look around', 'what is this place', 'use the camera', 'take a look',
+        'samne ki ache', 'shamne ki ache', 'ki ache samne', 'asepashe ki',
+      ],
+      bn: [
+        'সামনে কী আছে', 'সামনে কি আছে', 'সামনে কী', 'আশেপাশে কী',
+        'আশেপাশে কি', 'আশপাশে কী', 'কী দেখতে পাচ্ছ', 'কি দেখতে পাচ্ছ',
+        'একটু দেখ', 'ক্যামেরা দিয়ে দেখ', 'চারপাশে কী',
+      ],
+    ),
+  ];
+
+  /// Meta-question guards for [_matchLookAround].
+  ///
+  /// **Deliberately not [_emergencyQuestionBlockers].** That list is the
+  /// right guard for the intents it was written for and the wrong one here,
+  /// because two of its entries — `is this` and `what does` — are the exact
+  /// phrasings this feature exists to catch. "Which bus **is this**" and
+  /// "**what does** that sign say" are the two most natural ways to ask for a
+  /// scan, and reusing the shared list silently made both of them
+  /// unreachable. A blocker list is specific to the intent it protects; the
+  /// overlap between "asking about a feature" and "using it" is different for
+  /// every feature.
+  ///
+  /// What survives is the genuine case: somebody working out what the app can
+  /// do, rather than asking it to do something.
+  static const _lookAroundBlockers = [
+    'what happens', 'what if', 'if i say', 'when i say', 'how do i', 'how does',
+    'supposed to', 'for testing', 'can you even', 'are you able to',
+    'কী হবে', 'কি হবে', 'বললে কী', 'বললে কি', 'পারো কি', 'পারবে কি',
+  ];
+
+  static LocalIntent? _matchLookAround(String lower, String text) {
+    if (_lookAroundBlockers.any(lower.contains) ||
+        _lookAroundBlockers.any(text.contains)) {
+      return null;
+    }
+    for (final group in _lookAround) {
+      if (group.en.any(lower.contains) || group.bn.any(text.contains)) {
+        return LocalIntent('look_around', {'focus': group.focus});
+      }
+    }
+    return null;
+  }
 
   static LocalIntent? _matchOverlay(String lower, String text, bool bn) {
     // Asking *about* a command is not the command. Every other matcher in

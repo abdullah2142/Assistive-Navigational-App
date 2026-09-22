@@ -6,6 +6,8 @@ import 'package:geolocator/geolocator.dart';
 
 import '../../../core/config/emergency_config.dart';
 import '../../../core/localization/dashboard_strings.dart';
+import '../../../core/services/vision/snapshot_vision_service.dart';
+import '../../../core/services/vision/vision_scene.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/local_intent_matcher.dart';
@@ -695,6 +697,82 @@ class ChatController extends Notifier<ChatState> {
     return trimmed.endsWith('?') || trimmed.endsWith('？');
   }
 
+  /// Speaks an unprompted ambient hazard warning — Module 6.
+  ///
+  /// Goes through the normal reply path rather than straight to TTS so it
+  /// queues behind turn-by-turn guidance instead of cutting across it, and so
+  /// it lands in the transcript for a Deaf-blind user or one who has muted
+  /// the voice.
+  ///
+  /// `mayInviteAnswer` is false on purpose: this is a warning, not a
+  /// question, and opening the microphone after it would have somebody who
+  /// has just been told to stop walking also expected to reply.
+  Future<void> announceAmbientHazard(String line, UserProfile profile) =>
+      _appendAssistantReply(line, profile);
+
+  /// The Volume-Up hold's entry point — Module 6's physical sweep trigger.
+  ///
+  /// Public because `VisionChannel` fires from outside any chat turn. It
+  /// appends nothing as a user message: the user did not say anything, they
+  /// pressed a key, and inventing a line of their speech in the transcript
+  /// would misrepresent what happened to anyone reading it back.
+  Future<void> runSweep(UserProfile profile) => _runScan(ScanFocus.surroundings, profile);
+
+  /// Runs one Snapshot Vision scan and speaks what it saw — Module 6.
+  ///
+  /// Lives here rather than on the dashboard screen because, unlike the
+  /// Passerby overlay and the Reporting Hub, a scan needs no `BuildContext`:
+  /// there is nothing to show. It captures, thinks, and says a sentence,
+  /// which is exactly what this controller already does for every other
+  /// reply — and routing it through `_appendAssistantReply` means the result
+  /// is spoken, lands in the transcript for a Deaf-blind user or one who has
+  /// muted the voice, and is persisted by `ChatHistoryStore` like anything
+  /// else.
+  Future<void> _runScan(ScanFocus focus, UserProfile profile) async {
+    final d = Dashboard.of(profile.language);
+    final vision = ref.read(snapshotVisionServiceProvider);
+
+    // Only the three-frame sweep gets the "hold still" instruction — plan
+    // Step 1.2. A single-frame scan is already taken by the time this would
+    // finish being spoken, so saying it would be an instruction to do
+    // something that no longer matters, which teaches the user to ignore
+    // instructions that do.
+    if (focus == ScanFocus.surroundings) {
+      await _appendAssistantReply(d.visionSweepPrompt, profile);
+    }
+
+    state = state.copyWith(isAssistantTyping: true);
+    ScanResult result;
+    try {
+      result = await vision.scan(focus: focus, language: profile.language);
+    } catch (e) {
+      debugPrint('[Chat] scan failed: $e');
+      state = state.copyWith(isAssistantTyping: false);
+      await _appendAssistantReply(d.visionCaptureFailed, profile);
+      return;
+    }
+    state = state.copyWith(isAssistantTyping: false);
+
+    await _appendAssistantReply(result.spoken, profile);
+
+    // An abort has already buzzed and already said stop. Offering to file a
+    // report on top of that is a second demand on somebody who has just been
+    // told to stop walking.
+    if (result.abortedForHazard) return;
+
+    // Module 5 tie-in, and deliberately an *offer*. Filing automatically
+    // would put a road-closing hazard on the shared map because the user
+    // asked a question — the failure mode the README names as one a blind
+    // user can neither see nor undo.
+    final kind = result.hazardPrefillKind;
+    if (kind == null) return;
+    final label = result.scene?.hazards
+        .firstWhere((h) => h.kind == kind, orElse: () => result.scene!.hazards.first)
+        .description;
+    if (label == null || label.isEmpty) return;
+    await _appendAssistantReply(d.visionOfferReport(label), profile, mayInviteAnswer: true);
+  }
+
   Future<void> _appendAssistantReply(
     String text,
     UserProfile profile, {
@@ -923,6 +1001,9 @@ class ChatController extends Notifier<ChatState> {
         return;
       }
       await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
+      if (turn.scanFocus != null) {
+        await _runScan(turn.scanFocus!, profile);
+      }
       if (turn.overlayAction != null) {
         state = state.copyWith(
           pendingOverlayAction: turn.overlayAction,
@@ -989,6 +1070,28 @@ class ChatController extends Notifier<ChatState> {
     final myTurn = _turnGeneration;
     bool superseded() => _turnGeneration != myTurn;
 
+    // ---- streaming narration ------------------------------------------------
+    //
+    // Speaks each sentence as it completes rather than waiting for the whole
+    // reply. Ported from `f5f5b1f` on `testers-flashlite-prompts`.
+    //
+    // **Worth far less on Groq than it looks, and that is fine.** Measured on
+    // the 17 September Qwen logs: median full reply 916 ms against a median
+    // first chunk of 866 ms — fifty milliseconds of silence removed. Qwen
+    // streams its whole answer almost at once, so there is nothing to overlap.
+    //
+    // It earns its place on the *fallback*. Gemini flash-lite measured
+    // 1.2-6.9 s, and there the difference between speaking at the first full
+    // stop and speaking at the end is the difference between a pause and a
+    // silence — to somebody who cannot see a spinner and has no way to tell a
+    // thinking app from a dead one.
+    //
+    // `।` is the Bangla full stop (danda) and is load-bearing: without it
+    // every Bangla reply is one unbroken chunk and this does nothing at all
+    // in the app's primary language.
+    var lastSpokenIndex = 0;
+    final sentenceEnd = RegExp(r'[.!?।\n]');
+
     try {
       debugPrint('[Chat] -> Gemini: "$trimmed"');
       state = state.copyWith(isAssistantTyping: true);
@@ -1017,6 +1120,29 @@ class ChatController extends Notifier<ChatState> {
           } else {
             state = state.copyWith(messages: _withLastReplaced(text: partial));
           }
+
+          // A shorter partial than we have already spoken means a *different
+          // backend* started streaming — the fallback took over after the
+          // primary died mid-sentence. Without this the user hears Groq's
+          // half-finished sentence and then Gemini's whole answer on top of
+          // it. Stop, forget what was said, and start again from the new
+          // stream. (`f5f5b1f` predates the fallback and has no such case.)
+          if (partial.length < lastSpokenIndex) {
+            debugPrint('[Chat] narration restarting — a second backend took the turn');
+            unawaited(ref.read(ttsServiceProvider).stop());
+            lastSpokenIndex = 0;
+          }
+
+          if (profile.isDeafOrHardOfHearing) return;
+          final bound = partial.lastIndexOf(sentenceEnd);
+          if (bound < lastSpokenIndex) return;
+          final chunk = partial.substring(lastSpokenIndex, bound + 1);
+          lastSpokenIndex = bound + 1;
+          // A chunk of nothing but punctuation or a newline is not speech,
+          // and handing it to the engine costs a platform round trip to say
+          // silence.
+          if (chunk.trim().isEmpty) return;
+          unawaited(ref.read(ttsServiceProvider).speak(chunk, language: profile.language));
         },
       ).timeout(_geminiBudget);
       stillWorking?.cancel();
@@ -1060,12 +1186,14 @@ class ChatController extends Notifier<ChatState> {
         return;
       }
       if (streaming) {
-        // Reconcile with the final text (normally identical to the last
-        // streamed chunk already shown) and speak it now — streaming only
-        // ever updated the bubble, nothing was spoken chunk-by-chunk.
+        // Reconcile with the final text and speak whatever the sentence
+        // chunker did not already say — the tail after the last full stop,
+        // which is most replies' final clause.
         state = state.copyWith(isAssistantTyping: false, messages: _withLastReplaced(text: turn.responseText));
-        if (!profile.isDeafOrHardOfHearing) {
-          unawaited(ref.read(ttsServiceProvider).speak(turn.responseText, language: profile.language));
+        final spokenSoFar = lastSpokenIndex.clamp(0, turn.responseText.length);
+        final remaining = turn.responseText.substring(spokenSoFar);
+        if (!profile.isDeafOrHardOfHearing && remaining.trim().isNotEmpty) {
+          unawaited(ref.read(ttsServiceProvider).speak(remaining, language: profile.language));
         }
       } else {
         await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
@@ -1085,6 +1213,18 @@ class ChatController extends Notifier<ChatState> {
             pendingOverlayAction: turn.overlayAction,
             pendingHazardPrefill: turn.hazardPrefill,
           );
+        }
+      }
+      // Suppressed while answering a question for the same reason as an
+      // overlay, and the cost here is higher: a scan opens a camera and
+      // spends a cloud call, so a `look_around` triggered by the word "bus"
+      // inside an answer to "where do you want to go?" would be both wrong
+      // and expensive.
+      if (turn.scanFocus != null) {
+        if (answeringQuestion) {
+          debugPrint('[Chat] model scan ${turn.scanFocus} suppressed — answering a question');
+        } else {
+          await _runScan(turn.scanFocus!, profile);
         }
       }
       if (turn.route != null) {
@@ -1157,7 +1297,7 @@ class ChatController extends Notifier<ChatState> {
         // on the very next turn (see `GeminiAssistantService._buildPrompt`).
         await _appendAssistantReply(d.chatAskDestination, profile, mayInviteAnswer: true);
       case SuggestedChipAction.scanBusSign:
-        await _appendAssistantReply(d.chatStubBusScan, profile);
+        await _runScan(ScanFocus.vehicle, profile);
       case SuggestedChipAction.showScreenToPasserby:
       case SuggestedChipAction.reportHazard:
       case SuggestedChipAction.sendCaretakerVoiceMemo:

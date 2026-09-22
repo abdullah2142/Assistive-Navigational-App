@@ -6,6 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
+import '../../../core/services/routing_service.dart' show ManeuverKind;
+import '../../../core/services/vision/ambient_hazard_scanner.dart';
+import '../../../core/services/vision/snapshot_vision_service.dart';
+import '../../../core/services/vision/vision_channel.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/background_listening_service.dart';
 import '../../../core/services/emergency_channel.dart';
@@ -76,6 +80,23 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
   /// activity.
   final _emergencyChannel = EmergencyChannel();
 
+  /// The Volume-Up hold — Module 6's sweep trigger. Registered alongside the
+  /// emergency one and for the same reason: Android delivers key events only
+  /// to a foregrounded activity, and this panel is alive exactly as long as
+  /// the dashboard is.
+  final _visionChannel = VisionChannel();
+
+  /// Held as a field rather than read from `ref` at the point of use, for the
+  /// same reason `_wakeWord` and `_backgroundListening` are: `dispose()`
+  /// releases the camera, and `ref` is unsafe once the widget is unmounting.
+  /// Forced in `initState` alongside the others.
+  late final SnapshotVisionService _vision = ref.read(snapshotVisionServiceProvider);
+
+  /// Module 6's unprompted hazard scanning. Held as a field for the same
+  /// `ref`-in-dispose reason as the others.
+  late final AmbientHazardScanner _ambient = ref.read(ambientHazardScannerProvider);
+  StreamSubscription<String>? _ambientSub;
+
   @override
   void initState() {
     super.initState();
@@ -87,10 +108,41 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     _stt;
     _wakeWord;
     _backgroundListening;
+    _vision;
+    _ambient;
+    // Spoken through the chat controller rather than straight to TTS, so an
+    // ambient warning queues behind turn-by-turn guidance instead of talking
+    // over it, and lands in the transcript for a Deaf-blind user.
+    _ambientSub = _ambient.announcements.listen((line) {
+      if (!mounted) return;
+      unawaited(ref
+          .read(chatControllerProvider.notifier)
+          .announceAmbientHazard(line, widget.profile));
+    });
+    unawaited(_ambient.start(widget.profile));
+    // Feeds the scanner what is already known to be on this journey, so it
+    // looks harder near a reported hazard or a crossing than it does on an
+    // ordinary stretch of road. Cleared when the route goes away.
+    ref.listenManual(
+      chatControllerProvider.select((s) => s.pendingRoute),
+      (previous, route) {
+        _ambient.setRouteContext(
+          hazards: route?.verdict.allHazards ?? const [],
+          crossings: [
+            for (final step in route?.steps ?? const [])
+              if (step.maneuver == ManeuverKind.crossing) step.location,
+          ],
+        );
+      },
+    );
     _emergencyChannel.onPhysicalTrigger(() async {
       if (!mounted) return;
       debugPrint('[Emergency] volume-down hold');
       await ref.read(chatControllerProvider.notifier).triggerEmergency(widget.profile);
+    });
+    _visionChannel.onSweepTrigger(() async {
+      if (!mounted) return;
+      await ref.read(chatControllerProvider.notifier).runSweep(widget.profile);
     });
     ref.read(ttsServiceProvider).setVoiceId(widget.profile.voiceId);
     _applyWakeWordThreshold();
@@ -118,6 +170,26 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
   /// A no-op whenever wake-word itself is off.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Module 6, and checked before the wake-word guard below rather than
+    // after: a camera left open is a hot phone and a draining battery for
+    // somebody who cannot see the indicator light, and that is true whether
+    // or not they use the wake word. Android reclaims the sensor on
+    // backgrounding anyway, but it does so by invalidating the controller
+    // rather than disposing it — which leaves a stale handle that throws on
+    // the next scan and reads to the user as the feature having broken for
+    // good. See `SnapshotCamera.releaseNow`.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      // Stops the ambient timer as well as releasing the sensor. A periodic
+      // camera scan running behind a locked screen is the exact drain this
+      // module is built to avoid, and the user cannot see it happening.
+      _ambient.stop();
+      _vision.releaseCamera();
+    } else if (state == AppLifecycleState.resumed) {
+      unawaited(_ambient.start(widget.profile));
+    }
+
     if (!widget.profile.wakeWordEnabled) return;
     switch (state) {
       // `paused`/`hidden` mean the app really has gone away. `inactive` is
@@ -204,6 +276,12 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     _stt.stop();
     _wakeWord.stop();
     _backgroundListening.stop();
+    _visionChannel.dispose();
+    unawaited(_ambientSub?.cancel());
+    _ambient.stop();
+    // Leaving the dashboard releases the sensor rather than waiting out the
+    // warm window — see `SnapshotCamera`.
+    _vision.releaseCamera();
     super.dispose();
   }
 

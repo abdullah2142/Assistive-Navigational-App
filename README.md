@@ -36,7 +36,7 @@ more expensive than a missed one.
 | 3 | AI Assistant — Gemini function calling, local intent matching | Built |
 | 4 | Crime & route safety — thana scoring, temporal weighting, advisories, incident ledger | Built; incident ledger needs deploy |
 | 5 | Crowdsourcing — hazard reports, clustering, Red Flag anti-spam | Built + deployed |
-| 6 | Snapshot Vision | Not started |
+| 6 | Snapshot Vision | Built — edge hazard detection, dual-backend cloud scene/OCR with fallback, route verification. Untested on a phone |
 | 7 | Haptics | Partial — navigation cues built |
 | 8 | Virtual Guardian | Read side built; alert + location writes now exist (Module 9 uses them) |
 | 9 | Magic Button | Built — triggers, SMS, auto-dial, caretaker alert, safe-haven routing. Ships in practice mode until fired on hardware |
@@ -211,7 +211,14 @@ flutter run \
 
 | Key | Without it |
 | --- | --- |
-| `GEMINI_API_KEY` | Local commands still work; anything needing reasoning does not |
+| `GROQ_API_KEY` | The assistant falls back to Gemini; camera scans lose the fast path for bus questions. Without **both** keys, only local commands work |
+| `GEMINI_API_KEY` | No fallback when Groq is rate-limited, and sign/hazard scans lose the accurate multi-frame backend — they drop to Groq's single frame |
+
+Both are now load-bearing rather than one superseding the other. Groq leads on
+latency (measured 0.57–0.89 s against Gemini flash-lite's 1.2–6.9 s) and Gemini
+leads on Bangla OCR accuracy and takes all three sweep frames in one call — so
+the app uses whichever suits the question, and either one covers for the other
+when it fails. See `VisionRouter` and `FallbackAssistantService`.
 | `CLOUD_STT_API_KEY` | Falls back to on-device recognition (no Bangla on most handsets) |
 | `CLOUD_TTS_API_KEY` | Falls back to the system TTS voice |
 

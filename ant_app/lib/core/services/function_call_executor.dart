@@ -23,6 +23,7 @@ import 'route_safety_service.dart';
 import 'routing_service.dart' show RouteCandidate;
 import 'pending_place_save.dart';
 import 'saved_place_matcher.dart';
+import 'vision/vision_scene.dart' show ScanFocus;
 
 class _AppliedCall {
   const _AppliedCall(
@@ -34,6 +35,7 @@ class _AppliedCall {
     this.hazardPrefill,
     this.clarification,
     this.placeSave,
+    this.scanFocus,
     this.triggersEmergency = false,
     this.cancelsRoute = false,
   });
@@ -54,6 +56,10 @@ class _AppliedCall {
 
   /// Set when a save is waiting on a missing slot.
   final PendingPlaceSave? placeSave;
+
+  /// Set when the model called `look_around` — Module 6. See
+  /// [AssistantTurn.scanFocus] for why this is a request and not a result.
+  final ScanFocus? scanFocus;
 
   /// Set when the model called `trigger_emergency`.
   final bool triggersEmergency;
@@ -491,6 +497,12 @@ class FunctionCallExecutor {
       case 'trigger_emergency':
         return Dashboard.of(language).emergencyActivated;
 
+      // Deliberately empty. The scan's own answer — what the camera actually
+      // saw — is what gets spoken, and a canned "let me look" ahead of it
+      // would make every scan two utterances long. For a user navigating by
+      // ear, a redundant sentence is time spent standing in a road.
+      case 'look_around':
+        return '';
       case 'open_passerby_helper':
         return bn ? 'স্ক্রিন দেখাচ্ছি।' : 'Showing your screen now.';
       case 'open_hazard_report':
@@ -647,6 +659,14 @@ class FunctionCallExecutor {
         return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.showMap);
       case 'close_map':
         return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.hideMap);
+
+      case 'look_around':
+        return _AppliedCall(
+          profile,
+          const {'ok': true},
+          null,
+          scanFocus: _scanFocusFrom(args),
+        );
 
       case 'open_passerby_helper':
         return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.showScreenToPasserby);
@@ -991,6 +1011,24 @@ class FunctionCallExecutor {
       category: category,
       subCategory: (sub == null || sub.isEmpty) ? null : sub,
     );
+  }
+
+  /// Maps the model's `focus` argument onto [ScanFocus].
+  ///
+  /// Falls back to [ScanFocus.surroundings] rather than rejecting an
+  /// unrecognised value, for the same reason [_prefillFrom] ignores a bad
+  /// category: the model can pass anything, and a scan that refuses to run
+  /// because the focus word was unexpected is worse for the user than a scan
+  /// that looks at the whole scene. Describing everything is never the wrong
+  /// answer, only a less specific one.
+  static ScanFocus _scanFocusFrom(Map<String, Object?> args) {
+    final raw = (args['focus'] as String?)?.trim().toLowerCase() ?? '';
+    return switch (raw) {
+      'vehicle' || 'bus' || 'transport' => ScanFocus.vehicle,
+      'sign' || 'text' || 'read' => ScanFocus.sign,
+      'hazard' || 'obstacle' || 'danger' || 'path' => ScanFocus.hazard,
+      _ => ScanFocus.surroundings,
+    };
   }
 
   _AppliedCall _applyUpdateSetting(Map<String, Object?> args, UserProfile profile) {

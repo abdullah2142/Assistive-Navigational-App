@@ -1304,6 +1304,16 @@ class Dashboard {
       : _t('Careful — the ground drops about $paces paces ahead.',
           'সাবধান — প্রায় $paces পা সামনে নিচু হয়ে গেছে।');
 
+  /// The camera button on the input row.
+  ///
+  /// A visible control for a feature otherwise reachable only by voice or by
+  /// holding a volume key. Those two serve a blind user well and serve nobody
+  /// else: a low-vision user reads the screen, and a sighted companion
+  /// helping someone at a kerb has no way to discover the scan at all.
+  String get visionScanSemantics => _t('Look around with the camera', 'ক্যামেরা দিয়ে চারপাশ দেখুন');
+  String get visionScanHint => _t('Tap to look', 'দেখতে চাপুন');
+  String get visionScanBusy => _t('Looking now', 'এখন দেখছি');
+
   /// Spoken while a ride scan runs.
   String get visionLookingForRide => _t('Looking for a ride…', 'একটা গাড়ি খুঁজছি…');
 

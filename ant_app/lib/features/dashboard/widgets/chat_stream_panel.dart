@@ -555,6 +555,60 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
                 ),
                 const SizedBox(width: 8),
               ],
+              // Module 6's only visible control.
+              //
+              // Everything else the camera does is reached by voice or by
+              // holding Volume Up — which covers a blind user and nobody
+              // else. A low-vision user reads this row, and a sighted
+              // companion helping someone at a kerb has no way to discover
+              // the feature exists without it.
+              //
+              // On the input row rather than as a suggested chip because the
+              // chip row is full: four defaults plus the conditional
+              // voice-memo chip already make five, and a sixth would force a
+              // third row, which `SuggestedChipRow` is built to prevent.
+              //
+              // Same 48dp filled circle as the map and mic buttons. A row of
+              // controls is only scannable at low vision if they look like
+              // one family.
+              ValueListenableBuilder<bool>(
+                valueListenable: _vision.isScanning,
+                builder: (context, scanning, _) => Semantics(
+                  button: true,
+                  enabled: !scanning,
+                  label: scanning ? d.visionScanBusy : d.visionScanSemantics,
+                  hint: scanning ? null : d.visionScanHint,
+                  child: Material(
+                    color: scanning ? AppColors.primary : AppColors.primaryLight,
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      // Null while a scan runs, so the control is genuinely
+                      // disabled rather than merely looking it — a second tap
+                      // would be swallowed by `SnapshotVisionService` anyway,
+                      // but a button that accepts a press and does nothing is
+                      // how a user concludes the feature is broken.
+                      onTap: scanning
+                          ? null
+                          : () => unawaited(ref
+                              .read(chatControllerProvider.notifier)
+                              .runSweep(widget.profile)),
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Icon(
+                          scanning
+                              ? Icons.camera_rounded
+                              : Icons.camera_alt_outlined,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               Semantics(
                 button: true,
                 label: _listening ? d.chatListeningSemantics : d.chatSpeakSemantics,

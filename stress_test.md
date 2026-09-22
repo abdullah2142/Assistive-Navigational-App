@@ -1,20 +1,69 @@
 # ANT Assistant — Model Stress Test
 
-> **Purpose:** Compare **Gemini 3.5 Flash Lite** (`testers-flashlite-prompts`) against **Groq Qwen 2.5 27B** (`qwen-groq-assistant`) across every capability the app currently supports.
+> **Purpose:** Compare **Gemini 3.5 Flash Lite** against **Groq Qwen** across every capability the app supports, and exercise the vision, fallback and ambient-scanning stack added in Module 6.
 >
-> **How to use:** For each prompt, speak or type the exact text into the app on both builds. Record the result in the table. A ✅ means the model did what the **Expected behaviour** column says; a ❌ means it didn't.
+> **How to use:** For each prompt, speak or type the exact text into the app. Record the result. A ✅ means the model did what the **Expected behaviour** column says; a ❌ means it didn't.
+
+---
+
+## Read this before running Categories 1-11
+
+**The question these categories were written to answer has changed.** They were an A/B to pick one provider. The app now uses **both**: Groq answers first, Gemini answers when Groq cannot, and the vision tier picks per question. Both branches are merged into `main`.
+
+So Categories 1-11 are no longer "which provider do we ship". They are **"which provider should lead"** — a one-line change in `ai_assistant_providers.dart` if the answer turns out to be Gemini.
+
+To force a given backend while testing, build with only one key:
+
+```bash
+# Groq only
+flutter run --dart-define=GROQ_API_KEY=...
+# Gemini only — it becomes the primary outright
+flutter run --dart-define=GEMINI_API_KEY=...
+```
+
+**Categories 12-17 below are new** and test the parts that have never run on a phone.
+
+---
+
+## Before you start: capture the log
+
+Almost every new check is answered by a log line rather than by watching the screen. Reproduce, then pull the diagnostics file and grep it.
+
+| What you are checking | grep for |
+|---|---|
+| What a chat turn actually costs | `[Groq] tokens:` |
+| Whether the fallback fired | `[Assistant] .* retrying on` |
+| Which vision backend answered | `[Vision]` |
+| Bus identification | `[BusRoutes]` |
+| Ambient scan pacing | `[Ambient]` |
+| Ground/drop-off scores | `[Depth]` |
+| Edge object detection | `[EdgeVision]` |
 
 ---
 
 ## Scoring Sheet
 
-| Metric | Gemini 3.5 Flash Lite | Groq Qwen 2.5 27B |
+### Chat (Categories 1-11)
+
+| Metric | Gemini 3.5 Flash Lite | Groq Qwen |
 |---|---|---|
 | Total ✅ (out of 60) | | |
 | Average time-to-first-audio (s) | | |
 | Rate-limit errors (429s) | | |
 | Hallucinated tool calls | | |
 | Unnecessary confirmations | | |
+
+### New stack (Categories 12-17)
+
+| Metric | Value |
+|---|---|
+| Scans that said "clear" when they could not see (**must be 0**) | |
+| Wrong bus operator named | |
+| Battery % lost over a 20-minute ambient walk | |
+| Phone warm after that walk? | |
+| Flat-ground vs kerb depth scores separable? | |
+| Median billed tokens per chat turn | |
+| Fallback fired and answered? | |
 
 ---
 
@@ -200,12 +249,142 @@ For each prompt below, record the **time from pressing send to hearing the first
 
 ---
 
+## Category 12 — Camera Scans (Module 6)
+
+Needs a real street. Every row is answered by what the app **says**, plus the matching `[Vision]` log line.
+
+| # | Do this | Expected behaviour | Result | Notes |
+|---|---|---|---|---|
+| 12.1 | Point at a bus, say "এটা কোন বাস" | Names the operator. `[Vision]` shows `groq:` — the bus question routes to the fast backend | | |
+| 12.2 | Point at any Bangla sign, say "what does that sign say" | Reads it. `[Vision]` shows `gemini:` — sign reading routes to the accurate one | | |
+| 12.3 | Tap the **camera button** on the input row | Says "I will take three looks", cues Left / Straight ahead / Right with a buzz before each | | |
+| 12.4 | Hold **Volume Up** for 2 s | Same sweep as 12.3. Should not also change the volume in a way that surprises you | | |
+| 12.5 | Say "is the path clear" | Single frame, answers about the ground and obstacles | | |
+| 12.6 | Say "is there a rickshaw" | Lists rickshaws/CNGs with direction, or says plainly there are none | | |
+| 12.7 | Cover the lens, then ask any of the above | Says it **could not see** — must never say "nothing there" or "the path is clear" | | |
+| 12.8 | Put the phone in flight mode, ask "what bus is this" | Says it cannot read signs without internet, and still reports what the offline detector saw | | |
+
+**The one that matters most is 12.7.** "I could not see" and "there is nothing there" must never sound alike. If a covered lens produces an all-clear, stop and report it — that is the failure the whole module is built to prevent.
+
+---
+
+## Category 13 — Bus Identification
+
+`busRoutes` holds 156 real Dhaka operators. Watch `[BusRoutes]`.
+
+| # | Do this | Expected behaviour | Result | Notes |
+|---|---|---|---|---|
+| 13.1 | Scan a clearly legible bus signboard | Names the operator and where it goes. Log shows `matched ... (name)` or `(name+stops)` | | |
+| 13.2 | Scan a **BRTC** bus | Says it is the BRTC bus and **refuses to name a destination**. Nine BRTC routes share the name; a guess is a coin flip somebody boards on | | |
+| 13.3 | Scan at an angle, or in poor light | Either the right operator, or nothing. A *wrong* operator named confidently is the serious failure | | |
+| 13.4 | Scan something that is not a bus | No operator named | | |
+| 13.5 | Scan the same bus three times | Same answer each time, or an honest "a moment ago:" prefix from the cache | | |
+
+Record every case where it named the **wrong** operator — that is what `minConfidence` (0.62, a guess) needs to be retuned against.
+
+---
+
+## Category 14 — Ambient Scanning
+
+Walk with a **blind or low-vision** profile. This does not run for other profiles by design.
+
+| # | Do this | Expected behaviour | Result | Notes |
+|---|---|---|---|---|
+| 14.1 | Walk a quiet street for 5 minutes | `[Ambient]` scans roughly every 30 s, backing off to 60 s after four clear ones | | |
+| 14.2 | Stand still for 2 minutes | Scanning stops — a stationary phone re-photographing the same wall is pure drain | | |
+| 14.3 | Walk past parked cars and people | Mostly silent. It speaks only for something worth stopping for | | |
+| 14.4 | Walk a route with a reported hazard on it | Pace rises to ~10 s within 35 m of the pin | | |
+| 14.5 | Background the app, wait a minute | Scanning stops entirely. Nothing in `[Ambient]` while backgrounded | | |
+| 14.6 | Drop below 20% battery | Scanning stops | | |
+| 14.7 | **Walk 20 minutes with it on.** Note battery % before and after, and whether the phone is warm | This is the number nobody has. ~3% duty cycle is arithmetic, not a measurement | | |
+
+14.7 is the one to prioritise. If the phone gets hot or the drain is severe, raise `VisionConfig.ambientInterval` before anything else.
+
+---
+
+## Category 15 — Drop-Off Detection (the calibration walk)
+
+**Do this before trusting the feature at all.** `DepthProfile.defaultMinScore` is `6.0` and has never met a real kerb.
+
+Walk each of these, then read the `score=` values out of `[Depth]`.
+
+| # | Walk toward | Record `score=` | Expected `change=` |
+|---|---|---|---|
+| 15.1 | Flat pavement, 10 samples | | `level` |
+| 15.2 | A kerb, stopping a pace short | | `dropsAway` |
+| 15.3 | A staircase going **down** | | `dropsAway` |
+| 15.4 | A staircase going **up** | | `risesUp` |
+| 15.5 | A ramp | | `level` or `risesUp` |
+| 15.6 | An escalator | | `dropsAway` or `risesUp` |
+
+**Then set the threshold:** put `defaultMinScore` between the 15.1 population and the 15.2/15.3 population, **nearer the flat one**. A missed drop is a fall; a false alarm is an annoyance. Err low.
+
+| Measurement | Value |
+|---|---|
+| Typical score on flat ground | |
+| Typical score at a kerb | |
+| Typical score at descending stairs | |
+| **Threshold chosen** | |
+| Inference time per frame (`[Depth] NNNms`) | |
+
+---
+
+## Category 16 — Provider Fallback
+
+The fallback has never fired on real hardware. It exists because a 17 September session logged **twelve** Groq 429s, each one a turn where somebody spoke and got a stub reply.
+
+| # | Do this | Expected behaviour | Result | Notes |
+|---|---|---|---|---|
+| 16.1 | Ask 5-6 things in rapid succession until a 429 | `[Assistant] ... retrying on gemini:` appears and **you still get a real answer** | | |
+| 16.2 | On that fallback turn, check the answer quality | Same abilities — it can still route, save a place, alert a caretaker | | |
+| 16.3 | Fallback mid-sentence | You hear **one** answer, not a fragment followed by a second answer over it | | |
+| 16.4 | Build with `GROQ_API_KEY` only, force a failure | Falls to the offline matcher, as before — no crash | | |
+| 16.5 | Build with `GEMINI_API_KEY` only | Gemini is the primary outright; everything still works | | |
+| 16.6 | Flight mode, then ask something | Offline matcher answers the safety keywords; no hang | | |
+
+---
+
+## Category 17 — What a Turn Actually Costs
+
+**This is the measurement that decides the architecture** and it has never been taken. The instrumentation is already in the build.
+
+Have a normal 10-turn conversation, then grep `[Groq] tokens:`.
+
+| Measurement | Value |
+|---|---|
+| Median `prompt=` per turn | |
+| Median `cached=` per turn | |
+| Median billed (`prompt - cached`) | |
+| Number of 429s in 10 turns | |
+| Median time-to-first-audio | |
+
+**How to read it:**
+
+| If median billed is… | What it means |
+|---|---|
+| ~1,400 | The trimming worked. A scan (2,142) fits alongside a turn inside the 7,000/min ceiling. Fallback is insurance |
+| ~5,000 | Still as bad as September. A scan plus a turn exceeds the ceiling, so vision **must** stay on its own provider, and the fallback is load-bearing rather than optional |
+
+---
+
 ## How to Interpret Results
 
 | Scenario | What it tells you |
 |---|---|
-| Gemini ✅ > Qwen ✅ | Gemini is smarter at intent-mapping; keep it as the production model |
-| Qwen ✅ ≥ Gemini ✅ AND Qwen latency < Gemini | Qwen matches quality and is faster — strong case to switch |
-| Qwen has 429 errors in Cat 11 | Free-tier rate limits still too tight; need paid tier or fallback logic |
-| Either model fails Cat 9 (false positives) | The prompt needs tighter negative examples for that specific pattern |
-| Either model fails Cat 4 (memory) | The model is ignoring `remember_about_me` notes in the profile — prompt fix needed |
+| Gemini ✅ > Qwen ✅ | Gemini is the better **primary**. Swap the order in `ai_assistant_providers.dart` — one line. Qwen stays as the fallback rather than being dropped |
+| Qwen ✅ ≥ Gemini ✅ | Keep the current order. Qwen already leads on latency by a wide margin |
+| Qwen has 429s in Cat 11 but Cat 16 shows a fallback answer | Working as designed. The 429 is no longer a failure, it is a handover |
+| Qwen has 429s in Cat 11 and Cat 16 shows **no** fallback | The fallback is not firing. This is the highest-priority bug on the list |
+| Either model fails Cat 9 (false positives) | The prompt needs tighter negative examples for that pattern |
+| Either model fails Cat 4 (memory) | The model is ignoring `remember_about_me` notes — prompt fix |
+
+### For the new stack
+
+| Scenario | What it tells you |
+|---|---|
+| **12.7 gives an all-clear on a covered lens** | Stop. This is the one failure that can put somebody in a road, and it outranks every other result here |
+| Cat 15 flat and kerb scores overlap | The depth approach does not separate them on real ground. Do **not** ship drop-off detection on a threshold that cannot be drawn — turn it off and fall back to the cloud terrain scan |
+| Cat 15 separates cleanly | Set the threshold and the feature is real. Record the numbers in `assets/vision/README.md` |
+| 14.7 shows heavy drain or a hot phone | Raise `ambientInterval` before touching anything else. The duty-cycle estimate was arithmetic and depth inference was added after it |
+| Cat 13 names a **wrong** operator | Raise `BusRouteDirectory.minConfidence` above 0.62. Silence beats a confident wrong bus |
+| Cat 17 median billed is ~5,000 | Vision cannot share Groq's budget. Route all scans to Gemini and treat the chat fallback as load-bearing |

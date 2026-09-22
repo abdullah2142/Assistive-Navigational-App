@@ -35,7 +35,7 @@ void main() {
         child: MaterialApp(
           home: Scaffold(
             body: ChatStreamPanel(
-              onOverlayChip: (_, __) {},
+              onOverlayChip: (_, _) {},
               profile: UserProfile(uid: 'u1', role: UserRole.disabledUser),
             ),
           ),

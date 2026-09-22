@@ -4,6 +4,12 @@ import 'package:vibration/vibration.dart';
 
 import '../../features/onboarding/models/disability_profile_enums.dart';
 
+// The named parameters below are deliberately not initializing formals:
+// they are named for the caller ('store', 'tts') while the fields are
+// private ('_store', '_tts'), which is the convention across this
+// codebase and what makes the constructors readable at the call site.
+// ignore_for_file: prefer_initializing_formals
+
 /// The three-pattern haptic language from `07_module_plan_haptics.md`.
 ///
 /// The plan restricts the dictionary to exactly three patterns, on purpose —

@@ -21,6 +21,12 @@ import 'stt_service.dart';
 import 'tts_service.dart';
 import 'voice_cancel_window.dart';
 
+// The named parameters below are deliberately not initializing formals:
+// they are named for the caller ('store', 'tts') while the fields are
+// private ('_store', '_tts'), which is the convention across this
+// codebase and what makes the constructors readable at the call site.
+// ignore_for_file: prefer_initializing_formals
+
 /// What happened, for logging and for the caller to speak.
 @immutable
 class EmergencyOutcome {

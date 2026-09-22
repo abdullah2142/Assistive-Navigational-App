@@ -5,6 +5,12 @@ import 'package:flutter/foundation.dart';
 
 import '../config/routing_config.dart';
 
+// The named parameters below are deliberately not initializing formals:
+// they are named for the caller ('store', 'tts') while the fields are
+// private ('_store', '_tts'), which is the convention across this
+// codebase and what makes the constructors readable at the call site.
+// ignore_for_file: prefer_initializing_formals
+
 /// The Google APIs this app can be billed for.
 ///
 /// The Maps SDK is absent on purpose: map loads are free and unlimited, so

@@ -22,6 +22,12 @@ import 'pending_place_save.dart';
 import 'route_planning_service.dart';
 import 'routing_service.dart' show RouteCandidate;
 
+// The named parameters below are deliberately not initializing formals:
+// they are named for the caller ('store', 'tts') while the fields are
+// private ('_store', '_tts'), which is the convention across this
+// codebase and what makes the constructors readable at the call site.
+// ignore_for_file: prefer_initializing_formals
+
 /// Thrown when this month's assistant call ceiling is spent.
 ///
 /// Same role as the old `GeminiBudgetExhausted` — kept as a distinct type so

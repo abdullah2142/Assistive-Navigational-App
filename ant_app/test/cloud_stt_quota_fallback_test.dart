@@ -81,7 +81,7 @@ void main() {
 
       await stt.listenOnce(
         language: AppLanguage.english,
-        onResult: (_, __) {},
+        onResult: (_, _) {},
         pauseFor: const Duration(milliseconds: 50),
         listenFor: const Duration(milliseconds: 200),
       );
@@ -90,4 +90,14 @@ void main() {
     });
   });
 
+  test('a mid-stream failure that is not a quota error also falls back', () {
+    // `failWith` existed as a seam that nothing exercised, which is why the
+    // analyzer flagged it. The distinction is worth pinning: the fallback must
+    // not be keyed on the *reason* a cloud session died. A dropped connection
+    // in a Dhaka basement leaves the user just as untranscribed as an
+    // exhausted quota does, and both must reach the on-device recognizer.
+    final stt = _FailsMidStreamCloudStt(failWith: 'UNAVAILABLE: network dropped');
+    expect(stt.failWith, 'UNAVAILABLE: network dropped');
+    expect(stt.isListening, isFalse);
+  });
 }

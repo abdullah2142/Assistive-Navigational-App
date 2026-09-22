@@ -20,7 +20,7 @@ class HazardReportService {
   /// submission threw:
   ///
   ///   type '() => bool' is not a subtype of type
-  ///   '() => FutureOr<DocumentReference<Map<String, dynamic>>>' of 'onTimeout'
+  ///   `'() => FutureOr<DocumentReference<Map<String, dynamic>>>' of 'onTimeout'`
   ///
   /// Reported from the device as "পাঠানো যায়নি" on every report. Awaiting here
   /// makes the returned future genuinely `Future<void>`, which is what the

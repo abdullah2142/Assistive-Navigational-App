@@ -17,6 +17,12 @@ import 'pending_place_save.dart';
 import 'route_planning_service.dart';
 import 'routing_service.dart' show RouteCandidate;
 
+// The named parameters below are deliberately not initializing formals:
+// they are named for the caller ('store', 'tts') while the fields are
+// private ('_store', '_tts'), which is the convention across this
+// codebase and what makes the constructors readable at the call site.
+// ignore_for_file: prefer_initializing_formals
+
 /// One completed exchange: what to show/speak, and any side effects the
 /// model (or, since `LocalIntentMatcher` was added, a plain local pattern
 /// match — see `FunctionCallExecutor`) asked for.

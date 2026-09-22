@@ -71,7 +71,7 @@ class MapsConfig {
   /// restricted key on 2026-09-07:
   ///
   /// - no headers        -> `REQUEST_DENIED` / "Android client application
-  ///   <empty> are blocked"
+  ///   `<empty>` are blocked"
   /// - with headers      -> `OK`
   /// - SHA-1 with colons -> `REQUEST_DENIED`
   ///

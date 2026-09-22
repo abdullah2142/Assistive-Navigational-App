@@ -13,6 +13,12 @@ import 'routing_service.dart' show ManeuverKind;
 import 'haptics_service.dart';
 import 'tts_service.dart';
 
+// The named parameters below are deliberately not initializing formals:
+// they are named for the caller ('store', 'tts') while the fields are
+// private ('_store', '_tts'), which is the convention across this
+// codebase and what makes the constructors readable at the call site.
+// ignore_for_file: prefer_initializing_formals
+
 /// Drives spoken turn-by-turn navigation: subscribes to GPS, asks
 /// [NavigationNarrator] what to say, and says it.
 ///

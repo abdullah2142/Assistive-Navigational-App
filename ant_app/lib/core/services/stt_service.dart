@@ -10,6 +10,12 @@ import 'recognizer_faults.dart';
 import 'locale_preference.dart';
 import 'wake_word_service.dart';
 
+// The named parameters below are deliberately not initializing formals:
+// they are named for the caller ('store', 'tts') while the fields are
+// private ('_store', '_tts'), which is the convention across this
+// codebase and what makes the constructors readable at the call site.
+// ignore_for_file: prefer_initializing_formals
+
 /// Thin wrapper around the device's built-in speech recognizer.
 ///
 /// This is the pragmatic swap for the module plan's "Google Cloud
@@ -430,7 +436,11 @@ class SttService {
     // session and leaving one more behind, until the microphone was
     // effectively dead while still reporting that it was listening.
     silenceTimer?.cancel();
-    ceilingTimer?.cancel();
+    // Not `?.`, unlike the line above, and the asymmetry is real rather than
+    // sloppy: `ceilingTimer` is assigned unconditionally before the await, so
+    // it is always live here, while `silenceTimer` is assigned inside
+    // `resetSilenceTimer()` — a closure the analyzer cannot prove ran.
+    ceilingTimer.cancel();
     // Null when the session ended via `SttService.stop()` rather than
     // `finish()` — that path stops the recorder itself, and awaits it.
     //

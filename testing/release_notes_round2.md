@@ -23,6 +23,13 @@ this round.
 - The assistant **keeps listening after it answers**, so you can carry on
   talking without saying the wake word again.
 
+## Size warning
+
+The debug APK testers receive is **300 MB**, up from 234 MB — the depth model
+is 66 MB of that. A release build would be ~150 MB, but App Distribution
+sends the debug build, so 300 MB is what a tester actually pays for. Say so
+in the notes; four people in Dhaka are downloading this on their own data.
+
 ## Why this round is different from round 1
 
 Round 1 asked whether the assistant understood people. This round asks
@@ -65,8 +72,8 @@ safe — practice mode, nothing is sent — say "cancel" and carry on.
 Known and no need to report: caretaker screens are English-only. The app
 cannot read signs or name a bus without internet; it should say so.
 
-The app is bigger this round (~150MB) because the camera needs it.
-Download on wifi.
+The app is MUCH bigger this round — about 300MB, up from 230MB. The
+camera needs a model file. Please download on wifi, not mobile data.
 
 Report the exact words you said, and what it said back. That matters
 more than anything else.

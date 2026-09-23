@@ -82,14 +82,14 @@ void main() {
       'what is written on this file': 'look_around',
       'what does this paper say': 'look_around',
       'what do you know about me': 'remember_about_me',
-      'forget about the stairs thing': 'forget_about_me',
+      'forget about the stairs thing': 'remember_about_me',
       'there is a manhole in front of me': 'open_hazard_report',
       'the sidewalk is blocked': 'open_hazard_report',
       'হেই অ্যান্ট বন্ধ করো': 'update_setting',
       'ওয়েক ওয়ার্ড বন্ধ করো': 'update_setting',
       'remove Rahim from my emergency contacts': 'remove_emergency_contact',
       'remove the school from my saved places': 'remove_place',
-      'show me the map': 'open_map',
+      'show me the map': 'set_map',
       'take me to the nearest bathroom': 'request_route',
     };
 

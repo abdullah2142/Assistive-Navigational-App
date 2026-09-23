@@ -19,6 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ant_app/core/services/function_call_executor.dart';
 import 'package:ant_app/core/services/gemini_assistant_service.dart';
+import 'package:ant_app/core/services/groq_assistant_service.dart';
 import 'package:ant_app/core/services/route_planning_service.dart';
 import 'package:ant_app/features/onboarding/models/user_profile.dart';
 import 'package:ant_app/features/onboarding/models/user_role.dart';
@@ -139,7 +140,17 @@ void main() {
 
     test('both functions are declared', () {
       final names = GeminiAssistantService.functionDeclarations.map((f) => f.name).toList();
-      expect(names, containsAll(['remember_about_me', 'forget_about_me']));
+      // Merged: `remember_about_me` now carries a `forget` flag. The
+      // executor still accepts `forget_about_me` by name — the tests above
+      // call it directly — but only one declaration is sent to the model.
+      expect(names, contains('remember_about_me'));
+      final remember = GroqAssistantService.allTools
+          .firstWhere((t) => t['function']['name'] == 'remember_about_me');
+      expect(
+        (remember['function']['parameters']['properties'] as Map).keys,
+        contains('forget'),
+        reason: 'forgetting must still be reachable',
+      );
     });
 
     test('the model is told not to claim memory it does not have', () {

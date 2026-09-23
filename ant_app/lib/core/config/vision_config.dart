@@ -25,6 +25,26 @@ class VisionConfig {
   static const int uploadHeight = 240;
   static const int uploadJpegQuality = 72;
 
+  /// The size used when the answer depends on **fine detail**: reading text,
+  /// or naming something small directly in front of the user.
+  ///
+  /// The measurement above still stands for what it tested — the same Bangla
+  /// signboard at four resolutions cost an identical 1,821 prompt tokens and
+  /// came back byte-identical — but it was taken against **Groq**, and every
+  /// scan that succeeded in the 23 September session was answered by Gemini.
+  /// Against that backend the field result is the opposite of the bench one:
+  /// the camera "can give me basic scene description but cant read anything,
+  /// and cant catch finer details like a rabbit just a couple feet away", and
+  /// it identified a litter tray as an animal's without identifying the
+  /// animal.
+  ///
+  /// Applied only to [ScanFocus.sign] and [ScanFocus.ahead] — the two where
+  /// detail is the question. The wide sweep and the hazard check are about
+  /// shape and position, which 320x240 already carries, and they are the
+  /// scans that run most often and cost the most radio time.
+  static const int detailUploadWidth = 640;
+  static const int detailUploadHeight = 480;
+
   /// The input the TFLite detector wants: `[1, 300, 300, 3]`, uint8.
   /// Fixed by `assets/vision/ssd_mobilenet_v1.tflite`; changing the model
   /// changes this.

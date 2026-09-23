@@ -570,10 +570,12 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
         required: ['name']),
     _tool('remove_emergency_contact', 'Remove an emergency contact by name.',
         properties: {'name': _str('Contact to remove.')}, required: ['name']),
-    _tool('add_passerby_message', 'Add a pre-written passerby message.',
-        properties: {'message': _str('Message text.')}, required: ['message']),
-    _tool('remove_passerby_message', 'Remove a passerby message matching the given text.',
-        properties: {'message': _str('Message text to remove.')}, required: ['message']),
+    _tool('passerby_message', 'Add or remove a pre-written message to show a passerby.',
+        properties: {
+          'message': _str('Message text.'),
+          'remove': _enumStr(const ['true', 'false'], 'true removes a matching message instead of adding.'),
+        },
+        required: ['message']),
     // Trimmed, but every clause that survived is load-bearing, and this one
     // is deliberately the least aggressive of the three trims.
     //
@@ -682,15 +684,30 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
         'End the current walk entirely and clear the map. Distinct from request_alternative_route (same dest, new road) and replan_route (same dest, new start).'),
     _tool(
       'remember_about_me',
-      'Save a durable fact about the user (preference/limitation/routine) said in passing, or on request. '
-          'Not for one-off asks or anything already in their profile.',
-      properties: {'note': _str('One short sentence, their point of view.')},
-      required: ['note'],
+      'Save or remove a durable fact about the user (preference/limitation/routine), said in passing '
+          'or on request. Not for one-off asks or anything already in their profile.',
+      properties: {
+        'note': _str('One short sentence, their point of view. To forget, words identifying the note; '
+            'omit entirely only to forget everything.'),
+        'forget': _enumStr(const ['true', 'false'], 'true removes the note instead of saving it.'),
+      },
     ),
-    _tool('forget_about_me', 'Remove a previously remembered note.',
-        properties: {'note': _str('Words identifying the note; omit only to forget everything.')}),
-    _tool('open_map', 'Show the dashboard map (incl. romanised Bangla "map dekhao"). No route change, no destination.'),
-    _tool('close_map', 'Hide the map, give space back to chat. Does not cancel the journey — use cancel_route for that.'),
+    // Merged pairs.
+    //
+    // Every declaration is input tokens paid on **every** turn, and the
+    // 23 September session exhausted Groq's 200,000/day ceiling mid-walk at
+    // ~3,300 tokens a turn. Each tool costs its JSON wrapper plus its
+    // description whether or not it is ever called, so collapsing a
+    // two-tool pair into one with an action argument is a straight saving
+    // with no capability lost.
+    //
+    // Only pairs where a wrong action is *recoverable* are merged. Contacts
+    // and saved places stay separate on purpose: confusing add with remove
+    // there deletes something the user cannot see was deleted.
+    _tool('set_map', 'Show or hide the dashboard map (incl. romanised Bangla "map dekhao"). '
+        'No route change. Hiding does not cancel the journey — that is manage_route.',
+        properties: {'visible': _enumStr(const ['true', 'false'], 'true shows it, false hides it.')},
+        required: ['visible']),
     _tool('replan_route',
         'Re-plan the SAME destination from where they stand now ("re-route", off-route, "which way from here"). Keeps destination, changes start — unlike request_alternative_route (keeps both, changes road).'),
   ];

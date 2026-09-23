@@ -638,22 +638,9 @@ class FunctionCallExecutor {
           null,
         );
       case 'add_passerby_message':
-        final message = (args['message'] as String?)?.trim() ?? '';
-        if (message.isEmpty) return _AppliedCall(profile, const {'ok': false, 'error': 'message was empty'}, null);
-        return _AppliedCall(
-          profile.copyWith(passerbyHelperMessages: [...profile.passerbyHelperMessages, message]),
-          const {'ok': true},
-          null,
-        );
+        return _applyAddPasserbyMessage(args, profile);
       case 'remove_passerby_message':
-        final message = (args['message'] as String?)?.trim().toLowerCase() ?? '';
-        final remaining = profile.passerbyHelperMessages.where((m) => m.toLowerCase() != message).toList();
-        final found = remaining.length != profile.passerbyHelperMessages.length;
-        return _AppliedCall(
-          profile.copyWith(passerbyHelperMessages: remaining),
-          {'ok': found, if (!found) 'error': 'no matching message'},
-          null,
-        );
+        return _applyRemovePasserbyMessage(args, profile);
       // The emergency is a sequence — speak, wait, dispatch, call, alert,
       // route — not a change to apply and describe, so it is run by the
       // caller exactly as a locally-matched trigger is. Both paths converge
@@ -678,7 +665,12 @@ class FunctionCallExecutor {
       // any language. It opens itself when a route is planned and closes when
       // one is cleared, and between those two moments the user had no say.
       case 'remember_about_me':
-        return _applyRememberNote(args, profile);
+        // The merged form: `forget: true` removes instead of saving. Both
+        // names still work — `forget_about_me` remains declared to nothing
+        // but is still accepted, for the same reason `open_map` is.
+        return _boolArg(args, 'forget', orElse: false)
+            ? _applyForgetNote(args, profile)
+            : _applyRememberNote(args, profile);
       case 'forget_about_me':
         return _applyForgetNote(args, profile);
 
@@ -686,6 +678,21 @@ class FunctionCallExecutor {
         return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.showMap);
       case 'close_map':
         return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.hideMap);
+
+      // The merged form. `open_map`/`close_map` above are kept because the
+      // offline matcher and the suggested chips still emit them, and because
+      // a model that has seen the old names in an older conversation may
+      // still use one — accepting both costs a case label and removes a
+      // whole class of "the tool exists but the name changed" failure.
+      case 'set_map':
+        return _boolArg(args, 'visible', orElse: true)
+            ? _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.showMap)
+            : _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.hideMap);
+
+      case 'passerby_message':
+        return _boolArg(args, 'remove', orElse: false)
+            ? _applyRemovePasserbyMessage(args, profile)
+            : _applyAddPasserbyMessage(args, profile);
 
       case 'look_around':
         return _AppliedCall(
@@ -1129,6 +1136,42 @@ class FunctionCallExecutor {
   /// numbers are written with and without +880, with and without spaces —
   /// and strict about there being real digits at all, which is what a
   /// placeholder like "N/A" or "unknown" fails.
+  /// Reads a boolean the model may send as a bool, "true"/"false", or
+  /// "yes"/"no" — tool arguments arrive as whatever JSON the model emitted.
+  _AppliedCall _applyAddPasserbyMessage(Map<String, Object?> args, UserProfile profile) {
+    final message = (args['message'] as String?)?.trim() ?? '';
+    if (message.isEmpty) {
+      return _AppliedCall(profile, const {'ok': false, 'error': 'message was empty'}, null);
+    }
+    return _AppliedCall(
+      profile.copyWith(passerbyHelperMessages: [...profile.passerbyHelperMessages, message]),
+      const {'ok': true},
+      null,
+    );
+  }
+
+  _AppliedCall _applyRemovePasserbyMessage(Map<String, Object?> args, UserProfile profile) {
+    final message = (args['message'] as String?)?.trim().toLowerCase() ?? '';
+    final remaining =
+        profile.passerbyHelperMessages.where((m) => m.toLowerCase() != message).toList();
+    final found = remaining.length != profile.passerbyHelperMessages.length;
+    return _AppliedCall(
+      profile.copyWith(passerbyHelperMessages: remaining),
+      {'ok': found, if (!found) 'error': 'no matching message'},
+      null,
+    );
+  }
+
+  static bool _boolArg(Map<String, Object?> args, String key, {required bool orElse}) {
+    final raw = args[key];
+    if (raw is bool) return raw;
+    final text = raw?.toString().trim().toLowerCase();
+    if (text == null || text.isEmpty) return orElse;
+    if (text == 'true' || text == 'yes' || text == '1') return true;
+    if (text == 'false' || text == 'no' || text == '0') return false;
+    return orElse;
+  }
+
   static bool _looksLikeAPhoneNumber(String raw) =>
       RegExp(r'[0-9]').allMatches(raw).length >= 6;
 

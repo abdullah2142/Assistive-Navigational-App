@@ -126,7 +126,12 @@ void main() {
 
     test('both are declared to the model', () {
       final names = GeminiAssistantService.functionDeclarations.map((f) => f.name).toList();
-      expect(names, containsAll(['open_map', 'close_map']));
+      // `open_map`/`close_map` are merged into one `set_map` tool with a
+      // `visible` argument — three tool declarations became one to claw back
+      // input tokens against Groq's daily ceiling. The executor still
+      // accepts the old names (the local matcher and the chips emit them),
+      // so what matters is that the *capability* is declared, not the name.
+      expect(names, contains('set_map'));
     });
 
     test('asking to go somewhere is still a route, not a map request', () {

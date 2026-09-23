@@ -119,18 +119,23 @@ void main() {
   });
 
   group('"forget about me remember about me was inconsistent"', () {
-    test('both tools are always reachable', () {
+    test('both saving and forgetting are always reachable', () {
+      // One declaration since the tool merge — `remember_about_me` carries a
+      // `forget` flag — so the assertion is on the capability, not the name.
       for (final said in ['what do you know about me', 'forget the stairs thing', 'yes']) {
         expect(GroqAssistantService.toolNamesFor(said), contains('remember_about_me'));
-        expect(GroqAssistantService.toolNamesFor(said), contains('forget_about_me'));
       }
+      final remember = GroqAssistantService.allTools
+          .firstWhere((t) => t['function']['name'] == 'remember_about_me');
+      expect((remember['function']['parameters']['properties'] as Map).keys, contains('forget'));
     });
   });
 
   group('"open map did not work" / "doesnt auto open map"', () {
-    test('the map tools are always reachable', () {
+    test('the map tool is always reachable', () {
+      // `open_map`/`close_map` merged into `set_map(visible)`.
       for (final said in ['show me the map', 'ম্যাপ দেখাও', 'map on koro']) {
-        expect(GroqAssistantService.toolNamesFor(said), contains('open_map'));
+        expect(GroqAssistantService.toolNamesFor(said), contains('set_map'));
       }
     });
   });

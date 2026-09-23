@@ -458,17 +458,14 @@ User's message: "$userText"
       }, requiredProperties: const ['name']),
     ),
     FunctionDeclaration(
-      'add_passerby_message',
-      'Add a new pre-written message to show a passerby (Passerby Helper overlay).',
+      'passerby_message',
+      'Add or remove a pre-written message to show a passerby.',
       Schema.object(properties: {
         'message': Schema.string(description: 'The message text.'),
-      }, requiredProperties: const ['message']),
-    ),
-    FunctionDeclaration(
-      'remove_passerby_message',
-      'Remove an existing passerby message that matches the given text.',
-      Schema.object(properties: {
-        'message': Schema.string(description: 'The message text to remove.'),
+        'remove': Schema.enumString(
+          enumValues: const ['true', 'false'],
+          description: 'true removes a matching message instead of adding.',
+        ),
       }, requiredProperties: const ['message']),
     ),
     FunctionDeclaration(
@@ -651,7 +648,7 @@ User's message: "$userText"
     ),
     FunctionDeclaration(
       'remember_about_me',
-      'Write down something the user has told you about themselves that is worth keeping for '
+      'Save or remove something the user has told you about themselves that is worth keeping for '
           'later — a preference, a limitation, a routine, a name they use for someone. Call this '
           'when they say something durable about themselves in passing ("I can\'t manage stairs", '
           '"I hate crowded markets", "my daughter picks me up on Fridays"), or when they ask you '
@@ -660,32 +657,27 @@ User's message: "$userText"
       Schema.object(properties: {
         'note': Schema.string(
           description: 'One short sentence, written from their point of view, e.g. '
-              '"Cannot manage stairs" or "Prefers quiet routes".',
+              '"Cannot manage stairs" or "Prefers quiet routes". To forget, words '
+              'identifying the note; omit entirely only to forget everything.',
         ),
-      }, requiredProperties: const ['note']),
-    ),
-    FunctionDeclaration(
-      'forget_about_me',
-      'Remove something previously remembered about the user. Call this whenever they ask you to '
-          'forget, drop or stop keeping something. Pass a few words of the note to remove; pass '
-          'nothing at all only if they ask you to forget everything.',
-      Schema.object(properties: {
-        'note': Schema.string(description: 'Part of the note to remove.'),
+        'forget': Schema.enumString(
+          enumValues: const ['true', 'false'],
+          description: 'true removes the note instead of saving it.',
+        ),
       }),
     ),
+    // Merged pairs — see the Groq declarations for why. Only pairs where a
+    // wrong action is recoverable are merged; contacts and saved places stay
+    // separate.
     FunctionDeclaration(
-      'open_map',
-      'Show the map on the dashboard. Call this when the user asks to see, show or open the map '
-          '— including in romanised Bangla ("map on koro", "map dekhao"). It does not plan or '
-          'change a route and needs no destination.',
-      null,
-    ),
-    FunctionDeclaration(
-      'close_map',
-      'Hide the map on the dashboard, giving the space back to the chat. Call this when the user '
-          'asks to close, hide or put away the map ("map off koro", "map bondho koro"). This does '
-          'not cancel their journey — for that, use cancel_route.',
-      null,
+      'set_map',
+      'Show or hide the dashboard map. No route change. Hiding does not cancel the journey.',
+      Schema.object(properties: {
+        'visible': Schema.enumString(
+          enumValues: const ['true', 'false'],
+          description: 'true shows it, false hides it.',
+        ),
+      }, requiredProperties: const ['visible']),
     ),
     FunctionDeclaration(
       'replan_route',

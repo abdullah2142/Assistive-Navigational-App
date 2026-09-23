@@ -230,7 +230,7 @@ class SnapshotVisionService {
     // three gets the whole sweep — one ordering serves both, and neither
     // needs to know which it is.
     final ordered = _sharpestFirst(decoded, verdicts);
-    final uploads = [for (final frame in ordered) _encodeForUpload(frame)];
+    final uploads = [for (final frame in ordered) _encodeForUpload(frame, focus)];
 
     VisionScene? scene;
     try {
@@ -506,16 +506,23 @@ class SnapshotVisionService {
   /// cost is flat across resolution (measured), so this is purely about how
   /// long the cellular radio is transmitting, which is the part of a snapshot
   /// the battery actually notices.
-  Uint8List _encodeForUpload(img.Image frame) {
+  /// Whether [focus] is a question about fine detail — see
+  /// [VisionConfig.detailUploadWidth].
+  static bool _wantsDetail(ScanFocus focus) =>
+      focus == ScanFocus.sign || focus == ScanFocus.ahead;
+
+  Uint8List _encodeForUpload(img.Image frame, ScanFocus focus) {
+    final detail = _wantsDetail(focus);
+    final width = detail ? VisionConfig.detailUploadWidth : VisionConfig.uploadWidth;
+    final height = detail ? VisionConfig.detailUploadHeight : VisionConfig.uploadHeight;
     final resized = img.copyResize(
       frame,
-      width: VisionConfig.uploadWidth,
-      height: VisionConfig.uploadHeight,
+      width: width,
+      height: height,
       interpolation: img.Interpolation.average,
     );
     final bytes = img.encodeJpg(resized, quality: VisionConfig.uploadJpegQuality);
-    debugPrint('[Vision] upload frame ${bytes.length} bytes '
-        '(${VisionConfig.uploadWidth}x${VisionConfig.uploadHeight})');
+    debugPrint('[Vision] upload frame ${bytes.length} bytes (${width}x$height)');
     return bytes;
   }
 

@@ -332,7 +332,100 @@ class ChatController extends Notifier<ChatState> {
       // who reads a reply. Present so the switch stays total.
       case CommunicationType.snapshotReply:
         return;
+
+      case CommunicationType.photo:
+        // Announced and then *described*. A picture arriving silently on a
+        // screen the user cannot see is a message that was not delivered, so
+        // the vision tier reads it out — the caretaker sent it to say
+        // something, and this is the only way that something arrives.
+        await _appendAssistantReply(d.caretakerPhotoArrived, profile);
+        final jpeg = message.imageBase64;
+        if (jpeg == null || jpeg.isEmpty) {
+          await _appendAssistantReply(d.caretakerPhotoUnreadable, profile);
+          return;
+        }
+        await _describeIncomingPhoto(jpeg, profile, d);
     }
+  }
+
+  /// Takes a photo and sends it to the paired caretaker, because the user
+  /// asked to.
+  ///
+  /// Distinct from answering a Snapshot Request: that is the caretaker
+  /// asking and is governed by the snapshot-consent setting. This is the
+  /// user choosing to show somebody something, which needs no permission
+  /// from anyone — it is their camera and their message.
+  ///
+  /// The description goes with the picture. The user cannot see what they
+  /// just sent, and "I sent them a photo of the bus stop" is the only way
+  /// they can tell whether the camera was pointed at anything useful.
+  Future<void> _sendPhotoToCaretaker(UserProfile profile, Dashboard d) async {
+    final caretakerUid = profile.pairedUserId;
+    if (caretakerUid == null) return;
+
+    ScanResult result;
+    try {
+      result = await ref.read(snapshotVisionServiceProvider).scan(
+            focus: ScanFocus.ahead,
+            language: profile.language,
+          );
+    } catch (e) {
+      debugPrint('[Chat] photo for caretaker failed: $e');
+      await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
+      return;
+    }
+
+    final frame = result.frameJpeg;
+    if (frame == null) {
+      await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
+      return;
+    }
+
+    try {
+      await ref.read(communicationServiceProvider).sendPhoto(
+            disabledUserUid: profile.uid,
+            fromUid: profile.uid,
+            toUid: caretakerUid,
+            imageBase64: base64Encode(frame),
+            text: result.spoken,
+          );
+    } catch (e) {
+      debugPrint('[Chat] could not send the photo: $e');
+      await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
+      return;
+    }
+    await _appendAssistantReply(
+      '${d.photoSentToCaretaker} ${result.spoken}',
+      profile,
+      imageJpeg: frame,
+    );
+  }
+
+  /// Reads out a photo the caretaker sent.
+  ///
+  /// The description *is* the delivery for a blind user. A failure says so
+  /// rather than going quiet — "they sent a photo I could not make out" is
+  /// still news, and it is something the user can act on by asking their
+  /// caretaker to describe it.
+  Future<void> _describeIncomingPhoto(String jpegBase64, UserProfile profile, Dashboard d) async {
+    Uint8List bytes;
+    try {
+      bytes = base64Decode(jpegBase64);
+    } catch (e) {
+      debugPrint('[Chat] a caretaker photo would not decode: $e');
+      await _appendAssistantReply(d.caretakerPhotoUnreadable, profile);
+      return;
+    }
+    final described = await ref
+        .read(snapshotVisionServiceProvider)
+        .describeIncomingImage(bytes, profile.language);
+    await _appendAssistantReply(
+      described ?? d.caretakerPhotoUnreadable,
+      profile,
+      // Shown as well as spoken — a low-vision user or a sighted helper
+      // should see the picture the description is about.
+      imageJpeg: bytes,
+    );
   }
 
   /// Voice memos the caretaker has sent this session, oldest first, and
@@ -1402,6 +1495,9 @@ class ChatController extends Notifier<ChatState> {
       if (turn.replayDirection != null) {
         await replayVoiceMemo(turn.replayDirection!, profile);
       }
+      if (turn.sendsPhotoToCaretaker) {
+        await _sendPhotoToCaretaker(profile, d);
+      }
       if (turn.overlayAction != null) {
         state = state.copyWith(
           pendingOverlayAction: turn.overlayAction,
@@ -1635,6 +1731,9 @@ class ChatController extends Notifier<ChatState> {
       }
       if (turn.replayDirection != null) {
         await replayVoiceMemo(turn.replayDirection!, profile);
+      }
+      if (turn.sendsPhotoToCaretaker) {
+        await _sendPhotoToCaretaker(profile, d);
       }
       if (turn.route != null) {
         state = state.copyWith(

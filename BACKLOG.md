@@ -9,21 +9,13 @@ not the hopeful one.
 
 ## Next up
 
-1. **Voicemail-style replay.** Play received caretaker voice memos back like
-   voicemail — repeat, previous, next — rather than once on arrival. *Small.*
-2. **Guardian chat interface.** Turn the caretaker channel into a real
-   two-way chat rather than one-shot memos and alerts. *Medium.*
-3. **Voluntary image sending, both directions.** Separate from the snapshot
-   scans: the user sends from the camera only, the guardian from camera or
-   gallery. `CommunicationMessage.imageBase64` already exists from the
-   snapshot-reply work. *Medium.*
-4. **Reply to a specific message.** Let the user reply to a particular
+1. **Reply to a specific message.** Let the user reply to a particular
    assistant message so the conversation knows which one they mean — "that
    one", "the second place you said". Today every turn is read against the
    whole recent history and an ambiguous reference resolves to whatever the
    model guesses. Needs a message id on the wire and a quoted-reply affordance
    in the chat. *Medium.*
-5. **Camera aiming preview.** Open a viewfinder when the camera button is
+2. **Camera aiming preview.** Open a viewfinder when the camera button is
    tapped, so a sighted helper can aim. `SnapshotCamera` bans a preview
    stream by design (the Snapshot Architecture's "no live video" rule) — this
    reopens that decision rather than just adding a widget. *Medium, and an
@@ -85,6 +77,17 @@ reordered — they were in the 22 September list and were never built.
 - ~~**Weather warnings.**~~ Open-Meteo, keyless. Appended to a route only
   when it clears a high bar — rain now, rain likely within the hour, a
   thunderstorm, or an apparent temperature over 36°C.
+- ~~**Voicemail-style replay.**~~ `replay_voice_message(which)` steps through
+  the session's memos — latest, repeat, previous, next — announcing the
+  position before each. Ends clamp rather than wrap.
+- ~~**Guardian chat interface.**~~ Inline composer and sender-aligned
+  bubbles, replacing three buttons that each opened a modal and a read-only
+  list of the last five.
+- ~~**Voluntary image sending.**~~ Guardian sends from gallery or camera, the
+  user from the camera only. An arriving photo is read aloud by the vision
+  tier — a picture on a screen the user cannot see is not a delivered
+  message. Kept as its own message type so the snapshot-consent setting does
+  not silently govern ordinary photo sharing.
 - ~~**Transit proximity announcements.**~~ `NavigationNarrator` carries
   landmarks and announces each once within 40m. Crossings come from the route
   geometry; bus stops are an Overpass lookup fired after setting off, so a

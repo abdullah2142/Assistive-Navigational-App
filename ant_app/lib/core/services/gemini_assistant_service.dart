@@ -54,6 +54,7 @@ class AssistantTurn {
     this.scanFocus,
     this.scanQuestion,
     this.replayDirection,
+    this.sendsPhotoToCaretaker = false,
     this.triggersEmergency = false,
     this.cancelsRoute = false,
   });
@@ -79,6 +80,9 @@ class AssistantTurn {
   /// Set when the model called `replay_voice_message` — a request for the
   /// caller to act on, like [scanFocus].
   final ReplayDirection? replayDirection;
+
+  /// Set when the model called `send_photo_to_caretaker`.
+  final bool sendsPhotoToCaretaker;
 
   final String responseText;
 
@@ -250,6 +254,7 @@ class GeminiAssistantService implements AssistantService {
     ScanFocus? scanFocus;
     String? scanQuestion;
     ReplayDirection? replayDirection;
+    var sendsPhotoToCaretaker = false;
     DestinationClarification? clarification;
     PendingPlaceSave? placeSave;
     final confirmations = <String>[];
@@ -273,6 +278,7 @@ class GeminiAssistantService implements AssistantService {
       scanFocus ??= applied.scanFocus;
       scanQuestion ??= applied.scanQuestion;
       replayDirection ??= applied.replayDirection;
+      sendsPhotoToCaretaker |= applied.sendsPhotoToCaretaker;
       clarification ??= applied.clarification;
       placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
@@ -301,6 +307,7 @@ class GeminiAssistantService implements AssistantService {
       scanFocus: scanFocus,
       scanQuestion: scanQuestion,
       replayDirection: replayDirection,
+      sendsPhotoToCaretaker: sendsPhotoToCaretaker,
       clarification: clarification,
       placeSave: placeSave,
     );
@@ -600,6 +607,13 @@ User's message: "$userText"
           description: 'What the user wants said, in their own words.',
         ),
       }, requiredProperties: const ['message']),
+    ),
+    FunctionDeclaration(
+      'send_photo_to_caretaker',
+      'Take a photo with the camera and send it to the paired caretaker. For '
+          '"send them a picture", "show my caretaker this". Not for answering their '
+          'Snapshot Request, which is automatic.',
+      null,
     ),
     FunctionDeclaration(
       'replay_voice_message',

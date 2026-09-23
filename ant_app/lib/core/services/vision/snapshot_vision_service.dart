@@ -158,6 +158,34 @@ class SnapshotVisionService {
     }
   }
 
+  /// Describes a picture that did not come from this device's camera.
+  ///
+  /// For a photo a caretaker chose to send. The user is very often blind, so
+  /// an image arriving on a screen is not a delivered message until
+  /// something reads it out — and the vision tier is already the thing that
+  /// turns a frame into a sentence.
+  ///
+  /// Deliberately skips the camera, the edge detector and the scan cooldown.
+  /// None of them apply: there is nothing to capture, the local hazard model
+  /// is about the ground in front of *this* user rather than a picture of
+  /// somewhere else, and a cooldown exists to stop repeated *scans* spending
+  /// the token budget, not to throttle messages another person sent.
+  Future<String?> describeIncomingImage(Uint8List jpeg, AppLanguage language) async {
+    try {
+      final scene = await _cloud.describe(
+        jpegs: [jpeg],
+        focus: ScanFocus.ahead,
+        language: language,
+        question: 'Someone sent this picture to a blind person. Say what it '
+            'shows, plainly, in two short sentences. Read any text in it.',
+      );
+      return scene?.spoken;
+    } catch (e) {
+      debugPrint('[Vision] could not describe an incoming photo: $e');
+      return null;
+    }
+  }
+
   Future<ScanResult> _run(ScanFocus focus, AppLanguage language, Dashboard d,
       Future<void> Function(String text)? narrate, String? question) async {
     // Asked before the camera opens, because it decides what the capture

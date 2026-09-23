@@ -17,7 +17,18 @@ enum CommunicationType {
   memo,
   voiceMemo,
   snapshotRequest,
-  snapshotReply;
+  snapshotReply,
+
+  /// A picture somebody chose to send, in either direction.
+  ///
+  /// Deliberately distinct from [snapshotReply], which is the camera
+  /// answering a request on the user's behalf. This one is a person deciding
+  /// to share something — the guardian showing which bus to board, the user
+  /// showing what is in front of them because they want to, not because they
+  /// were asked. Conflating the two would make the snapshot-consent setting
+  /// govern ordinary photo sharing, which is not what the user agreed to
+  /// when they set it.
+  photo;
 
   static CommunicationType fromFirestore(String? value) =>
       CommunicationType.values.firstWhere((v) => v.name == value, orElse: () => CommunicationType.memo);

@@ -40,6 +40,7 @@ class _AppliedCall {
     this.scanFocus,
     this.scanQuestion,
     this.replayDirection,
+    this.sendsPhotoToCaretaker = false,
     this.triggersEmergency = false,
     this.cancelsRoute = false,
   });
@@ -72,6 +73,11 @@ class _AppliedCall {
   /// Set when the model called `replay_voice_message`. A request, like
   /// [scanFocus] — the audio player belongs to the widget tree, not here.
   final ReplayDirection? replayDirection;
+
+  /// Set when the model called `send_photo_to_caretaker`. A request for the
+  /// same reason: this needs the camera and the communication service, and
+  /// the caller owns both.
+  final bool sendsPhotoToCaretaker;
 
   /// Set when the model called `trigger_emergency`.
   final bool triggersEmergency;
@@ -531,6 +537,10 @@ class FunctionCallExecutor {
       // which of how many is about to play.
       case 'replay_voice_message':
         return '';
+      // Spoken by the send itself, which knows whether the camera saw
+      // anything worth sending.
+      case 'send_photo_to_caretaker':
+        return '';
       case 'open_passerby_helper':
         return bn ? 'স্ক্রিন দেখাচ্ছি।' : 'Showing your screen now.';
       case 'open_hazard_report':
@@ -712,6 +722,12 @@ class FunctionCallExecutor {
           scanFocus: _scanFocusFrom(args),
           scanQuestion: (args['question'] as String?)?.trim(),
         );
+
+      case 'send_photo_to_caretaker':
+        if (profile.pairedUserId == null) {
+          return _AppliedCall(profile, const {'ok': false, 'error': 'not_paired'}, null);
+        }
+        return _AppliedCall(profile, const {'ok': true}, null, sendsPhotoToCaretaker: true);
 
       case 'replay_voice_message':
         return _AppliedCall(

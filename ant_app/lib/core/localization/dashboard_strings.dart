@@ -1000,6 +1000,24 @@ class Dashboard {
   /// Module 6 is not built, so the request can be delivered and not answered.
   /// Saying so is the point: a request that silently does nothing is what the
   /// whole of item 28 felt like.
+  /// A picture the caretaker chose to send.
+  ///
+  /// The user is very often blind, so the arrival is announced and the
+  /// picture is described by the vision tier rather than simply appearing —
+  /// a photo that lands silently on a screen nobody can see is a message
+  /// that was not delivered.
+  String get caretakerPhotoArrived =>
+      _t('Your caretaker sent a photo. Let me look at it.',
+          'আপনার দেখাশোনাকারী একটা ছবি পাঠিয়েছেন। দেখে নিই।');
+
+  String get caretakerPhotoUnreadable => _t(
+        "Your caretaker sent a photo, but I couldn't make it out.",
+        'আপনার দেখাশোনাকারী একটা ছবি পাঠিয়েছেন, কিন্তু আমি বুঝতে পারিনি।',
+      );
+
+  String get photoSentToCaretaker =>
+      _t('Photo sent to your caretaker.', 'দেখাশোনাকারীকে ছবি পাঠিয়ে দিয়েছি।');
+
   /// Voicemail-style replay of caretaker voice memos.
   ///
   /// The position is said before the clip plays. For somebody who cannot see

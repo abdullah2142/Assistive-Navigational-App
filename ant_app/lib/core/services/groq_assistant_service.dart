@@ -194,6 +194,7 @@ class GroqAssistantService implements AssistantService {
     ScanFocus? scanFocus;
     String? scanQuestion;
     ReplayDirection? replayDirection;
+    var sendsPhotoToCaretaker = false;
     DestinationClarification? clarification;
     PendingPlaceSave? placeSave;
     final confirmations = <String>[];
@@ -225,6 +226,7 @@ class GroqAssistantService implements AssistantService {
       scanFocus ??= applied.scanFocus;
       scanQuestion ??= applied.scanQuestion;
       replayDirection ??= applied.replayDirection;
+      sendsPhotoToCaretaker |= applied.sendsPhotoToCaretaker;
       clarification ??= applied.clarification;
       placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
@@ -240,6 +242,7 @@ class GroqAssistantService implements AssistantService {
       scanFocus: scanFocus,
       scanQuestion: scanQuestion,
       replayDirection: replayDirection,
+      sendsPhotoToCaretaker: sendsPhotoToCaretaker,
       clarification: clarification,
       placeSave: placeSave,
     );
@@ -672,6 +675,13 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     // Voicemail-style replay. A memo used to play exactly once, on arrival,
     // and then be unreachable — for a user who cannot scroll a transcript,
     // a message half-heard over traffic was a message gone.
+    // The user's own half of voluntary photo sharing. Camera only — a blind
+    // user is not browsing a photo roll, and the gallery half belongs to the
+    // caretaker's screen.
+    _tool('send_photo_to_caretaker',
+        'Take a photo with the camera and send it to the paired caretaker. For '
+            '"send them a picture", "show my caretaker this". Not for answering '
+            'their Snapshot Request, which is automatic.'),
     _tool('replay_voice_message',
         'Play a voice message the caretaker sent again. Use for "play that again", '
             '"what did they say", "the one before that", "the next one".',

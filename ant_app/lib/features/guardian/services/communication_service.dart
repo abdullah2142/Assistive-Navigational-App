@@ -93,6 +93,28 @@ class CommunicationService {
     );
   }
 
+  /// Sends a picture somebody chose to share.
+  ///
+  /// Either direction — [fromUid] says which. Distinct from
+  /// [sendSnapshotReply]: that is the camera answering a request, this is a
+  /// person deciding to show something.
+  Future<void> sendPhoto({
+    required String disabledUserUid,
+    required String fromUid,
+    required String toUid,
+    required String imageBase64,
+    String text = '',
+  }) {
+    return _send(
+      disabledUserUid: disabledUserUid,
+      fromUid: fromUid,
+      toUid: toUid,
+      type: CommunicationType.photo,
+      text: text,
+      imageBase64: imageBase64,
+    );
+  }
+
   /// Answers a Snapshot Request with the frame and what the vision tier made
   /// of it.
   ///

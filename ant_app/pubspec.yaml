@@ -59,6 +59,12 @@ dependencies:
   image: ^4.3.0
   google_speech: ^5.3.0
   vibration: ^3.2.1
+  # Voluntary image sending, guardian side only: they pick from the gallery
+  # or their own camera. The *user* side never uses this — a blind user is
+  # not browsing a photo roll, and their images come from `SnapshotCamera`,
+  # which is already open and already governed by the snapshot consent
+  # setting.
+  image_picker: ^1.1.2
   share_plus: ^13.3.0
   path_provider: ^2.1.6
   package_info_plus: ^10.2.1

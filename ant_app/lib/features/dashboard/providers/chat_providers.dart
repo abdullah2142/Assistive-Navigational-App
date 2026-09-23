@@ -865,6 +865,39 @@ class ChatController extends Notifier<ChatState> {
   /// the map, a planned-but-silent route is not usable at all — the arrow
   /// and the polyline are the sighted half of this feature, and the spoken
   /// directions are the whole of the other half.
+  /// A one-line weather warning to append to a route, or empty.
+  ///
+  /// Appended rather than spoken on its own, and only when it clears
+  /// `WeatherReading.isWorthMentioning` — an assistant that remarks on the
+  /// weather every time somebody asks for a route is one the user learns to
+  /// talk over, and the warning that matters goes with it.
+  ///
+  /// Never blocks. The lookup is bounded and fails to null, because the user
+  /// asked to go somewhere and "I could not check the weather" is not a
+  /// reason to leave them standing there.
+  Future<String> _weatherNoteFor(UserProfile profile, Dashboard d) async {
+    Position? here;
+    try {
+      here = await Geolocator.getLastKnownPosition().timeout(_lastFixBudget);
+    } catch (_) {
+      return '';
+    }
+    if (here == null) return '';
+
+    final reading = await ref.read(weatherServiceProvider).current(
+          latitude: here.latitude,
+          longitude: here.longitude,
+        );
+    if (reading == null || !reading.isWorthMentioning) return '';
+
+    // One warning, worst first. Two weather sentences in front of a route is
+    // the noise this is trying not to become.
+    if (reading.isThunderstorm) return d.weatherThunderstorm;
+    if (reading.isRainingNow) return d.weatherRainingNow();
+    if (reading.isVeryHot) return d.weatherVeryHot(reading.feelsLikeC.round());
+    return d.weatherRainSoon(reading.rainChanceNextHourPercent);
+  }
+
   void _startNavigation(RouteChoice route, UserProfile profile) {
     ref.read(navigationControllerProvider).start(
           route,
@@ -983,7 +1016,10 @@ class ChatController extends Notifier<ChatState> {
     }
     state = state.copyWith(isAssistantTyping: false);
 
-    await _appendAssistantReply(result.spoken, profile);
+    // The frame rides with the answer, so the user can see what was
+    // actually looked at. A wildly wrong description is almost always a
+    // wildly wrong aim, and that is invisible without the picture.
+    await _appendAssistantReply(result.spoken, profile, imageJpeg: result.frameJpeg);
 
     // An abort has already buzzed and already said stop. Offering to file a
     // report on top of that is a second demand on somebody who has just been
@@ -1010,6 +1046,9 @@ class ChatController extends Notifier<ChatState> {
     /// a question. False for anything the user is not being asked to answer
     /// — a caretaker's memo read aloud is not the app asking them something.
     bool mayInviteAnswer = false,
+    /// The camera frame this reply is about — shown under the bubble. See
+    /// [ChatMessage.imageJpeg].
+    Uint8List? imageJpeg,
   }) async {
     // A function whose confirmation is spoken by whatever it opens returns an
     // empty string rather than talking over it — `record_caretaker_voice_memo`
@@ -1022,7 +1061,12 @@ class ChatController extends Notifier<ChatState> {
       isAssistantTyping: false,
       messages: [
         ...state.messages,
-        ChatMessage(sender: ChatSender.assistant, text: text, timestamp: DateTime.now()),
+        ChatMessage(
+          sender: ChatSender.assistant,
+          text: text,
+          timestamp: DateTime.now(),
+          imageJpeg: imageJpeg,
+        ),
       ],
     );
 
@@ -1285,6 +1329,11 @@ class ChatController extends Notifier<ChatState> {
           routeAlternatives: turn.routeAlternatives,
         );
         _startNavigation(turn.route!, profile);
+        // After the route, never instead of it. Setting off in a Dhaka
+        // downpour is a different decision from setting off, and the user
+        // cannot look out of a window to make it.
+        final weather = await _weatherNoteFor(profile, d);
+        if (weather.isNotEmpty) await _appendAssistantReply(weather, profile);
       }
       if (turn.clarification != null) {
         state = state.copyWith(pendingClarification: turn.clarification);
@@ -1505,6 +1554,11 @@ class ChatController extends Notifier<ChatState> {
           routeAlternatives: turn.routeAlternatives,
         );
         _startNavigation(turn.route!, profile);
+        // After the route, never instead of it. Setting off in a Dhaka
+        // downpour is a different decision from setting off, and the user
+        // cannot look out of a window to make it.
+        final weather = await _weatherNoteFor(profile, d);
+        if (weather.isNotEmpty) await _appendAssistantReply(weather, profile);
       }
       if (turn.placeSave != null) {
         state = state.copyWith(pendingPlaceSave: turn.placeSave);

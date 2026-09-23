@@ -9,32 +9,21 @@ not the hopeful one.
 
 ## Next up
 
-1. **Show the frame that was sent.** Surface the sharpest frame a scan
-   actually uploaded, in the chat, so the user can see what the answer was
-   based on — and a sighted helper can see whether the camera was pointed
-   anywhere useful. `ScanResult.frameJpeg` already carries it. *Small.*
-2. **Weather warnings.** Warn about rain or heat before setting out and
-   during a walk. Dhaka rain changes whether a route is walkable at all.
-   Open-Meteo: free, keyless, no account. *Medium.*
-3. **Transit proximity announcements.** Say when a bus stop, pedestrian
-   crossing or intersection is coming up. Route geometry already carries
-   `ManeuverKind.crossing` and `NavigationNarrator` already owns distance
-   banding; nothing announces them ahead of time. *Medium.*
-4. **Voicemail-style replay.** Play received caretaker voice memos back like
+1. **Voicemail-style replay.** Play received caretaker voice memos back like
    voicemail — repeat, previous, next — rather than once on arrival. *Small.*
-5. **Guardian chat interface.** Turn the caretaker channel into a real
+2. **Guardian chat interface.** Turn the caretaker channel into a real
    two-way chat rather than one-shot memos and alerts. *Medium.*
-6. **Voluntary image sending, both directions.** Separate from the snapshot
+3. **Voluntary image sending, both directions.** Separate from the snapshot
    scans: the user sends from the camera only, the guardian from camera or
    gallery. `CommunicationMessage.imageBase64` already exists from the
    snapshot-reply work. *Medium.*
-7. **Reply to a specific message.** Let the user reply to a particular
+4. **Reply to a specific message.** Let the user reply to a particular
    assistant message so the conversation knows which one they mean — "that
    one", "the second place you said". Today every turn is read against the
    whole recent history and an ambiguous reference resolves to whatever the
    model guesses. Needs a message id on the wire and a quoted-reply affordance
    in the chat. *Medium.*
-8. **Camera aiming preview.** Open a viewfinder when the camera button is
+5. **Camera aiming preview.** Open a viewfinder when the camera button is
    tapped, so a sighted helper can aim. `SnapshotCamera` bans a preview
    stream by design (the Snapshot Architecture's "no live video" rule) — this
    reopens that decision rather than just adding a widget. *Medium, and an
@@ -53,3 +42,14 @@ not the hopeful one.
 
 - ~~**Battery warnings.**~~ The ambient scanner announces once when it stops
   below 20%, and again when charge recovers.
+- ~~**Show the frame that was sent.**~~ A scan's reply carries the frame it
+  was answered from, shown above the text in the chat. Not persisted — the
+  transcript is restored on launch and tens of kilobytes per scan would grow
+  without bound.
+- ~~**Weather warnings.**~~ Open-Meteo, keyless. Appended to a route only
+  when it clears a high bar — rain now, rain likely within the hour, a
+  thunderstorm, or an apparent temperature over 36°C.
+- ~~**Transit proximity announcements.**~~ `NavigationNarrator` carries
+  landmarks and announces each once within 40m. Crossings come from the route
+  geometry; bus stops are an Overpass lookup fired after setting off, so a
+  slow volunteer API never delays the start of a journey.

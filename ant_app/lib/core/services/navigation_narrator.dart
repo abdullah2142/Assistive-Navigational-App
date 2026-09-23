@@ -27,9 +27,43 @@ import 'routing_service.dart';
 /// itself: each turn is announced at most once per distance band, and
 /// nothing is repeated while the situation has not changed.
 class NavigationNarrator {
-  NavigationNarrator({required this.steps, this.routePoints = const []});
+  NavigationNarrator({
+    required this.steps,
+    this.routePoints = const [],
+    List<Landmark> landmarks = const [],
+  }) : _landmarks = List.unmodifiable(landmarks);
+
 
   final List<RouteStep> steps;
+
+  /// Things beside the route worth naming as they come up — a bus stop, a
+  /// pedestrian crossing.
+  ///
+  /// Asked for as "should warn when bus stop or crossing or intersection is
+  /// near". Crossings already arrive as `ManeuverKind.crossing` steps and are
+  /// announced by the turn bands; a bus stop is not a manoeuvre and appears
+  /// in no route geometry at all, so it has to be carried separately.
+  ///
+  /// Held here rather than in `NavigationController` because "how close is
+  /// close enough, and has this one been said already" is exactly the
+  /// bookkeeping this class exists to keep testable without a phone.
+  List<Landmark> _landmarks;
+
+  /// Adds landmarks found after the journey started — bus stops arrive from
+  /// an Overpass round trip that must not hold up setting off.
+  ///
+  /// Appends rather than replaces, so the crossings handed in at
+  /// construction survive, and the announced-set is keyed by index into the
+  /// same growing list.
+  void addLandmarks(List<Landmark> more) {
+    if (more.isEmpty) return;
+    _landmarks = List.unmodifiable([..._landmarks, ...more]);
+  }
+
+  /// Which landmarks have been announced. One each, for the whole journey —
+  /// a bus stop re-announced every GPS tick as the user waits beside it is
+  /// the noise failure this class is built around.
+  final Set<int> _announcedLandmarks = {};
 
   /// The route's full geometry, used for the off-route corridor check.
   ///
@@ -90,6 +124,14 @@ class NavigationNarrator {
   /// a turn they cannot see.
   static const List<double> announceBands = [200, 50, 25];
 
+  /// How close a landmark has to be before it is worth naming.
+  ///
+  /// Wider than [reachedRadiusMeters] and narrower than the first turn band:
+  /// a bus stop is useful to know about while it is still ahead of you and
+  /// useless once it is behind, and GPS in a Dhaka street will not reliably
+  /// resolve better than this anyway.
+  static const double landmarkRadiusMeters = 40;
+
   /// The next thing to say, or null when nothing has changed enough to be
   /// worth saying. Call on every position update.
   NavigationCue? update(LatLng position) {
@@ -101,6 +143,12 @@ class NavigationNarrator {
       _arrived = true;
       return const NavigationCue(kind: NavigationCueKind.arrived);
     }
+
+    // Checked before the manoeuvre bands. A crossing the user is walking
+    // into outranks the turn that comes after it, and a bus stop is only
+    // information while they are still short of it.
+    final landmark = _landmarkNear(position);
+    if (landmark != null) return landmark;
 
     final step = steps[_current];
     final remaining = _distanceMeters(position, step.location);
@@ -254,6 +302,34 @@ class NavigationNarrator {
     return nearest;
   }
 
+  /// The nearest un-announced landmark within [landmarkRadiusMeters], or
+  /// null.
+  ///
+  /// Nearest first, so walking past two together names the one actually
+  /// underfoot. Each is latched by index the moment it is returned — a
+  /// second announcement of the same bus stop on the next GPS tick is the
+  /// noise failure this whole class is shaped around, and a user standing
+  /// *at* a stop waiting for a bus would otherwise hear about it forever.
+  NavigationCue? _landmarkNear(LatLng position) {
+    var bestIndex = -1;
+    var bestDistance = landmarkRadiusMeters;
+    for (var i = 0; i < _landmarks.length; i++) {
+      if (_announcedLandmarks.contains(i)) continue;
+      final distance = _distanceMeters(position, _landmarks[i].location);
+      if (distance <= bestDistance) {
+        bestDistance = distance;
+        bestIndex = i;
+      }
+    }
+    if (bestIndex < 0) return null;
+    _announcedLandmarks.add(bestIndex);
+    return NavigationCue(
+      kind: NavigationCueKind.landmarkAhead,
+      landmark: _landmarks[bestIndex],
+      distanceMeters: bestDistance,
+    );
+  }
+
   _Band? _bandFor(double remaining) {
     if (remaining <= announceBands[2]) return _Band.imminent;
     if (remaining <= announceBands[1]) return _Band.near;
@@ -299,7 +375,30 @@ class NavigationProgress {
   final bool arrived;
 }
 
-enum NavigationCueKind { turnAhead, turnNow, offRoute, arrived }
+enum NavigationCueKind { turnAhead, turnNow, offRoute, arrived, landmarkAhead }
+
+/// A thing beside the route worth naming as it comes up.
+enum LandmarkKind {
+  /// A place a bus can be boarded. Not a manoeuvre, and in no route
+  /// geometry — looked up separately, near the path.
+  busStop,
+
+  /// A pedestrian crossing. Also arrives as a `ManeuverKind.crossing` step
+  /// when the router knows about it; this covers the ones it does not.
+  crossing,
+}
+
+/// One [LandmarkKind] at one point.
+class Landmark {
+  const Landmark({required this.location, required this.kind, this.name = ''});
+
+  final LatLng location;
+  final LandmarkKind kind;
+
+  /// The OSM name when there is one. Most Dhaka bus stops have none, and a
+  /// bare "a bus stop" is still worth saying.
+  final String name;
+}
 
 /// One thing worth saying out loud. Deliberately carries no text: phrasing
 /// is localized in `dashboard_strings.dart`, and the haptic pattern that
@@ -308,12 +407,16 @@ class NavigationCue {
   const NavigationCue({
     required this.kind,
     this.step,
+    this.landmark,
     this.distanceMeters = 0,
     this.isFinalStep = false,
   });
 
   final NavigationCueKind kind;
   final RouteStep? step;
+
+  /// Set only for [NavigationCueKind.landmarkAhead].
+  final Landmark? landmark;
   final double distanceMeters;
 
   /// True when [step] is the last manoeuvre — lets the caller say "your

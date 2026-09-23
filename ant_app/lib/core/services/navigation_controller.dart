@@ -9,7 +9,8 @@ import '../localization/app_language.dart';
 import '../localization/dashboard_strings.dart';
 import 'navigation_narrator.dart';
 import 'route_planning_service.dart';
-import 'routing_service.dart' show ManeuverKind;
+import 'place_categories.dart';
+import 'routing_service.dart' show ManeuverKind, RoutingService;
 import 'haptics_service.dart';
 import 'tts_service.dart';
 
@@ -40,7 +41,12 @@ class NavigationController {
     required TtsService tts,
     HapticsService? haptics,
     Stream<Position>? positionStream,
+    RoutingService? routing,
   })  : _tts = tts,
+        // Lazily defaulted for the same reason `_haptics` is: every existing
+        // test builds this with a TTS alone, and a controller that cannot
+        // look up bus stops still narrates every turn.
+        _routing = routing ?? RoutingService(),
         // Defaulted rather than required: every existing test builds this with
         // a TTS alone, and a controller that cannot buzz is still a controller
         // that narrates.
@@ -51,6 +57,7 @@ class NavigationController {
 
   final TtsService _tts;
   final HapticsService _haptics;
+  final RoutingService _routing;
   final Stream<Position>? _injectedStream;
 
   StreamSubscription<Position>? _subscription;
@@ -126,7 +133,29 @@ class NavigationController {
       return;
     }
 
-    _narrator = NavigationNarrator(steps: route.steps, routePoints: route.points);
+    _narrator = NavigationNarrator(
+      steps: route.steps,
+      routePoints: route.points,
+      // Crossings the router already knows about. They are announced by the
+      // turn bands too, but a crossing deserves a warning before the "in 200
+      // metres" band that a turn gets — stepping into a Dhaka road is not
+      // the same class of event as turning a corner.
+      landmarks: [
+        for (final step in route.steps)
+          if (step.maneuver == ManeuverKind.crossing)
+            Landmark(location: step.location, kind: LandmarkKind.crossing),
+      ],
+    );
+
+    // Bus stops are looked up after the narrator exists and are folded in
+    // when they arrive.
+    //
+    // Deliberately not awaited: this is an Overpass round trip, and a user
+    // who has just asked to be taken somewhere should start walking now, not
+    // when a volunteer API answers. A route whose stops never arrive is a
+    // route without bus-stop announcements, which is exactly what it was
+    // before this existed.
+    unawaited(_loadBusStops(route));
     await _speak(describeRoute
         ? d.navigateStarted(
             destination: route.destinationLabel,
@@ -195,6 +224,17 @@ class NavigationController {
         // Long buzz — the "something is wrong" pattern.
         _cue(HapticCue.hazard);
         await _speak(d.navigateOffRoute);
+      // Information, not an instruction — so a single buzz and a short
+      // sentence, never the hazard pattern. A bus stop the user is walking
+      // past is worth knowing about and is not a reason to stop.
+      case NavigationCueKind.landmarkAhead:
+        final landmark = cue.landmark!;
+        _cue(HapticCue.navigation);
+        await _speak(switch (landmark.kind) {
+          LandmarkKind.busStop => d.landmarkBusStop(landmark.name),
+          LandmarkKind.crossing => d.landmarkCrossing,
+        });
+
       case NavigationCueKind.arrived:
         // Double buzz — "confirmed". One call now: the pattern is the
         // service's, not two impacts and a sleep spelled out at the call site.
@@ -241,6 +281,43 @@ class NavigationController {
     unawaited(_haptics.play(cue).catchError((Object e) {
       debugPrint('[Navigation] haptic cue failed: $e');
     }));
+  }
+
+  /// Finds the bus stops along [route] and gives them to the narrator.
+  ///
+  /// Asked for as "should warn when bus stop or crossing or intersection is
+  /// near". A crossing is a manoeuvre and arrives in the route geometry; a
+  /// bus stop is neither, and appears nowhere in a walking route — so it has
+  /// to be searched for.
+  ///
+  /// Searched around the route's midpoint with a radius that covers it,
+  /// rather than once per step, because Overpass is a volunteer service and
+  /// one query per journey is the polite amount. Stops that turn out to be
+  /// far from the actual path simply never come within
+  /// `NavigationNarrator.landmarkRadiusMeters` and are never announced.
+  Future<void> _loadBusStops(RouteChoice route) async {
+    if (route.points.isEmpty) return;
+    final category = placeCategories.firstWhere((c) => c.id == 'bus_stop');
+    final middle = route.points[route.points.length ~/ 2];
+    // Half the route's length, plus slack, so one circle covers it.
+    final radius = (route.distanceMeters / 2 + 300).clamp(300.0, 3000.0);
+    try {
+      final stops = await _routing.nearbyOfCategory(
+        origin: middle,
+        category: category,
+        radiusMeters: radius,
+      );
+      final narrator = _narrator;
+      // The journey may have ended while this was in flight.
+      if (narrator == null || _route != route) return;
+      narrator.addLandmarks([
+        for (final stop in stops)
+          Landmark(location: stop.location, kind: LandmarkKind.busStop, name: stop.name),
+      ]);
+      debugPrint('[Navigation] ${stops.length} bus stops along the route');
+    } catch (e) {
+      debugPrint('[Navigation] bus stop lookup failed: $e');
+    }
   }
 
   Future<void> _speak(String text) async {

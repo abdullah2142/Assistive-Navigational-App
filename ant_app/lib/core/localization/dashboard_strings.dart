@@ -1000,6 +1000,48 @@ class Dashboard {
   /// Module 6 is not built, so the request can be delivered and not answered.
   /// Saying so is the point: a request that silently does nothing is what the
   /// whole of item 28 felt like.
+  /// A landmark coming up beside the route — see `NavigationNarrator`.
+  ///
+  /// Said plainly and once. A bus stop is information ("you could board
+  /// here"); a crossing is a caution ("the road is about to be in front of
+  /// you"), so the two do not share a sentence shape.
+  String landmarkBusStop(String name) => name.isEmpty
+      ? _t('Bus stop just ahead.', 'সামনেই বাস স্ট্যান্ড।')
+      : _t('$name bus stop just ahead.', '$name বাস স্ট্যান্ড সামনেই।');
+
+  String get landmarkCrossing =>
+      _t('Crossing coming up.', 'সামনে রাস্তা পারাপার।');
+
+  /// Weather, appended to a route when it changes whether to set off.
+  ///
+  /// Short, and never the whole reply — the user asked for a route, and the
+  /// route is still the answer. Rain in Dhaka is not a comfort question: a
+  /// flooded footpath is standing water of unknown depth over an open drain,
+  /// which is the exact hazard a cane cannot find in time.
+  String weatherRainingNow() => _t(
+        "It's raining — footpaths flood fast here, so take care.",
+        'বৃষ্টি হচ্ছে — এখানে ফুটপাত দ্রুত ডুবে যায়, সাবধানে যাবেন।',
+      );
+
+  String weatherRainSoon(int percent) => _t(
+        'Rain looks likely within the hour — about $percent percent.',
+        'এক ঘণ্টার মধ্যে বৃষ্টির সম্ভাবনা — প্রায় $percent শতাংশ।',
+      );
+
+  String get weatherThunderstorm => _t(
+        "There's a thunderstorm about. Going out now is not a good idea.",
+        'বজ্রঝড় হচ্ছে। এখন বাইরে যাওয়া ঠিক হবে না।',
+      );
+
+  String weatherVeryHot(int feelsLike) => _t(
+        'It feels like $feelsLike degrees out — carry water and rest in the shade.',
+        'বাইরে $feelsLike ডিগ্রির মতো লাগছে — পানি নেবেন, ছায়ায় বিশ্রাম নেবেন।',
+      );
+
+  /// Prefixed to a reply that carries the camera frame it was based on, for
+  /// a screen-reader user who cannot see the picture is there.
+  String get chatAnsweredFromAPhoto => _t('From a photo.', 'ছবি থেকে।');
+
   /// Said once, when ambient path-watching stops because the battery is low.
   ///
   /// The scanner has always stopped below `ambientMinBatteryPercent` and has

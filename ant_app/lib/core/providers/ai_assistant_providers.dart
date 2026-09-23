@@ -22,6 +22,7 @@ import '../../core/providers/tts_providers.dart';
 import '../services/vision/ambient_hazard_scanner.dart';
 import '../services/vision/snapshot_vision_service.dart';
 import '../services/wake_word_service.dart';
+import '../services/weather_service.dart';
 
 final wakeWordServiceProvider = Provider<WakeWordService>((ref) {
   final service = WakeWordService();
@@ -94,6 +95,10 @@ final sttServiceProvider = Provider<SttService>(
 /// Shared so the chat controller's own clarification loop plans routes
 /// through exactly the same path the function-call executor does.
 final routePlanningServiceProvider = Provider<RoutePlanningService>((ref) => RoutePlanningService());
+
+/// Weather, for warning before a walk. One instance so its ten-minute cache
+/// is shared — this is asked on every route request.
+final weatherServiceProvider = Provider<WeatherService>((ref) => WeatherService());
 
 /// What a function call (settings change, overlay trigger, route request)
 /// actually *does* — shared between the Gemini function-calling path and

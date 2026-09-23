@@ -12,6 +12,7 @@ import '../providers/onboarding_providers.dart';
 import '../widgets/onboarding_scaffold.dart';
 import '../widgets/voice_confirm.dart';
 import '../widgets/voice_dictate_button.dart';
+import '../../dashboard/widgets/map_pick_button.dart';
 
 class SafeHavensScreen extends ConsumerStatefulWidget {
   const SafeHavensScreen({super.key});
@@ -216,6 +217,17 @@ class _SafeHavensScreenState extends ConsumerState<SafeHavensScreen> {
                 language: language,
                 fieldLabel: s.safeHavensHomeLabel,
                 onDictated: (_) => setState(() {}),
+              ),
+              const SizedBox(width: 4),
+              // The third way in, for a sighted helper setting the phone up.
+              // Typing suits somebody who knows the address and speaking
+              // suits somebody who cannot see the keyboard; neither helps
+              // the person who knows *where* home is without knowing what
+              // the address is called, which in Dhaka is common.
+              MapPickButton(
+                controller: _homeController,
+                language: language,
+                onPicked: (_, _) => setState(() {}),
               ),
             ],
           ),

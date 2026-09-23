@@ -7,6 +7,7 @@ import '../../../core/config/maps_config.dart';
 import '../../../core/localization/app_language.dart';
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/services/routing_service.dart';
 import '../../../core/widgets/map_unavailable_placeholder.dart';
 import '../widgets/destination_sheet.dart';
 
@@ -35,9 +36,13 @@ class MapPinPickerScreen extends StatefulWidget {
     super.key,
     required this.language,
     this.initialCentre,
+    this.routing,
   });
 
   final AppLanguage language;
+
+  /// Injectable so the search bar can be exercised without a network.
+  final RoutingService? routing;
 
   /// Where to open. The user's own position when it is known — starting at
   /// a city-wide view means panning across Dhaka before the map is any use.
@@ -56,12 +61,82 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
   late gmaps.LatLng _centre = widget.initialCentre ?? _dhakaFallback;
 
   final _osmController = MapController();
+  final _search = TextEditingController();
+  late final RoutingService _routing = widget.routing ?? RoutingService();
+
+  /// Candidates for the current query, and whether one is in flight.
+  List<GeocodeCandidate> _results = const [];
+  bool _searching = false;
+
+  /// What the crosshair is currently over, once it has been named. Shown
+  /// under the search bar so the user can see what they are about to pick
+  /// rather than discovering it on arrival.
+  String _centreLabel = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  /// Looks up whatever was typed and offers the matches.
+  ///
+  /// A list rather than jumping straight to the first hit. Dhaka has several
+  /// of most things, and "Lab Aid" resolves to four different buildings —
+  /// picking one silently is how somebody ends up walking to the wrong one
+  /// with no way to tell until they arrive.
+  Future<void> _runSearch() async {
+    final query = _search.text.trim();
+    if (query.isEmpty) return;
+    setState(() => _searching = true);
+    try {
+      final found = await _routing.geocodeCandidates(query);
+      if (!mounted) return;
+      setState(() => _results = found);
+      if (found.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(Dashboard.of(widget.language).pathSearchNoResults)),
+        );
+      }
+    } catch (e) {
+      debugPrint('[MapPicker] search failed: $e');
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  /// Moves the map to a chosen result and adopts its name.
+  void _goTo(GeocodeCandidate candidate) {
+    setState(() {
+      _centre = candidate.location;
+      _centreLabel = candidate.label;
+      _results = const [];
+      _search.text = candidate.spokenLabel;
+    });
+    if (MapsConfig.useOsmTiles) {
+      _osmController.move(_toLL(candidate.location), _initialZoom);
+    } else {
+      _googleController?.animateCamera(
+        gmaps.CameraUpdate.newLatLngZoom(candidate.location, _initialZoom),
+      );
+    }
+  }
+
+  gmaps.GoogleMapController? _googleController;
 
   ll.LatLng _toLL(gmaps.LatLng p) => ll.LatLng(p.latitude, p.longitude);
 
+  /// Returns the point, and the name if the search found one.
+  ///
+  /// The name matters as much as the point for a *saved* place: "Rayer
+  /// Bazar" is something the user can say back to the assistant later, where
+  /// a pair of coordinates is not. A pin dropped by panning alone has no
+  /// name and that is fine — the caller falls back to whatever the user
+  /// typed.
   void _confirm() => Navigator.of(context).pop(
         DestinationChoice(
           method: DestinationMethod.pinned,
+          text: _centreLabel.isEmpty ? null : _centreLabel,
           latitude: _centre.latitude,
           longitude: _centre.longitude,
         ),
@@ -90,14 +165,84 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
                   top: 12,
                   left: 12,
                   right: 12,
-                  child: Semantics(
-                    liveRegion: true,
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(d.pathPinInstruction),
+                  child: Column(
+                    children: [
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _search,
+                                  textInputAction: TextInputAction.search,
+                                  onSubmitted: (_) => _runSearch(),
+                                  decoration: InputDecoration(
+                                    hintText: d.pathSearchHint,
+                                    border: InputBorder.none,
+                                    isDense: true,
+                                  ),
+                                ),
+                              ),
+                              if (_searching)
+                                const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                )
+                              else
+                                IconButton(
+                                  icon: const Icon(Icons.search_rounded),
+                                  tooltip: d.pathSearchLabel,
+                                  onPressed: _runSearch,
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                      // Candidates, when a search found several. A list
+                      // rather than jumping to the first hit: Dhaka has
+                      // four Lab Aids, and picking one silently is how
+                      // somebody walks to the wrong building with no way to
+                      // tell until they arrive.
+                      if (_results.isNotEmpty)
+                        Card(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 220),
+                            child: ListView(
+                              shrinkWrap: true,
+                              children: [
+                                for (final r in _results)
+                                  ListTile(
+                                    dense: true,
+                                    title: Text(r.spokenLabel),
+                                    subtitle: Text(
+                                      r.label,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    onTap: () => _goTo(r),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        Semantics(
+                          liveRegion: true,
+                          child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Text(
+                                _centreLabel.isEmpty ? d.pathPinInstruction : _centreLabel,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ],
@@ -159,6 +304,7 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
     }
     return gmaps.GoogleMap(
       initialCameraPosition: gmaps.CameraPosition(target: _centre, zoom: _initialZoom),
+      onMapCreated: (c) => _googleController = c,
       myLocationEnabled: true,
       myLocationButtonEnabled: true,
       zoomControlsEnabled: true,

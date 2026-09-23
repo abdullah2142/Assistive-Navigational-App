@@ -199,6 +199,17 @@ class Dashboard {
       _t('Open the map and tap where you want to go', 'ম্যাপ খুলে যেখানে যেতে চান সেখানে চাপুন');
   String get pathSpeak => _t('Say it out loud', 'বলে দিন');
   String get pathSpeakHint => _t('Tap, then say the place name', 'চাপুন, তারপর জায়গার নাম বলুন');
+  String get settingsAddSavedPlace => _t('Add a place', 'জায়গা যোগ করুন');
+  String get settingsSavedPlaceLabelField => _t('Call it', 'যে নামে ডাকবেন');
+  String get settingsSavedPlaceLabelHint => _t('e.g. work, my sister\'s', 'যেমন অফিস, বোনের বাসা');
+  String get settingsSavedPlaceAddressField => _t('Where is it', 'কোথায়');
+  String get settingsSavedPlaceSaveButton => _t('Save place', 'সেভ করুন');
+  String get settingsSavedPlaceNeedsBoth =>
+      _t('It needs a name and a place.', 'একটা নাম আর একটা জায়গা — দুটোই লাগবে।');
+
+  String get pathSearchNoResults =>
+      _t('I could not find that place.', 'ওই জায়গাটা খুঁজে পেলাম না।');
+
   String get pathPinConfirm => _t('Go here', 'এখানে যান');
   /// Said back after a pin, when the reverse geocode produced nothing.
   /// Deliberately not coordinates: "23.81, 90.41" confirms nothing to

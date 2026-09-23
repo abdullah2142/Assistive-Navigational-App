@@ -14,11 +14,15 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/ai_text_summarizer.dart';
 import '../../../core/utils/text_scale_levels.dart';
 import '../../onboarding/models/disability_profile_enums.dart';
+import '../../onboarding/models/saved_place.dart';
 import '../../onboarding/models/trusted_contact.dart';
 import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../../onboarding/services/pairing_service.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
+
 import '../widgets/diagnostics_report_tile.dart';
+import '../widgets/place_picker_field.dart';
 import '../widgets/wake_word_sensitivity_tile.dart';
 
 /// The two voices, named for the language the profile is actually set to.
@@ -81,6 +85,48 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
   late final _homeController = TextEditingController(
     text: widget.profile.homeAddress ?? '',
   );
+  final _newPlaceLabelController = TextEditingController();
+  final _newPlaceAddressController = TextEditingController();
+
+  /// Set when the new place was pinned on the map rather than typed. A saved
+  /// place that already carries coordinates never needs geocoding again,
+  /// which is the difference between a route that works with no signal and
+  /// one that does not.
+  LatLng? _newPlacePoint;
+
+  /// Saves the place named in the two fields above.
+  ///
+  /// Both are required and that is deliberate: a place with no label cannot
+  /// be asked for later ("take me to…" needs a name), and a label with no
+  /// place is a name pointing at nothing. The assistant's own `save_place`
+  /// has the same rule for the same reason.
+  Future<void> _addSavedPlace(UserProfile profile, Dashboard d) async {
+    final label = _newPlaceLabelController.text.trim();
+    final address = _newPlaceAddressController.text.trim();
+    if (label.isEmpty || address.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(d.settingsSavedPlaceNeedsBoth)));
+      return;
+    }
+    final point = _newPlacePoint;
+    await _save(profile.copyWith(savedPlaces: [
+      // Replaces a place of the same name rather than adding a second — two
+      // places both called "work" is a clarification the user has to resolve
+      // every time they ask for one.
+      ...profile.savedPlaces.where((p) => p.label.toLowerCase() != label.toLowerCase()),
+      SavedPlace(
+        label: label,
+        address: address,
+        lat: point?.latitude,
+        lng: point?.longitude,
+      ),
+    ]));
+    if (!mounted) return;
+    _newPlaceLabelController.clear();
+    _newPlaceAddressController.clear();
+    setState(() => _newPlacePoint = null);
+  }
+
   late final _safePlaceController = TextEditingController(
     text: widget.profile.safePlaceAddress ?? '',
   );
@@ -119,6 +165,8 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
     _stt.stop();
     _homeController.dispose();
     _safePlaceController.dispose();
+    _newPlaceLabelController.dispose();
+    _newPlaceAddressController.dispose();
     _contactNameController.dispose();
     _contactPhoneController.dispose();
     _messageController.dispose();
@@ -457,9 +505,40 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
           ),
           _SectionCard(
             title: d.settingsSavedPlacesSection,
-            child: profile.savedPlaces.isEmpty
-                ? Text(d.settingsSavedPlacesEmpty)
-                : Column(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Adding a saved place had no UI at all: settings could
+                // remove one and never create one, so the only way in was to
+                // ask the assistant out loud. That works for a blind user
+                // and for nobody else — and it is exactly the place the
+                // report asked for a search-and-pin interface.
+                PlacePickerField(
+                  controller: _newPlaceAddressController,
+                  profile: profile,
+                  label: d.settingsSavedPlaceAddressField,
+                  onPicked: (point, name) => _newPlacePoint = point,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _newPlaceLabelController,
+                  decoration: InputDecoration(
+                    labelText: d.settingsSavedPlaceLabelField,
+                    hintText: d.settingsSavedPlaceLabelHint,
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: () => _addSavedPlace(profile, d),
+                  icon: const Icon(Icons.add_location_alt_outlined),
+                  label: Text(d.settingsSavedPlaceSaveButton),
+                ),
+                const Divider(height: 24),
+                if (profile.savedPlaces.isEmpty)
+                  Text(d.settingsSavedPlacesEmpty)
+                else
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       for (final place in profile.savedPlaces)
@@ -490,6 +569,8 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                         ),
                     ],
                   ),
+              ],
+            ),
           ),
           _SectionCard(
             title: d.settingsDeafSection,
@@ -845,16 +926,19 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                TextField(
+                // Typed, spoken or pinned on a map — see `PlacePickerField`.
+                // These were bare text fields, which is the one input method
+                // that suits the fewest of this app's users.
+                PlacePickerField(
                   controller: _homeController,
-                  decoration: InputDecoration(labelText: d.settingsHomeLabel),
+                  profile: profile,
+                  label: d.settingsHomeLabel,
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                PlacePickerField(
                   controller: _safePlaceController,
-                  decoration: InputDecoration(
-                    labelText: d.settingsSafePlaceLabel,
-                  ),
+                  profile: profile,
+                  label: d.settingsSafePlaceLabel,
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton(

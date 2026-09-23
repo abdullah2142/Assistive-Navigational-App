@@ -1308,7 +1308,11 @@ class ChatController extends Notifier<ChatState> {
       debugPrint(
           '[Chat] <- Gemini in ${stopwatch.elapsedMilliseconds}ms '
           '(first chunk ${firstChunkMs ?? -1}ms): "${turn.responseText}" '
-          '(overlay=${turn.overlayAction}, route=${turn.route != null}, profileChanged=${turn.updatedProfile != null})');
+          '(overlay=${turn.overlayAction}, route=${turn.route != null}, '
+          'scan=${turn.scanFocus?.name ?? '-'}'
+          '${turn.scanQuestion == null ? '' : ' q="${turn.scanQuestion}"'}, '
+          'emergency=${turn.triggersEmergency}, cancelRoute=${turn.cancelsRoute}, '
+          'profileChanged=${turn.updatedProfile != null})');
       if (turn.updatedProfile != null) {
         await ref.read(profileServiceProvider).saveProfile(turn.updatedProfile!);
       }

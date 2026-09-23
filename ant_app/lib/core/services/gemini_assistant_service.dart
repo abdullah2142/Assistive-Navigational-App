@@ -440,11 +440,15 @@ User's message: "$userText"
     ),
     FunctionDeclaration(
       'add_emergency_contact',
-      'Add a new Magic Button emergency contact.',
+      'Add a new Magic Button emergency contact. Omit phone if they have not '
+          'said the number — never invent one.',
+      // `phone` is deliberately optional — see the Groq declaration for the
+      // 23 September case where a required slot got filled with a number the
+      // user never gave.
       Schema.object(properties: {
         'name': Schema.string(description: "Contact's name."),
-        'phone': Schema.string(description: "Contact's phone number."),
-      }, requiredProperties: const ['name', 'phone']),
+        'phone': Schema.string(description: "Contact's phone number, only if they gave it."),
+      }, requiredProperties: const ['name']),
     ),
     FunctionDeclaration(
       'remove_emergency_contact',
@@ -499,9 +503,11 @@ User's message: "$userText"
       Schema.object(
         properties: {
           'focus': Schema.enumString(
-            enumValues: const ['vehicle', 'sign', 'surroundings', 'hazard'],
-            description: 'vehicle = which bus/rickshaw/CNG and where it goes. sign = read text. '
-                'hazard = is the path walkable. surroundings = describe the scene.',
+            enumValues: const ['vehicle', 'sign', 'ahead', 'surroundings', 'hazard'],
+            description: 'ahead = what is directly in front (one frame, instant) — use this for '
+                '"what is in front of me". surroundings = a wide left-ahead-right sweep, only for '
+                '"what is around me". vehicle = which bus/rickshaw/CNG. sign = read text. '
+                'hazard = is the path walkable.',
           ),
           'question': Schema.string(
             description: "The user's own question, copied as they asked it, when it is more "

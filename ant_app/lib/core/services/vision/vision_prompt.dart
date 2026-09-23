@@ -75,6 +75,13 @@ class VisionPrompt {
       ScanFocus.sign =>
         'Read every piece of text in the image exactly as written. Then say '
             'what it means in one short sentence.',
+      ScanFocus.ahead =>
+        'Say what is directly in front of this blind pedestrian, in two short '
+            'sentences. Name the nearest objects specifically — an animal by its '
+            'species, a container by what it is for, text by what it says — not '
+            'just their category. If something is too small or too far to '
+            'identify with confidence, say what you can see of it and say plainly '
+            'that you cannot tell what it is.',
       ScanFocus.surroundings =>
         'Describe what is in front of this blind pedestrian in two short '
             'sentences: the path ahead, anything blocking it, and any vehicle '

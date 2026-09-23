@@ -80,6 +80,26 @@ class FallbackAssistantService implements AssistantService {
   static const Duration defaultPrimaryTimeout = Duration(seconds: 18);
   static const Duration defaultSecondaryTimeout = Duration(seconds: 10);
 
+  /// The whole turn's budget, which the two attempts share.
+  static const Duration turnBudget = Duration(seconds: 28);
+
+  /// What the secondary gets, given the primary burned [spent].
+  ///
+  /// A fixed 10s threw away most of the turn in the case that matters most.
+  /// A rate-limited primary does not time out — it returns a 429 in about
+  /// 200ms — so on 23 September the fallback was handed 10 seconds out of a
+  /// 28-second budget with 27 of them still unspent, and **7 turns died on a
+  /// TimeoutException at exactly 10s** while Groq was locked out for 25
+  /// minutes at a time. Those are the turns the user saw answered with "the
+  /// ability to answer this sort of message will be added later".
+  ///
+  /// Never less than the old fixed value, so a primary that genuinely runs
+  /// its full 18s still leaves a usable window rather than a negative one.
+  Duration _secondaryBudget(Duration spent) {
+    final left = turnBudget - spent;
+    return left > _secondaryTimeout ? left : _secondaryTimeout;
+  }
+
   @override
   String get backendName =>
       _secondary == null ? _primary.backendName : '${_primary.backendName}->${_secondary.backendName}';
@@ -106,6 +126,9 @@ class FallbackAssistantService implements AssistantService {
     _lastTurnUsedFallback = false;
     final secondary = _secondary;
 
+    // How long the primary actually took, so the secondary can be given the
+    // rest of the turn's budget instead of a fixed slice of it.
+    final attemptClock = Stopwatch()..start();
     try {
       return await _primary
           .converse(
@@ -148,7 +171,7 @@ class FallbackAssistantService implements AssistantService {
               activeRoute: activeRoute,
               routeAlternatives: routeAlternatives,
             )
-            .timeout(_secondaryTimeout);
+            .timeout(_secondaryBudget(attemptClock.elapsed));
         _lastTurnUsedFallback = true;
         debugPrint('[Assistant] ${secondary.backendName} answered the fallback turn');
         return turn;

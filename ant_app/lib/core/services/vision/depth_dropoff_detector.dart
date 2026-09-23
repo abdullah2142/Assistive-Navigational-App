@@ -119,16 +119,43 @@ class DepthDropoffDetector {
 
     try {
       final input = _toInput(frame);
-      final output = [
+      // A throwaway buffer. `run` insists on an output argument; what it
+      // writes there is not what this reads — see below.
+      final sink = [
         for (var y = 0; y < inputSize; y++)
           [for (var x = 0; x < inputSize; x++) List<double>.filled(1, 0)],
       ];
 
       final stopwatch = Stopwatch()..start();
-      interpreter.run([input], [output]);
+      interpreter.run([input], [sink]);
       stopwatch.stop();
 
-      final profile = _groundProfile(output);
+      // The depth map is read from the output **tensor**, not from the
+      // nested `List` handed to `run`.
+      //
+      // That list came back untouched. The 23 September log is unambiguous —
+      // `rows=236 min=0.000 max=0.000 range=0.000` on every scan, after
+      // 800-1100ms of real inference work — and running this same model
+      // offline shows it produces an output range near 900 for any input at
+      // all, so the model was working the whole time and the copy back into
+      // Dart was not. `tflite_flutter` fills a nested `List<List<List<double>>>`
+      // only when its shape matches what the interpreter expects exactly,
+      // and it reports nothing when it does not; the failure is a silent
+      // no-op, which is why three sessions of `unreadable` never produced an
+      // error line to chase.
+      //
+      // Reading `Tensor.data` sidesteps the whole question. It is the
+      // interpreter's own output buffer, so there is no shape to agree on
+      // and no copy to get wrong — and as a `Float32List` it is also far
+      // cheaper than materialising 65,536 boxed doubles inside three levels
+      // of `List` on every frame.
+      final depth = interpreter
+          .getOutputTensor(0)
+          .data
+          .buffer
+          .asFloat32List(0, inputSize * inputSize);
+
+      final profile = _groundProfileFlat(depth);
       final verdict = _profile.analyse(profile);
       lastScore.value = verdict.score;
 
@@ -171,6 +198,37 @@ class DepthDropoffDetector {
   @visibleForTesting
   static List<double> groundProfileFrom(List<List<List<double>>> depth) =>
       _groundProfile(depth);
+
+  /// The same strip, read from the interpreter's flat output buffer.
+  ///
+  /// Row-major `[1, inputSize, inputSize, 1]`, so pixel (x, y) is at
+  /// `y * inputSize + x`. Kept beside [_groundProfile] rather than replacing
+  /// it because the nested-list form is what `depth_profile_test` feeds
+  /// synthetic ground into, and that test is the only thing standing between
+  /// a threshold change and a missed kerb.
+  @visibleForTesting
+  static List<double> groundProfileFlat(List<double> depth) => _groundProfileFlat(depth);
+
+  static List<double> _groundProfileFlat(List<double> depth) {
+    const height = inputSize;
+    const width = inputSize;
+    final half = (width * _bandFraction / 2).round();
+    final x0 = (width ~/ 2) - half;
+    final x1 = (width ~/ 2) + half;
+    final skip = (height * _skipNearestFraction).round();
+
+    final profile = <double>[];
+    for (var y = height - 1 - skip; y >= 0; y--) {
+      final row = <double>[
+        for (var x = x0; x < x1 && x < width; x++)
+          if (x >= 0) depth[y * width + x],
+      ];
+      if (row.isEmpty) continue;
+      row.sort();
+      profile.add(row[row.length ~/ 2]);
+    }
+    return profile;
+  }
 
   static List<double> _groundProfile(List<List<List<double>>> depth) {
     final height = depth.length;

@@ -383,6 +383,14 @@ Rules:
   short, direct, friendly answer. Refusing to engage because it is not about
   navigation is wrong.
 - No live POI database exists. Don't invent specific businesses.
+- One message can hold TWO requests ("change language to bangla. also why are
+  you being so slow"). Do both: call the tool for the first, and answer the
+  second in the same reply. Answering only the first is a reply the user has
+  to repeat themselves after.
+- NEVER say you are doing something you have not done. "Finding the nearest
+  toilet for you now" without calling request_route in the same turn is a
+  promise nothing will keep — the user waits, asks if you are done, and you
+  have nothing. Call the tool, or say you cannot.
 - If your own last message asked the user a question, read their reply as the
   ANSWER to it. A word in an answer is not a command: "dangerous" replying to
   "is it safe?" is a description, not a hazard report. A clear new instruction
@@ -541,14 +549,25 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
           // executor validates every value anyway — an unknown one is
           // rejected with a spoken reply, not applied. The five booleans used
           // to be named individually; grouping them is most of the saving.
-          'value': _str('text_size one of 0.8|1.0|1.25|1.5|2.0 — for "bigger"/"smaller" move ONE step from the current size, never jump to an end | theme light|dark (no colours) | language english|bangla | '
-              'verbosity minimalist|descriptive | voice e.g. bn-BD-female-1 | vision_level none|low|full | '
-              'mobility_aid whiteCane|wheelchair|unassisted | snapshot_consent always|askEachTime|never | '
-              'home_address, safe_place_address free text | all others true|false'),
+          'value': _str('text_size 0.8|1.0|1.25|1.5|2.0 (bigger/smaller = ONE step, never jump to an end) | '
+              'theme light|dark | language english|bangla | verbosity minimalist|descriptive | '
+              'voice bn-BD-female-1 | vision_level none|low|full | mobility_aid whiteCane|wheelchair|unassisted | '
+              'snapshot_consent always|askEachTime|never | addresses free text | rest true|false'),
         },
         required: ['setting', 'value']),
-    _tool('add_emergency_contact', 'Add a Magic Button emergency contact.',
-        properties: {'name': _str('Name.'), 'phone': _str('Phone number.')}, required: ['name', 'phone']),
+    // `phone` is deliberately NOT required.
+    //
+    // A model told a field is required fills it, and what it fills it with
+    // is invented — the same failure `DestinationClarifier.isPlaceholder`
+    // exists to catch on the routing side. On 23 September "new contact add
+    // koro mama." saved a contact outright, name only, with a number the
+    // user never gave. An emergency contact with a made-up number is worse
+    // than no contact: it is a number the Magic Button will dial when
+    // somebody is in trouble. Omitted, the executor asks.
+    _tool('add_emergency_contact',
+        'Add a Magic Button emergency contact. Omit phone if they have not said the number — never invent one.',
+        properties: {'name': _str('Name.'), 'phone': _str('Phone number, only if they gave it.')},
+        required: ['name']),
     _tool('remove_emergency_contact', 'Remove an emergency contact by name.',
         properties: {'name': _str('Contact to remove.')}, required: ['name']),
     _tool('add_passerby_message', 'Add a pre-written passerby message.',
@@ -567,12 +586,11 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     // happened. Neither comes out.
     _tool(
       'trigger_emergency',
-      "Raise the emergency alarm: messages contacts with location, calls the primary one, routes to "
-          "safety. Call for danger, injury, fear, being trapped/followed/taken, or urgent help, in any "
-          "wording. Short \"can't\" phrases (\"I can't get up\", \"আমি নড়তে পারছি না\") are calls for "
-          "help, not refusals. The user is blind and cannot check whether you understood, so err toward "
-          "calling. Do NOT call for the word 'help' in passing, questions about the feature, managing "
-          "contacts, or a clear \"I'm fine\". A 5s cancel window follows.",
+      "Alarm: messages contacts with location, calls the first, routes to safety. Call for danger, "
+          "injury, fear, being trapped/followed/taken, or urgent help, in any wording. Short \"can't\" "
+          "phrases (\"I can't get up\", \"আমি নড়তে পারছি না\") are pleas, not refusals — err toward "
+          "calling, they cannot check you understood. NOT for 'help' in passing, questions about the "
+          "feature, managing contacts, or \"I'm fine\". 5s cancel window.",
     ),
     // Module 6. One tool with a `focus` argument rather than four separate
     // ones (scan_bus / read_sign / describe_scene / check_path), because
@@ -582,14 +600,15 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     // argument, not four tools.
     _tool(
       'look_around',
-      'Use the camera to see for the user. Call when they ask what is in front of them, which bus or '
-          'vehicle this is, what a sign says, whether the path is clear, or whether it is safe to cross. '
-          'The user is blind — they cannot aim the camera, so never ask them to point it anywhere.',
+      'See for the user with the camera: what is ahead, which vehicle, what a sign says, is the path '
+          'clear. Never ask them to aim it.',
       properties: {
         'focus': _enumStr(
-          const ['vehicle', 'sign', 'surroundings', 'hazard'],
-          'vehicle = which bus/rickshaw/CNG and where it goes. sign = read text. '
-              'hazard = is the path walkable. surroundings = describe the scene.',
+          const ['vehicle', 'sign', 'ahead', 'surroundings', 'hazard'],
+          'ahead = what is directly in front (one frame, instant) — use this for '
+              '"what is in front of me". surroundings = a wide left-ahead-right sweep, '
+              'only for "what is around me". vehicle = which bus/rickshaw/CNG. '
+              'sign = read text. hazard = is the path walkable.',
         ),
         // Without this, the camera only ever answered the four canned
         // questions the focus enum names. "What colour is the rabbit" and

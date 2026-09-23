@@ -267,6 +267,18 @@ class FunctionCallExecutor {
 
   String _confirmationFor(String name, Map<String, Object?> args, Map<String, Object?> result, AppLanguage language) {
     final bn = language == AppLanguage.bangla;
+    // Asked rather than reported as an error, and it reopens the microphone
+    // because it ends in a question — the user is one short answer away from
+    // finishing what they started.
+    if (name == 'add_emergency_contact' && result['error'] == 'need_phone') {
+      final who = (result['name'] as String?)?.trim() ?? '';
+      return bn
+          ? '$who-এর ফোন নম্বরটা কী?'
+          : "What's $who's phone number?";
+    }
+    if (name == 'add_emergency_contact' && result['error'] == 'no_name') {
+      return bn ? 'কার নম্বর যোগ করব?' : 'Whose number should I add?';
+    }
     if (name == 'pair_with_caretaker') {
       if (result['ok'] == true) {
         return bn ? 'আপনার দেখাশোনাকারীর সাথে যুক্ত হয়ে গেছে।' : "You're now paired with your caretaker.";
@@ -600,8 +612,17 @@ class FunctionCallExecutor {
       case 'add_emergency_contact':
         final name = (args['name'] as String?)?.trim() ?? '';
         final phone = (args['phone'] as String?)?.trim() ?? '';
-        if (name.isEmpty || phone.isEmpty) {
-          return _AppliedCall(profile, const {'ok': false, 'error': 'name and phone are both required'}, null);
+        if (name.isEmpty) {
+          return _AppliedCall(profile, const {'ok': false, 'error': 'no_name'}, null);
+        }
+        // Distinct from a missing name, because the two need different
+        // questions asked. Reported 23 September: a contact saved with only
+        // a name and a number the user never gave — `phone` was a required
+        // argument, and a model told a field is required fills it rather
+        // than declining. An invented number on the Magic Button is dialled
+        // when somebody is in trouble.
+        if (phone.isEmpty || !_looksLikeAPhoneNumber(phone)) {
+          return _AppliedCall(profile, {'ok': false, 'error': 'need_phone', 'name': name}, null);
         }
         final updated = profile.copyWith(
           magicButtonContacts: [...profile.magicButtonContacts, TrustedContact(name: name, phoneNumber: phone)],
@@ -1103,6 +1124,13 @@ class FunctionCallExecutor {
   /// is never going to get a fix is told so rather than left listening to
   /// silence.
   static const Duration _routeFixBudget = Duration(seconds: 10);
+
+  /// Enough digits to dial. Deliberately loose about *format* — Bangladeshi
+  /// numbers are written with and without +880, with and without spaces —
+  /// and strict about there being real digits at all, which is what a
+  /// placeholder like "N/A" or "unknown" fails.
+  static bool _looksLikeAPhoneNumber(String raw) =>
+      RegExp(r'[0-9]').allMatches(raw).length >= 6;
 
   Future<_AppliedCall> _applyRequestRoute(
     Map<String, Object?> args,

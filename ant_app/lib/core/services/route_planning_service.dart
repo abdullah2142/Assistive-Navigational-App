@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'destination_clarifier.dart';
@@ -95,6 +96,21 @@ class RoutePlanAmbiguous extends RoutePlanResult {
 /// (`RoutingService` for Directions/Geocoding, `RouteSafetyService` for the
 /// `checkRouteSafety` Cloud Function), so the chat transcript can show each
 /// step as it happens rather than waiting on an opaque server-side loop.
+/// How much further the app will walk somebody to reach a place it can name.
+///
+/// 250m is roughly three minutes. Far enough to skip an unnamed stall in
+/// favour of a real restaurant, short enough that it is never the difference
+/// between arriving and giving up.
+const double _namedPlaceSlackMeters = 250;
+
+/// Extra distance from [origin] incurred by going to [alternative] instead of
+/// [nearest], in metres.
+double _extraMetres(LatLng origin, NearbyRefuge nearest, NearbyRefuge alternative) {
+  double d(LatLng a, LatLng b) => Geolocator.distanceBetween(
+      a.latitude, a.longitude, b.latitude, b.longitude);
+  return d(origin, alternative.location) - d(origin, nearest.location);
+}
+
 class RoutePlanningService {
   RoutePlanningService({RoutingService? routing, RouteSafetyService? safety})
       : _routing = routing ?? RoutingService(),
@@ -152,15 +168,37 @@ class RoutePlanningService {
       if (category != null) {
         final found = await _routing.nearbyOfCategory(origin: origin, category: category);
         if (found.isNotEmpty) {
+          // Prefer a *named* result over a marginally closer anonymous one.
+          //
+          // Reported 23 September: "was guiding me to nearest restaurant, but
+          // couldn't say its name", and the transcript has the user asking
+          // "so youre leading me somewhere you dont know the name of?" — a
+          // fair question. The nearest match simply had no `name` tag, which
+          // is common for small Dhaka eateries and most public toilets, so
+          // the label fell back to the user's own words and the route
+          // confirmed nothing back to them.
+          //
+          // A name is worth a short detour because it is the only way
+          // somebody who cannot see the place can tell they have arrived
+          // somewhere sensible, and the only thing they can say to a
+          // stranger. Not worth an unbounded one, hence the slack.
           final nearest = found.first;
+          final named = found.firstWhere(
+            (p) => p.name.isNotEmpty,
+            orElse: () => nearest,
+          );
+          final chosen = (named.name.isNotEmpty &&
+                  _extraMetres(origin, nearest, named) <= _namedPlaceSlackMeters)
+              ? named
+              : nearest;
           debugPrint('[RoutePlanning] "$destinationQuery" read as category '
-              '${category.id} — nearest of ${found.length}');
-          destination = nearest.location;
-          // The OSM name when it has one, so the user hears *which* place
-          // they are being taken to and can tell if it is wrong. Many
-          // toilets and small shops are mapped unnamed, and for those the
-          // category itself is the most honest label available.
-          label ??= nearest.name.isNotEmpty ? nearest.name : destinationQuery;
+              '${category.id} — ${found.length} nearby, chose '
+              '"${chosen.name.isEmpty ? '(unnamed)' : chosen.name}"');
+          destination = chosen.location;
+          // The OSM name when it has one. Where nothing nearby is named at
+          // all, the category itself is the most honest label available —
+          // inventing one would be worse than admitting it.
+          label ??= chosen.name.isNotEmpty ? chosen.name : destinationQuery;
         } else {
           debugPrint('[RoutePlanning] category ${category.id} found nothing nearby — '
               'falling through to a name search');

@@ -13,6 +13,18 @@ enum ScanFocus {
   /// "What does that sign say?" — reads and translates any text in frame.
   sign,
 
+  /// "What's directly in front of me?" — **one** frame, straight ahead, no
+  /// sweep and no stand-still prompt.
+  ///
+  /// Split out from [surroundings] after the 23 September session, where
+  /// every single scan came back `frames=3 focus=surroundings` — including
+  /// "can you tell me whats in front of me", which is a question about one
+  /// direction. The sweep cost the user seventeen seconds of standing still
+  /// and three cloud frames to answer a question about the view they were
+  /// already facing. Reported directly: "whats in front of me should only
+  /// take one frame in front of me".
+  ahead,
+
   /// "What's around me?" — the plan's Stationary Sweep. Three frames, wide
   /// description.
   surroundings,

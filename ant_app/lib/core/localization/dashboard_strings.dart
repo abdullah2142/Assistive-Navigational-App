@@ -1000,6 +1000,28 @@ class Dashboard {
   /// Module 6 is not built, so the request can be delivered and not answered.
   /// Saying so is the point: a request that silently does nothing is what the
   /// whole of item 28 felt like.
+  /// Voicemail-style replay of caretaker voice memos.
+  ///
+  /// The position is said before the clip plays. For somebody who cannot see
+  /// a list, "the second of four" is the only thing that makes stepping
+  /// through them navigable at all.
+  String voiceMemoReplaying(int index, int total) => total == 1
+      ? _t('Playing your caretaker\'s message.', 'আপনার দেখাশোনাকারীর বার্তা শোনাচ্ছি।')
+      : _t('Message $index of $total.', '$total-টির মধ্যে $index নম্বর বার্তা।');
+
+  String get voiceMemoNoneToReplay => _t(
+        'Your caretaker has not sent a voice message yet.',
+        'আপনার দেখাশোনাকারী এখনো কোনো ভয়েস বার্তা পাঠাননি।',
+      );
+
+  /// Clamped, not wrapped — silently restarting at the other end sounds like
+  /// the same message arriving twice.
+  String get voiceMemoNoOlder =>
+      _t('That is the oldest one.', 'এটাই সবচেয়ে পুরোনো।');
+
+  String get voiceMemoNoNewer =>
+      _t('That is the newest one.', 'এটাই সবচেয়ে নতুন।');
+
   /// A landmark coming up beside the route — see `NavigationNarrator`.
   ///
   /// Said plainly and once. A bus stop is information ("you could board

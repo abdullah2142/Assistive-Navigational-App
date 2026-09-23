@@ -23,6 +23,9 @@ enum CommunicationType {
       CommunicationType.values.firstWhere((v) => v.name == value, orElse: () => CommunicationType.memo);
 }
 
+/// Which way [ChatController.replayVoiceMemo] moves through the inbox.
+enum ReplayDirection { latest, repeat, previous, next }
+
 /// One entry in the Communication Hub, read from
 /// `communications/{disabledUserUid}/messages`.
 class CommunicationMessage {

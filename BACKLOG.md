@@ -29,6 +29,22 @@ not the hopeful one.
    reopens that decision rather than just adding a widget. *Medium, and an
    architectural call first.*
 
+## Commute planning
+
+Dropped from this file in error on 23 September while it was being
+reordered — they were in the 22 September list and were never built.
+
+- **Jam-based ETA.** Live traffic in the commute estimate, so a trip can be
+  planned around Dhaka congestion rather than walking distance alone. Today
+  every estimate is walking speed over route length, which is honest for a
+  footpath and useless for deciding when to leave. *Medium.*
+- **Transport suggestion.** Narrate the sensible ways to reach a destination
+  — bus, rickshaw, CNG, walk — chosen by distance and time of day, for
+  planning rather than for setting off immediately. `busRoutes` already holds
+  156 Dhaka operators and `place_categories.dart` can find the nearest stop;
+  what is missing is the judgement about which mode suits a given trip.
+  *Medium.*
+
 ## Later, by instruction
 
 - **Guardian web interface.** Everything the phone can do, in a browser, for

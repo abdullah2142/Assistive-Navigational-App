@@ -52,6 +52,18 @@ class _CaretakerInboxListenerState extends ConsumerState<CaretakerInboxListener>
   Future<void> _queue = Future<void>.value();
 
   @override
+  void initState() {
+    super.initState();
+    // Lend the player to the controller, so a memo can be played again when
+    // the user asks later — not only once as it arrives. This widget owns
+    // the `AudioPlayer` because it owns a lifecycle; the controller does not.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(chatControllerProvider.notifier).registerAudioPlayer(_play);
+    });
+  }
+
+  @override
   void dispose() {
     _player.dispose();
     super.dispose();

@@ -11,6 +11,7 @@ import '../../features/dashboard/models/chat_message.dart';
 import '../../features/dashboard/models/hazard_report.dart';
 import '../../features/dashboard/models/suggested_chip.dart';
 import '../../features/onboarding/models/user_profile.dart';
+import '../../features/guardian/models/communication_message.dart' show ReplayDirection;
 import '../config/groq_config.dart';
 import '../localization/app_language.dart';
 import 'destination_clarifier.dart';
@@ -192,6 +193,7 @@ class GroqAssistantService implements AssistantService {
     HazardReportPrefill? hazardPrefill;
     ScanFocus? scanFocus;
     String? scanQuestion;
+    ReplayDirection? replayDirection;
     DestinationClarification? clarification;
     PendingPlaceSave? placeSave;
     final confirmations = <String>[];
@@ -222,6 +224,7 @@ class GroqAssistantService implements AssistantService {
       hazardPrefill ??= applied.hazardPrefill;
       scanFocus ??= applied.scanFocus;
       scanQuestion ??= applied.scanQuestion;
+      replayDirection ??= applied.replayDirection;
       clarification ??= applied.clarification;
       placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
@@ -236,6 +239,7 @@ class GroqAssistantService implements AssistantService {
       hazardPrefill: hazardPrefill,
       scanFocus: scanFocus,
       scanQuestion: scanQuestion,
+      replayDirection: replayDirection,
       clarification: clarification,
       placeSave: placeSave,
     );
@@ -665,6 +669,20 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
       properties: {'message': _str('What they want said, in their words.')},
       required: ['message'],
     ),
+    // Voicemail-style replay. A memo used to play exactly once, on arrival,
+    // and then be unreachable — for a user who cannot scroll a transcript,
+    // a message half-heard over traffic was a message gone.
+    _tool('replay_voice_message',
+        'Play a voice message the caretaker sent again. Use for "play that again", '
+            '"what did they say", "the one before that", "the next one".',
+        properties: {
+          'which': _enumStr(
+            const ['latest', 'repeat', 'previous', 'next'],
+            'latest = the newest. repeat = the one just played. '
+                'previous/next = step back or forward through them.',
+          ),
+        },
+        required: ['which']),
     _tool('record_caretaker_voice_memo',
         'Open the recorder for a voice message to the caretaker — use when they ask for their own *voice* specifically, not a transcription.'),
     _tool('alert_caretaker',

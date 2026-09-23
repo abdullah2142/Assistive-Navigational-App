@@ -295,6 +295,12 @@ class ChatController extends Notifier<ChatState> {
         if (message.text.trim().isEmpty) return;
         await _appendAssistantReply(d.caretakerMemoHeard(message.text.trim()), profile);
       case CommunicationType.voiceMemo:
+        // Kept so it can be played again later — see `replayVoiceMemo`.
+        // Appended before playback so a clip that fails to play is still
+        // reachable: "play that again" is exactly what a user says when they
+        // did not hear it the first time.
+        _voiceInbox.add(message);
+        _inboxCursor = _voiceInbox.length - 1;
         final audio = message.audioBase64;
         // Announced first, then played. The announcement is what tells a user
         // who cannot see the screen that the sound about to come out of their
@@ -326,6 +332,82 @@ class ChatController extends Notifier<ChatState> {
       // who reads a reply. Present so the switch stays total.
       case CommunicationType.snapshotReply:
         return;
+    }
+  }
+
+  /// Voice memos the caretaker has sent this session, oldest first, and
+  /// where in them the user currently is.
+  ///
+  /// The whole of voicemail-style replay. A memo used to play exactly once,
+  /// on arrival, and then be unreachable — which for somebody who cannot
+  /// scroll back through a transcript means a message half-heard over
+  /// traffic is a message gone. Held in memory rather than re-read from
+  /// Firestore because the audio is already in hand and the session is the
+  /// useful span: a memo from yesterday is not what "play it again" means.
+  final List<CommunicationMessage> _voiceInbox = [];
+
+  /// Points at the memo [replayVoiceMemo] acts on. Starts past the end so
+  /// the first "play it again" means the newest one.
+  int _inboxCursor = -1;
+
+  /// Plays audio. Registered by `CaretakerInboxListener`, which owns the
+  /// player — this notifier cannot hold one.
+  Future<bool> Function(String audioBase64)? _audioPlayer;
+
+  /// Lets the inbox listener lend its player for replays the user asks for
+  /// later, not only for the memo arriving now.
+  void registerAudioPlayer(Future<bool> Function(String audioBase64) play) {
+    _audioPlayer = play;
+  }
+
+  /// How many voice memos are replayable. Exposed for the executor's reply.
+  int get voiceMemoCount => _voiceInbox.length;
+
+  /// Replays a caretaker voice memo.
+  ///
+  /// [direction] moves the cursor first: `latest` jumps to the newest,
+  /// `repeat` stays put, `previous`/`next` step through. Clamped rather than
+  /// wrapping — "next" at the newest should say there is nothing newer, not
+  /// silently start again at the oldest, which sounds like the same message
+  /// arriving twice.
+  Future<void> replayVoiceMemo(ReplayDirection direction, UserProfile profile) async {
+    final d = Dashboard.of(profile.language);
+    if (_voiceInbox.isEmpty) {
+      await _appendAssistantReply(d.voiceMemoNoneToReplay, profile);
+      return;
+    }
+
+    final last = _voiceInbox.length - 1;
+    final target = switch (direction) {
+      ReplayDirection.latest => last,
+      ReplayDirection.repeat => _inboxCursor < 0 ? last : _inboxCursor,
+      ReplayDirection.previous => (_inboxCursor < 0 ? last : _inboxCursor) - 1,
+      ReplayDirection.next => (_inboxCursor < 0 ? last : _inboxCursor) + 1,
+    };
+
+    if (target < 0) {
+      await _appendAssistantReply(d.voiceMemoNoOlder, profile);
+      return;
+    }
+    if (target > last) {
+      await _appendAssistantReply(d.voiceMemoNoNewer, profile);
+      return;
+    }
+
+    _inboxCursor = target;
+    final memo = _voiceInbox[target];
+    // Said before it plays, so a user who cannot see the screen knows which
+    // of several they are about to hear — "the second of four" is the whole
+    // point of stepping through them.
+    await _appendAssistantReply(
+      d.voiceMemoReplaying(target + 1, _voiceInbox.length),
+      profile,
+    );
+
+    final audio = memo.audioBase64;
+    final play = _audioPlayer;
+    if (audio == null || play == null || !await play(audio)) {
+      await _appendAssistantReply(d.caretakerVoiceMemoUnplayable, profile);
     }
   }
 
@@ -1317,6 +1399,9 @@ class ChatController extends Notifier<ChatState> {
       if (turn.scanFocus != null) {
         await _runScan(turn.scanFocus!, profile, question: turn.scanQuestion);
       }
+      if (turn.replayDirection != null) {
+        await replayVoiceMemo(turn.replayDirection!, profile);
+      }
       if (turn.overlayAction != null) {
         state = state.copyWith(
           pendingOverlayAction: turn.overlayAction,
@@ -1547,6 +1632,9 @@ class ChatController extends Notifier<ChatState> {
       }
       if (turn.scanFocus != null) {
         await _runScan(turn.scanFocus!, profile, question: turn.scanQuestion);
+      }
+      if (turn.replayDirection != null) {
+        await replayVoiceMemo(turn.replayDirection!, profile);
       }
       if (turn.route != null) {
         state = state.copyWith(

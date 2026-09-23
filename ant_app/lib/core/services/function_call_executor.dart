@@ -5,6 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 import 'dart:async';
 
 import '../../features/dashboard/models/hazard_report.dart';
+import '../../features/guardian/models/communication_message.dart' show ReplayDirection;
 import '../../features/guardian/models/guardian_alert.dart';
 import '../../features/guardian/services/alert_service.dart';
 import '../../features/guardian/services/communication_service.dart';
@@ -38,6 +39,7 @@ class _AppliedCall {
     this.placeSave,
     this.scanFocus,
     this.scanQuestion,
+    this.replayDirection,
     this.triggersEmergency = false,
     this.cancelsRoute = false,
   });
@@ -66,6 +68,10 @@ class _AppliedCall {
   /// The user's own wording, when they asked something more specific than
   /// the focus enum can express. See [AssistantTurn.scanQuestion].
   final String? scanQuestion;
+
+  /// Set when the model called `replay_voice_message`. A request, like
+  /// [scanFocus] — the audio player belongs to the widget tree, not here.
+  final ReplayDirection? replayDirection;
 
   /// Set when the model called `trigger_emergency`.
   final bool triggersEmergency;
@@ -521,6 +527,10 @@ class FunctionCallExecutor {
       // ear, a redundant sentence is time spent standing in a road.
       case 'look_around':
         return '';
+      // Spoken by `replayVoiceMemo`, which is the only thing that knows
+      // which of how many is about to play.
+      case 'replay_voice_message':
+        return '';
       case 'open_passerby_helper':
         return bn ? 'স্ক্রিন দেখাচ্ছি।' : 'Showing your screen now.';
       case 'open_hazard_report':
@@ -701,6 +711,21 @@ class FunctionCallExecutor {
           null,
           scanFocus: _scanFocusFrom(args),
           scanQuestion: (args['question'] as String?)?.trim(),
+        );
+
+      case 'replay_voice_message':
+        return _AppliedCall(
+          profile,
+          const {'ok': true},
+          null,
+          replayDirection: switch ((args['which'] as String?)?.trim().toLowerCase()) {
+            'repeat' => ReplayDirection.repeat,
+            'previous' => ReplayDirection.previous,
+            'next' => ReplayDirection.next,
+            // Anything unrecognised means the newest, which is what somebody
+            // asking vaguely to hear a message again almost always wants.
+            _ => ReplayDirection.latest,
+          },
         );
 
       case 'open_passerby_helper':

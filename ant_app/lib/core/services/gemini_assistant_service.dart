@@ -8,6 +8,7 @@ import '../../features/dashboard/models/chat_message.dart';
 import '../../features/dashboard/models/hazard_report.dart';
 import '../../features/dashboard/models/suggested_chip.dart';
 import '../../features/onboarding/models/user_profile.dart';
+import '../../features/guardian/models/communication_message.dart' show ReplayDirection;
 import '../config/gemini_config.dart';
 import '../localization/app_language.dart';
 import 'destination_clarifier.dart';
@@ -52,6 +53,7 @@ class AssistantTurn {
     this.placeSave,
     this.scanFocus,
     this.scanQuestion,
+    this.replayDirection,
     this.triggersEmergency = false,
     this.cancelsRoute = false,
   });
@@ -73,6 +75,10 @@ class AssistantTurn {
   /// of the path ahead. The user had asked about a rabbit and was told about
   /// a footpath, which reads as the camera not working at all.
   final String? scanQuestion;
+
+  /// Set when the model called `replay_voice_message` — a request for the
+  /// caller to act on, like [scanFocus].
+  final ReplayDirection? replayDirection;
 
   final String responseText;
 
@@ -243,6 +249,7 @@ class GeminiAssistantService implements AssistantService {
     HazardReportPrefill? hazardPrefill;
     ScanFocus? scanFocus;
     String? scanQuestion;
+    ReplayDirection? replayDirection;
     DestinationClarification? clarification;
     PendingPlaceSave? placeSave;
     final confirmations = <String>[];
@@ -265,6 +272,7 @@ class GeminiAssistantService implements AssistantService {
       hazardPrefill ??= applied.hazardPrefill;
       scanFocus ??= applied.scanFocus;
       scanQuestion ??= applied.scanQuestion;
+      replayDirection ??= applied.replayDirection;
       clarification ??= applied.clarification;
       placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
@@ -292,6 +300,7 @@ class GeminiAssistantService implements AssistantService {
       hazardPrefill: hazardPrefill,
       scanFocus: scanFocus,
       scanQuestion: scanQuestion,
+      replayDirection: replayDirection,
       clarification: clarification,
       placeSave: placeSave,
     );
@@ -591,6 +600,18 @@ User's message: "$userText"
           description: 'What the user wants said, in their own words.',
         ),
       }, requiredProperties: const ['message']),
+    ),
+    FunctionDeclaration(
+      'replay_voice_message',
+      'Play a voice message the caretaker sent again. Use for "play that again", '
+          '"what did they say", "the one before that", "the next one".',
+      Schema.object(properties: {
+        'which': Schema.enumString(
+          enumValues: const ['latest', 'repeat', 'previous', 'next'],
+          description: 'latest = the newest. repeat = the one just played. '
+              'previous/next = step back or forward through them.',
+        ),
+      }, requiredProperties: const ['which']),
     ),
     FunctionDeclaration(
       'record_caretaker_voice_memo',

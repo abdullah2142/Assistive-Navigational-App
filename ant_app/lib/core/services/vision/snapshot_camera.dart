@@ -46,9 +46,10 @@ import '../../config/vision_config.dart';
 class SnapshotCamera {
   SnapshotCamera({
     @visibleForTesting Future<List<CameraDescription>> Function()? listCameras,
-    @visibleForTesting CameraController Function(CameraDescription)? buildController,
-  })  : _listCameras = listCameras ?? availableCameras,
-        _buildController = buildController ?? _defaultController;
+    @visibleForTesting
+    CameraController Function(CameraDescription)? buildController,
+  }) : _listCameras = listCameras ?? availableCameras,
+       _buildController = buildController ?? _defaultController;
 
   final Future<List<CameraDescription>> Function() _listCameras;
   final CameraController Function(CameraDescription) _buildController;
@@ -56,12 +57,11 @@ class SnapshotCamera {
   static CameraController _defaultController(CameraDescription description) =>
       CameraController(
         description,
-        // Medium, not max. The cloud tier is sent 320x240 regardless (see
-        // `VisionConfig.uploadWidth` — token cost is flat across resolution,
-        // so a larger capture buys nothing) and the edge detector downsamples
-        // to 300x300. A high-resolution capture would cost encode time,
-        // memory and heat to produce pixels that are immediately thrown away.
-        ResolutionPreset.medium,
+        // High for the explicit snapshot flow so a small sign or object has
+        // enough detail before the frame is resized for the vision backend.
+        // Max resolution adds cost on the device without improving the
+        // configured upload dimensions.
+        ResolutionPreset.high,
         enableAudio: false,
       );
 
@@ -74,6 +74,17 @@ class SnapshotCamera {
   bool _capturing = false;
 
   bool get isOpen => _controller?.value.isInitialized ?? false;
+
+  /// The initialized controller for an explicitly opened aiming viewfinder.
+  /// The controller remains owned by this class and is released by the
+  /// snapshot flow when analysis/sending finishes.
+  CameraController? get controller => isOpen ? _controller : null;
+
+  /// Opens the back camera for an explicit aiming session.
+  Future<bool> open() async {
+    _releaseTimer?.cancel();
+    return _ensureOpen();
+  }
 
   /// Whether the device has a usable camera at all. Null until first checked.
   bool? _available;
@@ -99,6 +110,7 @@ class SnapshotCamera {
     int count = 1,
     Duration gap = VisionConfig.sweepFrameGap,
     Future<void> Function(int index)? onBeforeFrame,
+    bool holdOpen = false,
   }) async {
     if (_capturing) {
       debugPrint('[SnapshotCamera] capture already in flight — ignoring');
@@ -133,7 +145,7 @@ class SnapshotCamera {
       return frames;
     } finally {
       _capturing = false;
-      _scheduleRelease();
+      if (!holdOpen) _scheduleRelease();
     }
   }
 
@@ -217,9 +229,11 @@ class SnapshotCamera {
     final controller = _controller;
     _controller = null;
     if (controller == null) return;
-    unawaited(controller.dispose().catchError((Object e) {
-      debugPrint('[SnapshotCamera] dispose failed: $e');
-    }));
+    unawaited(
+      controller.dispose().catchError((Object e) {
+        debugPrint('[SnapshotCamera] dispose failed: $e');
+      }),
+    );
   }
 
   void dispose() => releaseNow();

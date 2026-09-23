@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../core/config/emergency_config.dart';
+import '../../../core/localization/app_language.dart';
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/services/vision/snapshot_vision_service.dart';
 import '../../../core/services/vision/vision_scene.dart';
@@ -23,6 +24,7 @@ import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../models/chat_message.dart';
 import '../services/chat_history_store.dart';
+
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 
 import '../../../core/services/destination_clarifier.dart';
@@ -42,6 +44,7 @@ class ChatState {
     this.pendingPlaceSave,
     this.lastSettingChanged,
     this.answerInvitations = 0,
+    this.caretakerMessageArmed = false,
   });
 
   final List<ChatMessage> messages;
@@ -58,6 +61,10 @@ class ChatState {
   /// recognizer is never opened underneath the app's own voice — which is
   /// item 23, and the single easiest way to reintroduce it.
   final int answerInvitations;
+
+  /// True only while a voice command is waiting for the user's next written
+  /// or spoken input to forward as a caretaker message.
+  final bool caretakerMessageArmed;
 
   /// Set when the AI Assistant's function calling decided the Passerby
   /// Helper or Hazard Report overlay should open — `ChatStreamPanel` (which
@@ -119,21 +126,30 @@ class ChatState {
     bool clearPlaceSave = false,
     String? lastSettingChanged,
     int? answerInvitations,
-  }) =>
-      ChatState(
-        messages: messages ?? this.messages,
-        isAssistantTyping: isAssistantTyping ?? this.isAssistantTyping,
-        pendingOverlayAction: clearOverlay ? null : (pendingOverlayAction ?? this.pendingOverlayAction),
-        pendingHazardPrefill: clearOverlay ? null : (pendingHazardPrefill ?? this.pendingHazardPrefill),
-        pendingRoute: clearRoute ? null : (pendingRoute ?? this.pendingRoute),
-        routeAlternatives:
-            clearRoute ? const [] : (routeAlternatives ?? this.routeAlternatives),
-        pendingClarification:
-            clearClarification ? null : (pendingClarification ?? this.pendingClarification),
-        pendingPlaceSave: clearPlaceSave ? null : (pendingPlaceSave ?? this.pendingPlaceSave),
-        lastSettingChanged: lastSettingChanged ?? this.lastSettingChanged,
-        answerInvitations: answerInvitations ?? this.answerInvitations,
-      );
+    bool? caretakerMessageArmed,
+  }) => ChatState(
+    messages: messages ?? this.messages,
+    isAssistantTyping: isAssistantTyping ?? this.isAssistantTyping,
+    pendingOverlayAction: clearOverlay
+        ? null
+        : (pendingOverlayAction ?? this.pendingOverlayAction),
+    pendingHazardPrefill: clearOverlay
+        ? null
+        : (pendingHazardPrefill ?? this.pendingHazardPrefill),
+    pendingRoute: clearRoute ? null : (pendingRoute ?? this.pendingRoute),
+    routeAlternatives: clearRoute
+        ? const []
+        : (routeAlternatives ?? this.routeAlternatives),
+    pendingClarification: clearClarification
+        ? null
+        : (pendingClarification ?? this.pendingClarification),
+    pendingPlaceSave: clearPlaceSave
+        ? null
+        : (pendingPlaceSave ?? this.pendingPlaceSave),
+    lastSettingChanged: lastSettingChanged ?? this.lastSettingChanged,
+    answerInvitations: answerInvitations ?? this.answerInvitations,
+    caretakerMessageArmed: caretakerMessageArmed ?? this.caretakerMessageArmed,
+  );
 }
 
 /// Drives the Dynamic Chat Stream on the Split-Mode Dashboard.
@@ -148,6 +164,94 @@ class ChatState {
 /// so the chat stream, suggested chips, and overlay triggers all keep
 /// working exactly as before a key exists.
 class ChatController extends Notifier<ChatState> {
+  Future<bool> Function()? _cameraAimer;
+  Future<void> Function()? _cameraAimFinisher;
+  bool _oneShotCaretakerMessage = false;
+
+  /// The dashboard owns the camera UI/context; the controller requests a
+  /// short aim session before every explicit scan or user-requested photo.
+  void registerCameraAimer(
+    Future<bool> Function()? aim, {
+    Future<void> Function()? finish,
+  }) {
+    _cameraAimer = aim;
+    _cameraAimFinisher = finish;
+  }
+
+  Future<bool> _aimCamera() async => await _cameraAimer?.call() ?? true;
+  Future<void> _finishCameraAim() async {
+    final finish = _cameraAimFinisher;
+    if (finish != null) await finish();
+  }
+
+  Future<void> sendCaretakerText(String text, UserProfile profile) async {
+    _oneShotCaretakerMessage = false;
+    state = state.copyWith(caretakerMessageArmed: false);
+    final value = text.trim();
+    if (value.isEmpty) return;
+    _turnGeneration++;
+    _appendUserMessage(value);
+    await _deliverCaretakerText(value, profile);
+  }
+
+  Future<void> _deliverCaretakerText(String text, UserProfile profile) async {
+    final caretakerUid = profile.pairedUserId;
+    final d = Dashboard.of(profile.language);
+    if (caretakerUid == null) {
+      await _appendAssistantReply(d.alertCaretakerNotPaired, profile);
+      return;
+    }
+    try {
+      await ref
+          .read(communicationServiceProvider)
+          .sendMemo(
+            disabledUserUid: profile.uid,
+            fromUid: profile.uid,
+            toUid: caretakerUid,
+            text: text,
+          );
+      await _appendAssistantReply(d.caretakerMemoSent, profile);
+    } catch (e) {
+      debugPrint('[Chat] caretaker message failed: $e');
+      await _appendAssistantReply(d.caretakerMessageFailed, profile);
+    }
+  }
+
+  Future<void> sendPhotoToCaretaker(UserProfile profile) {
+    _oneShotCaretakerMessage = false;
+    state = state.copyWith(caretakerMessageArmed: false);
+    return _sendPhotoToCaretaker(profile, Dashboard.of(profile.language));
+  }
+
+  void clearOneShotCaretakerMessage() {
+    _oneShotCaretakerMessage = false;
+    state = state.copyWith(caretakerMessageArmed: false);
+  }
+
+  Future<void> announceCaretakerVoiceMemoSent(UserProfile profile) =>
+      _appendAssistantReply(
+        Dashboard.of(profile.language).caretakerMemoSent,
+        profile,
+      );
+
+  void appendOutgoingCaretakerVoiceMemo(
+    String audioBase64,
+    int durationSeconds,
+  ) {
+    state = state.copyWith(
+      messages: [
+        ...state.messages,
+        ChatMessage(
+          sender: ChatSender.user,
+          text: '',
+          timestamp: DateTime.now(),
+          audioBase64: audioBase64,
+          audioDurationSeconds: durationSeconds,
+        ),
+      ],
+    );
+  }
+
   @override
   ChatState build() {
     // Every spoken navigation cue also lands in the chat as text.
@@ -170,7 +274,8 @@ class ChatController extends Notifier<ChatState> {
     // stayed scoped to a journey that finished hours ago. `clearRoute`
     // existed for exactly this and nothing ever called it.
     void onProgress() {
-      if (navigation.progress.value?.arrived ?? false) state = state.copyWith(clearRoute: true);
+      if (navigation.progress.value?.arrived ?? false)
+        state = state.copyWith(clearRoute: true);
     }
 
     navigation.progress.addListener(onProgress);
@@ -227,19 +332,31 @@ class ChatController extends Notifier<ChatState> {
   /// Appended, never re-spoken — [NavigationController] said it as it
   /// emitted it, and hearing every turn twice is worse than not seeing it.
   void _onNavigationCue(String text) {
-    state = state.copyWith(messages: [
-      ...state.messages,
-      ChatMessage(sender: ChatSender.assistant, text: text, timestamp: DateTime.now()),
-    ]);
+    state = state.copyWith(
+      messages: [
+        ...state.messages,
+        ChatMessage(
+          sender: ChatSender.assistant,
+          text: text,
+          timestamp: DateTime.now(),
+        ),
+      ],
+    );
   }
 
   /// Called once by the widget as soon as it knows the current language —
   /// idempotent, so calling it again after the first message is a no-op.
   void ensureWelcomeMessage(Dashboard d) {
     if (state.messages.isNotEmpty) return;
-    state = state.copyWith(messages: [
-      ChatMessage(sender: ChatSender.assistant, text: d.chatWelcome, timestamp: DateTime.now()),
-    ]);
+    state = state.copyWith(
+      messages: [
+        ChatMessage(
+          sender: ChatSender.assistant,
+          text: d.chatWelcome,
+          timestamp: DateTime.now(),
+        ),
+      ],
+    );
   }
 
   void clearPendingOverlay() => state = state.copyWith(clearOverlay: true);
@@ -252,7 +369,8 @@ class ChatController extends Notifier<ChatState> {
   /// Drops a half-streamed bubble belonging to a turn the user has moved past.
   List<ChatMessage> _withoutLastAssistantBubble() {
     final messages = state.messages;
-    if (messages.isEmpty || messages.last.sender != ChatSender.assistant) return messages;
+    if (messages.isEmpty || messages.last.sender != ChatSender.assistant)
+      return messages;
     return messages.sublist(0, messages.length - 1);
   }
 
@@ -260,7 +378,16 @@ class ChatController extends Notifier<ChatState> {
     final messages = List<ChatMessage>.from(state.messages);
     if (messages.isEmpty) return messages;
     final last = messages.removeLast();
-    messages.add(ChatMessage(sender: last.sender, text: text, timestamp: last.timestamp));
+    messages.add(
+      ChatMessage(
+        sender: last.sender,
+        text: text,
+        timestamp: last.timestamp,
+        messageId: last.id,
+        replyToMessageId: last.replyToMessageId,
+        replyToText: last.replyToText,
+      ),
+    );
     return messages;
   }
 
@@ -293,7 +420,11 @@ class ChatController extends Notifier<ChatState> {
     switch (message.type) {
       case CommunicationType.memo:
         if (message.text.trim().isEmpty) return;
-        await _appendAssistantReply(d.caretakerMemoHeard(message.text.trim()), profile);
+        _appendCaretakerMessage(message.text.trim(), messageId: message.id);
+        await _appendAssistantReply(
+          d.caretakerMemoHeard(message.text.trim()),
+          profile,
+        );
       case CommunicationType.voiceMemo:
         // Kept so it can be played again later — see `replayVoiceMemo`.
         // Appended before playback so a clip that fails to play is still
@@ -302,6 +433,12 @@ class ChatController extends Notifier<ChatState> {
         _voiceInbox.add(message);
         _inboxCursor = _voiceInbox.length - 1;
         final audio = message.audioBase64;
+        _appendCaretakerMessage(
+          d.caretakerVoiceMemoHeard,
+          messageId: message.id,
+          audioBase64: audio,
+          audioDurationSeconds: message.durationSeconds,
+        );
         // Announced first, then played. The announcement is what tells a user
         // who cannot see the screen that the sound about to come out of their
         // phone is their caretaker and not the assistant.
@@ -322,8 +459,11 @@ class ChatController extends Notifier<ChatState> {
           // Asked, not assumed. `mayInviteAnswer` reopens the microphone, so
           // the answer is one spoken word away — see `_pendingSnapshotFor`.
           _pendingSnapshotFor = message.fromUid;
-          await _appendAssistantReply(d.caretakerSnapshotAsk, profile,
-              mayInviteAnswer: true);
+          await _appendAssistantReply(
+            d.caretakerSnapshotAsk,
+            profile,
+            mayInviteAnswer: true,
+          );
           return;
         }
         await _captureForCaretaker(profile, d, caretakerUid: message.fromUid);
@@ -348,6 +488,83 @@ class ChatController extends Notifier<ChatState> {
     }
   }
 
+  void _appendCaretakerMessage(
+    String text, {
+    required String messageId,
+    String? audioBase64,
+    int? audioDurationSeconds,
+  }) {
+    state = state.copyWith(
+      messages: [
+        ...state.messages,
+        ChatMessage(
+          sender: ChatSender.caretaker,
+          text: text,
+          timestamp: DateTime.now(),
+          messageId: 'caretaker-$messageId',
+          audioBase64: audioBase64,
+          audioDurationSeconds: audioDurationSeconds,
+        ),
+      ],
+    );
+    // The audio itself is intentionally not persisted; keep the visible
+    // sender and transcript line, which still explains that a memo arrived.
+    _rememberTranscript();
+  }
+
+  /// Rehydrates tap-to-play memo bubbles and the replay cursor from Firestore
+  /// without announcing old messages aloud each time the dashboard opens.
+  void restoreCaretakerInbox(
+    List<CommunicationMessage> messages,
+    UserProfile profile,
+  ) {
+    final ordered = messages.toList()
+      ..sort(
+        (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
+      );
+    final present = state.messages.map((m) => m.id).toSet();
+    final additions = <ChatMessage>[];
+    for (final message in ordered) {
+      if (message.type == CommunicationType.voiceMemo) {
+        if (!_voiceInbox.any((memo) => memo.id == message.id))
+          _voiceInbox.add(message);
+        final id = 'caretaker-${message.id}';
+        if (!present.contains(id)) {
+          additions.add(
+            ChatMessage(
+              sender: ChatSender.caretaker,
+              text: Dashboard.of(profile.language).caretakerVoiceMemoHeard,
+              timestamp: message.createdAt ?? DateTime.now(),
+              messageId: id,
+              audioBase64: message.audioBase64,
+              audioDurationSeconds: message.durationSeconds,
+            ),
+          );
+        }
+      } else if (message.type == CommunicationType.memo &&
+          message.text.trim().isNotEmpty) {
+        final id = 'caretaker-${message.id}';
+        if (!present.contains(id)) {
+          additions.add(
+            ChatMessage(
+              sender: ChatSender.caretaker,
+              text: message.text.trim(),
+              timestamp: message.createdAt ?? DateTime.now(),
+              messageId: id,
+            ),
+          );
+        }
+      }
+    }
+    if (_voiceInbox.isNotEmpty) _inboxCursor = _voiceInbox.length - 1;
+    if (additions.isNotEmpty) {
+      final merged = [...state.messages, ...additions]
+        ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      state = state.copyWith(messages: merged);
+    }
+  }
+
   /// Takes a photo and sends it to the paired caretaker, because the user
   /// asked to.
   ///
@@ -363,42 +580,52 @@ class ChatController extends Notifier<ChatState> {
     final caretakerUid = profile.pairedUserId;
     if (caretakerUid == null) return;
 
-    ScanResult result;
-    try {
-      result = await ref.read(snapshotVisionServiceProvider).scan(
-            focus: ScanFocus.ahead,
-            language: profile.language,
-          );
-    } catch (e) {
-      debugPrint('[Chat] photo for caretaker failed: $e');
-      await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
-      return;
-    }
+    if (!await _aimCamera()) return;
 
-    final frame = result.frameJpeg;
-    if (frame == null) {
-      await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
-      return;
-    }
-
+    final vision = ref.read(snapshotVisionServiceProvider);
     try {
-      await ref.read(communicationServiceProvider).sendPhoto(
-            disabledUserUid: profile.uid,
-            fromUid: profile.uid,
-            toUid: caretakerUid,
-            imageBase64: base64Encode(frame),
-            text: result.spoken,
-          );
-    } catch (e) {
-      debugPrint('[Chat] could not send the photo: $e');
-      await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
-      return;
+      ScanResult result;
+      try {
+        result = await vision.scan(
+          focus: ScanFocus.ahead,
+          language: profile.language,
+        );
+      } catch (e) {
+        debugPrint('[Chat] photo for caretaker failed: $e');
+        await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
+        return;
+      }
+
+      final frame = result.frameJpeg;
+      if (frame == null) {
+        await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
+        return;
+      }
+
+      try {
+        await ref
+            .read(communicationServiceProvider)
+            .sendPhoto(
+              disabledUserUid: profile.uid,
+              fromUid: profile.uid,
+              toUid: caretakerUid,
+              imageBase64: base64Encode(frame),
+              text: result.spoken,
+            );
+      } catch (e) {
+        debugPrint('[Chat] could not send the photo: $e');
+        await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
+        return;
+      }
+      await _appendAssistantReply(
+        '${d.photoSentToCaretaker} ${result.spoken}',
+        profile,
+        imageJpeg: frame,
+      );
+    } finally {
+      vision.closeCamera();
+      await _finishCameraAim();
     }
-    await _appendAssistantReply(
-      '${d.photoSentToCaretaker} ${result.spoken}',
-      profile,
-      imageJpeg: frame,
-    );
   }
 
   /// Reads out a photo the caretaker sent.
@@ -407,7 +634,11 @@ class ChatController extends Notifier<ChatState> {
   /// rather than going quiet — "they sent a photo I could not make out" is
   /// still news, and it is something the user can act on by asking their
   /// caretaker to describe it.
-  Future<void> _describeIncomingPhoto(String jpegBase64, UserProfile profile, Dashboard d) async {
+  Future<void> _describeIncomingPhoto(
+    String jpegBase64,
+    UserProfile profile,
+    Dashboard d,
+  ) async {
     Uint8List bytes;
     try {
       bytes = base64Decode(jpegBase64);
@@ -463,7 +694,10 @@ class ChatController extends Notifier<ChatState> {
   /// wrapping — "next" at the newest should say there is nothing newer, not
   /// silently start again at the oldest, which sounds like the same message
   /// arriving twice.
-  Future<void> replayVoiceMemo(ReplayDirection direction, UserProfile profile) async {
+  Future<void> replayVoiceMemo(
+    ReplayDirection direction,
+    UserProfile profile,
+  ) async {
     final d = Dashboard.of(profile.language);
     if (_voiceInbox.isEmpty) {
       await _appendAssistantReply(d.voiceMemoNoneToReplay, profile);
@@ -516,7 +750,11 @@ class ChatController extends Notifier<ChatState> {
   /// command. Anything that is neither a yes nor a no is *not* consumed: the
   /// user changed the subject, and the request lapses rather than swallowing
   /// an unrelated turn.
-  Future<bool> _continueSnapshotConsent(String text, UserProfile profile, Dashboard d) async {
+  Future<bool> _continueSnapshotConsent(
+    String text,
+    UserProfile profile,
+    Dashboard d,
+  ) async {
     final caretakerUid = _pendingSnapshotFor;
     if (caretakerUid == null) return false;
     final answer = _yesOrNo(text);
@@ -542,13 +780,47 @@ class ChatController extends Notifier<ChatState> {
   static bool? _yesOrNo(String text) {
     final lower = text.toLowerCase().trim();
     if (lower.isEmpty) return null;
-    const no = ['no', 'nope', 'not now', "don't", 'do not', 'cancel', 'stop',
-      'na', 'naa', 'না', 'করো না', 'পাঠিও না', 'পাঠাবে না', 'লাগবে না', 'থাক'];
+    const no = [
+      'no',
+      'nope',
+      'not now',
+      "don't",
+      'do not',
+      'cancel',
+      'stop',
+      'na',
+      'naa',
+      'না',
+      'করো না',
+      'পাঠিও না',
+      'পাঠাবে না',
+      'লাগবে না',
+      'থাক',
+    ];
     for (final n in no) {
       if (lower.contains(n)) return false;
     }
-    const yes = ['yes', 'yeah', 'yep', 'ok', 'okay', 'sure', 'go ahead', 'send it', 'send',
-      'ha', 'haa', 'hae', 'হ্যাঁ', 'হ্যা', 'হা', 'আচ্ছা', 'ঠিক আছে', 'পাঠাও', 'পাঠান'];
+    const yes = [
+      'yes',
+      'yeah',
+      'yep',
+      'ok',
+      'okay',
+      'sure',
+      'go ahead',
+      'send it',
+      'send',
+      'ha',
+      'haa',
+      'hae',
+      'হ্যাঁ',
+      'হ্যা',
+      'হা',
+      'আচ্ছা',
+      'ঠিক আছে',
+      'পাঠাও',
+      'পাঠান',
+    ];
     for (final y in yes) {
       if (lower.contains(y)) return true;
     }
@@ -572,40 +844,55 @@ class ChatController extends Notifier<ChatState> {
     Dashboard d, {
     required String caretakerUid,
   }) async {
+    if (!await _aimCamera()) {
+      await _appendAssistantReply(d.caretakerSnapshotDeclined, profile);
+      return;
+    }
     await _appendAssistantReply(d.caretakerSnapshotTaking, profile);
-    ScanResult result;
+    final vision = ref.read(snapshotVisionServiceProvider);
     try {
-      // One frame, straight ahead — a guardian checking on somebody wants
-      // what is in front of them now, not a three-frame sweep that takes
-      // seventeen seconds and asks them to stand still.
-      result = await ref.read(snapshotVisionServiceProvider).scan(
-            focus: ScanFocus.ahead,
-            language: profile.language,
-          );
-    } catch (e) {
-      debugPrint('[Chat] caretaker snapshot failed: $e');
-      await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
-      return;
-    }
+      ScanResult result;
+      try {
+        // One frame, straight ahead — a guardian checking on somebody wants
+        // what is in front of them now, not a three-frame sweep that takes
+        // seventeen seconds and asks them to stand still.
+        result = await vision.scan(
+          focus: ScanFocus.ahead,
+          language: profile.language,
+        );
+      } catch (e) {
+        debugPrint('[Chat] caretaker snapshot failed: $e');
+        await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
+        return;
+      }
 
-    try {
-      await ref.read(communicationServiceProvider).sendSnapshotReply(
-            disabledUserUid: profile.uid,
-            fromUid: profile.uid,
-            toUid: caretakerUid,
-            text: result.spoken,
-            imageBase64:
-                result.frameJpeg == null ? null : base64Encode(result.frameJpeg!),
-          );
-    } catch (e) {
-      debugPrint('[Chat] could not send the snapshot reply: $e');
-      await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
-      return;
+      try {
+        await ref
+            .read(communicationServiceProvider)
+            .sendSnapshotReply(
+              disabledUserUid: profile.uid,
+              fromUid: profile.uid,
+              toUid: caretakerUid,
+              text: result.spoken,
+              imageBase64: result.frameJpeg == null
+                  ? null
+                  : base64Encode(result.frameJpeg!),
+            );
+      } catch (e) {
+        debugPrint('[Chat] could not send the snapshot reply: $e');
+        await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
+        return;
+      }
+      await _appendAssistantReply(
+        result.frameJpeg == null
+            ? d.caretakerSnapshotFailed
+            : d.caretakerSnapshotSent,
+        profile,
+      );
+    } finally {
+      vision.closeCamera();
+      await _finishCameraAim();
     }
-    await _appendAssistantReply(
-      result.frameJpeg == null ? d.caretakerSnapshotFailed : d.caretakerSnapshotSent,
-      profile,
-    );
   }
 
   /// Runs the Magic Button and reports the outcome in the chat.
@@ -615,7 +902,9 @@ class ChatController extends Notifier<ChatState> {
   /// caretaker looking at the phone afterwards, not the primary channel.
   Future<void> _runEmergency(UserProfile profile) async {
     final d = Dashboard.of(profile.language);
-    final outcome = await ref.read(emergencyServiceProvider).trigger(profile: profile);
+    final outcome = await ref
+        .read(emergencyServiceProvider)
+        .trigger(profile: profile);
     // An escape route reaches the navigation controller directly (see
     // `emergencyServiceProvider`'s `onRoute`), which is enough to *speak* it
     // and nothing else. Without this the map stayed on whatever it was
@@ -633,10 +922,10 @@ class ChatController extends Notifier<ChatState> {
     final text = outcome.cancelled
         ? d.emergencyCancelled
         : EmergencyConfig.isRehearsal
-            ? d.emergencyRehearsal(profile.magicButtonContacts.length)
-            : outcome.reachedAnyone
-                ? d.emergencySent(outcome.messaged.length)
-                : d.emergencyNotSent;
+        ? d.emergencyRehearsal(profile.magicButtonContacts.length)
+        : outcome.reachedAnyone
+        ? d.emergencySent(outcome.messaged.length)
+        : d.emergencyNotSent;
     // Appended without going through `_appendAssistantReply`, which speaks
     // what it appends: the service has already said all of this out loud as
     // it happened, and hearing it a second time during an emergency is
@@ -644,13 +933,22 @@ class ChatController extends Notifier<ChatState> {
     state = state.copyWith(
       messages: [
         ...state.messages,
-        ChatMessage(sender: ChatSender.assistant, text: text, timestamp: DateTime.now()),
+        ChatMessage(
+          sender: ChatSender.assistant,
+          text: text,
+          timestamp: DateTime.now(),
+        ),
       ],
     );
   }
 
-  Map<String, Object?> _resolveLocalIntentArgs(LocalIntent intent, UserProfile profile) {
-    if (intent.name != 'update_setting' || intent.args['setting'] != 'text_size') return intent.args;
+  Map<String, Object?> _resolveLocalIntentArgs(
+    LocalIntent intent,
+    UserProfile profile,
+  ) {
+    if (intent.name != 'update_setting' ||
+        intent.args['setting'] != 'text_size')
+      return intent.args;
     // One rung of `textScaleLevels`, not a fixed 0.15. The old delta put the
     // voice command on values the slider could not show and no label named
     // — "bigger" three times from 1.0 reached 1.45, which is nothing the
@@ -681,9 +979,27 @@ class ChatController extends Notifier<ChatState> {
   /// only off `?` would leave exactly the multi-turn exchanges this is meant
   /// to protect unprotected.
   static const _questionOpeners = [
-    'which', 'what', 'who', 'where', 'when', 'how', 'do you', 'would you',
-    'should i', 'shall i', 'is that', 'are you', 'can you tell',
-    'কোন', 'কী', 'কি', 'কে', 'কোথায়', 'কখন', 'কীভাবে', 'কিভাবে',
+    'which',
+    'what',
+    'who',
+    'where',
+    'when',
+    'how',
+    'do you',
+    'would you',
+    'should i',
+    'shall i',
+    'is that',
+    'are you',
+    'can you tell',
+    'কোন',
+    'কী',
+    'কি',
+    'কে',
+    'কোথায়',
+    'কখন',
+    'কীভাবে',
+    'কিভাবে',
   ];
 
   /// Whether the assistant's last message was a question still awaiting an
@@ -698,7 +1014,7 @@ class ChatController extends Notifier<ChatState> {
     for (var i = state.messages.length - 1; i >= 0; i--) {
       final message = state.messages[i];
       // Skip the user turn just appended by the caller.
-      if (message.sender == ChatSender.user) continue;
+      if (message.sender != ChatSender.assistant) continue;
       final text = message.text.trim();
       if (text.isEmpty) return false;
       // Must *end* in a question. `contains('?')` was far too broad: a reply
@@ -716,7 +1032,9 @@ class ChatController extends Notifier<ChatState> {
       // that this was a command. This threw that away.
       if (text.endsWith('?')) return true;
       final lower = text.toLowerCase();
-      return _questionOpeners.any((q) => lower.startsWith(q) || lower.contains('. $q'));
+      return _questionOpeners.any(
+        (q) => lower.startsWith(q) || lower.contains('. $q'),
+      );
     }
     return false;
   }
@@ -766,11 +1084,14 @@ class ChatController extends Notifier<ChatState> {
     // The outstanding question is the name — the only slot that can be
     // missing once the request itself has been rejected as a name.
     final filled = pending.withLabel(answer);
-    final turn = await ref.read(functionCallExecutorProvider).execute(
+    final turn = await ref
+        .read(functionCallExecutorProvider)
+        .execute(
           name: 'save_place',
           args: {
             'label': filled.label,
-            if (filled.address != null && filled.address!.isNotEmpty) 'address': filled.address,
+            if (filled.address != null && filled.address!.isNotEmpty)
+              'address': filled.address,
           },
           profile: profile,
           location: location,
@@ -783,7 +1104,11 @@ class ChatController extends Notifier<ChatState> {
       // it, but count the attempt so it cannot run forever.
       state = state.copyWith(pendingPlaceSave: turn.placeSave ?? filled);
     }
-    await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
+    await _appendAssistantReply(
+      turn.responseText,
+      profile,
+      mayInviteAnswer: true,
+    );
     return true;
   }
 
@@ -828,9 +1153,16 @@ class ChatController extends Notifier<ChatState> {
         // something the user can actually do.
         if (pending.isExhausted) {
           state = state.copyWith(clearClarification: true);
-          await _appendAssistantReply(d.clarifyGaveUp(pending.originalQuery), profile);
+          await _appendAssistantReply(
+            d.clarifyGaveUp(pending.originalQuery),
+            profile,
+          );
         } else {
-          await _appendAssistantReply(d.clarifyUnclear, profile, mayInviteAnswer: true);
+          await _appendAssistantReply(
+            d.clarifyUnclear,
+            profile,
+            mayInviteAnswer: true,
+          );
         }
         return true;
 
@@ -886,7 +1218,9 @@ class ChatController extends Notifier<ChatState> {
 
     Position? location;
     try {
-      location = await Geolocator.getLastKnownPosition().timeout(_lastFixBudget);
+      location = await Geolocator.getLastKnownPosition().timeout(
+        _lastFixBudget,
+      );
     } catch (_) {
       location = null;
     }
@@ -900,11 +1234,15 @@ class ChatController extends Notifier<ChatState> {
 
     String? label;
     try {
-      label = await planner.describeLocation(destination).timeout(_lastFixBudget);
+      label = await planner
+          .describeLocation(destination)
+          .timeout(_lastFixBudget);
     } catch (e) {
       debugPrint('[Chat] could not name the pinned point: $e');
     }
-    final spokenLabel = (label == null || label.trim().isEmpty) ? d.pathPinnedFallback : label;
+    final spokenLabel = (label == null || label.trim().isEmpty)
+        ? d.pathPinnedFallback
+        : label;
     _appendUserMessage(d.pathPinnedRequest(spokenLabel));
 
     final result = await planner.plan(
@@ -954,7 +1292,9 @@ class ChatController extends Notifier<ChatState> {
       return;
     }
     state = state.copyWith(isAssistantTyping: true);
-    final result = await ref.read(routePlanningServiceProvider).plan(
+    final result = await ref
+        .read(routePlanningServiceProvider)
+        .plan(
           destinationQuery: query,
           destinationLabel: label,
           knownDestination: known,
@@ -983,8 +1323,9 @@ class ChatController extends Notifier<ChatState> {
 
       case RoutePlanAmbiguous(:final options):
         state = state.copyWith(
-          pendingClarification: (pending ?? DestinationClarification(originalQuery: query))
-              .offering(options),
+          pendingClarification:
+              (pending ?? DestinationClarification(originalQuery: query))
+                  .offering(options),
         );
         await _appendAssistantReply(
           d.clarifyChooseOption(options.map((o) => o.spokenLabel).toList()),
@@ -1000,7 +1341,10 @@ class ChatController extends Notifier<ChatState> {
         }
         if (pending.isExhausted) {
           state = state.copyWith(clearClarification: true);
-          await _appendAssistantReply(d.clarifyGaveUp(pending.originalQuery), profile);
+          await _appendAssistantReply(
+            d.clarifyGaveUp(pending.originalQuery),
+            profile,
+          );
           return;
         }
         // Each round asks for a *different* kind of clue. A user who could
@@ -1059,10 +1403,9 @@ class ChatController extends Notifier<ChatState> {
     }
     if (here == null) return '';
 
-    final reading = await ref.read(weatherServiceProvider).current(
-          latitude: here.latitude,
-          longitude: here.longitude,
-        );
+    final reading = await ref
+        .read(weatherServiceProvider)
+        .current(latitude: here.latitude, longitude: here.longitude);
     if (reading == null || !reading.isWorthMentioning) return '';
 
     // One warning, worst first. Two weather sentences in front of a route is
@@ -1074,7 +1417,9 @@ class ChatController extends Notifier<ChatState> {
   }
 
   void _startNavigation(RouteChoice route, UserProfile profile) {
-    ref.read(navigationControllerProvider).start(
+    ref
+        .read(navigationControllerProvider)
+        .start(
           route,
           language: profile.language,
           // The reply appended just above already said the destination, the
@@ -1085,11 +1430,23 @@ class ChatController extends Notifier<ChatState> {
         );
   }
 
-  void _appendUserMessage(String text) {
-    state = state.copyWith(messages: [
-      ...state.messages,
-      ChatMessage(sender: ChatSender.user, text: text, timestamp: DateTime.now()),
-    ]);
+  void _appendUserMessage(
+    String text, {
+    String? replyToText,
+    String? replyToMessageId,
+  }) {
+    state = state.copyWith(
+      messages: [
+        ...state.messages,
+        ChatMessage(
+          sender: ChatSender.user,
+          text: text,
+          timestamp: DateTime.now(),
+          replyToMessageId: replyToMessageId,
+          replyToText: replyToText,
+        ),
+      ],
+    );
   }
 
   /// Speaks every assistant reply unless the user is Deaf/hard of hearing —
@@ -1110,7 +1467,8 @@ class ChatController extends Notifier<ChatState> {
   /// model emits, and a question the app fails to recognise as one is a
   /// microphone that does not open.
   bool _invitesAnAnswer(String text) {
-    if (state.pendingClarification != null || state.pendingPlaceSave != null) return true;
+    if (state.pendingClarification != null || state.pendingPlaceSave != null)
+      return true;
     final trimmed = text.trimRight();
     return trimmed.endsWith('?') || trimmed.endsWith('？');
   }
@@ -1134,7 +1492,8 @@ class ChatController extends Notifier<ChatState> {
   /// appends nothing as a user message: the user did not say anything, they
   /// pressed a key, and inventing a line of their speech in the transcript
   /// would misrepresent what happened to anyone reading it back.
-  Future<void> runSweep(UserProfile profile) => _runScan(ScanFocus.surroundings, profile);
+  Future<void> runSweep(UserProfile profile) =>
+      _runScan(ScanFocus.surroundings, profile);
 
   /// Runs one Snapshot Vision scan and speaks what it saw — Module 6.
   ///
@@ -1146,8 +1505,16 @@ class ChatController extends Notifier<ChatState> {
   /// is spoken, lands in the transcript for a Deaf-blind user or one who has
   /// muted the voice, and is persisted by `ChatHistoryStore` like anything
   /// else.
-  Future<void> _runScan(ScanFocus focus, UserProfile profile, {String? question}) async {
+  Future<void> _runScan(
+    ScanFocus focus,
+    UserProfile profile, {
+    String? question,
+  }) async {
     final d = Dashboard.of(profile.language);
+    if (!await _aimCamera()) {
+      await _appendAssistantReply(d.visionCaptureFailed, profile);
+      return;
+    }
     final vision = ref.read(snapshotVisionServiceProvider);
 
     // Only the three-frame sweep gets the "hold still" instruction — plan
@@ -1181,20 +1548,28 @@ class ChatController extends Notifier<ChatState> {
         // fixed left-ahead-right order exists to make learnable.
         narrate: profile.isDeafOrHardOfHearing
             ? null
-            : (text) => ref.read(ttsServiceProvider).speak(text, language: profile.language),
+            : (text) => ref
+                  .read(ttsServiceProvider)
+                  .speak(text, language: profile.language),
       );
     } catch (e) {
       debugPrint('[Chat] scan failed: $e');
       state = state.copyWith(isAssistantTyping: false);
       await _appendAssistantReply(d.visionCaptureFailed, profile);
       return;
+    } finally {
+      vision.closeCamera();
     }
     state = state.copyWith(isAssistantTyping: false);
 
     // The frame rides with the answer, so the user can see what was
     // actually looked at. A wildly wrong description is almost always a
     // wildly wrong aim, and that is invisible without the picture.
-    await _appendAssistantReply(result.spoken, profile, imageJpeg: result.frameJpeg);
+    await _appendAssistantReply(
+      result.spoken,
+      profile,
+      imageJpeg: result.frameJpeg,
+    );
 
     // An abort has already buzzed and already said stop. Offering to file a
     // report on top of that is a second demand on somebody who has just been
@@ -1208,19 +1583,28 @@ class ChatController extends Notifier<ChatState> {
     final kind = result.hazardPrefillKind;
     if (kind == null) return;
     final label = result.scene?.hazards
-        .firstWhere((h) => h.kind == kind, orElse: () => result.scene!.hazards.first)
+        .firstWhere(
+          (h) => h.kind == kind,
+          orElse: () => result.scene!.hazards.first,
+        )
         .description;
     if (label == null || label.isEmpty) return;
-    await _appendAssistantReply(d.visionOfferReport(label), profile, mayInviteAnswer: true);
+    await _appendAssistantReply(
+      d.visionOfferReport(label),
+      profile,
+      mayInviteAnswer: true,
+    );
   }
 
   Future<void> _appendAssistantReply(
     String text,
     UserProfile profile, {
+
     /// Whether this reply may reopen the microphone when it turns out to be
     /// a question. False for anything the user is not being asked to answer
     /// — a caretaker's memo read aloud is not the app asking them something.
     bool mayInviteAnswer = false,
+
     /// The camera frame this reply is about — shown under the bubble. See
     /// [ChatMessage.imageJpeg].
     Uint8List? imageJpeg,
@@ -1245,7 +1629,8 @@ class ChatController extends Notifier<ChatState> {
       ],
     );
 
-    final invites = mayInviteAnswer && profile.voiceAutoListen && _invitesAnAnswer(text);
+    final invites =
+        mayInviteAnswer && profile.voiceAutoListen && _invitesAnAnswer(text);
     if (profile.isDeafOrHardOfHearing) {
       // Nothing is spoken, so there is nothing to wait for. A deaf user with
       // auto-listen on still gets the microphone — `voiceAutoListen` is a
@@ -1253,7 +1638,9 @@ class ChatController extends Notifier<ChatState> {
       if (invites) _inviteAnswer();
       return;
     }
-    final speaking = ref.read(ttsServiceProvider).speak(text, language: profile.language);
+    final speaking = ref
+        .read(ttsServiceProvider)
+        .speak(text, language: profile.language);
     if (!invites) {
       unawaited(speaking);
       return;
@@ -1327,16 +1714,34 @@ class ChatController extends Notifier<ChatState> {
   void interruptNarration() {
     _turnGeneration++;
     unawaited(ref.read(ttsServiceProvider).stop());
-    if (state.isAssistantTyping) state = state.copyWith(isAssistantTyping: false);
+    if (state.isAssistantTyping)
+      state = state.copyWith(isAssistantTyping: false);
   }
 
-  Future<void> sendFreeText(String text, UserProfile profile) async {
+  Future<void> sendFreeText(
+    String text,
+    UserProfile profile, {
+    String? replyTo,
+    String? replyToMessageId,
+  }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
     _turnGeneration++;
-    _appendUserMessage(trimmed);
+    _appendUserMessage(
+      trimmed,
+      replyToText: replyTo,
+      replyToMessageId: replyToMessageId,
+    );
 
     final d = Dashboard.of(profile.language);
+
+    final forModel = replyTo == null || replyTo.trim().isEmpty
+        ? trimmed
+        : 'The user is replying to the specific assistant message with id '
+              '"${replyToMessageId ?? 'unknown'}". Treat the quoted text as the '
+              'message they mean, even if older turns mention similar options.\n'
+              'Quoted assistant message: "${replyTo.trim()}"\n'
+              'User reply: $trimmed';
 
     // The emergency is matched and dispatched *before* anything that waits.
     //
@@ -1357,8 +1762,36 @@ class ChatController extends Notifier<ChatState> {
       recentSetting: state.lastSettingChanged,
     );
     if (localIntent?.name == 'trigger_emergency') {
-      debugPrint('[Chat] local match: trigger_emergency (ahead of the location fix)');
+      if (_oneShotCaretakerMessage) {
+        _oneShotCaretakerMessage = false;
+        state = state.copyWith(caretakerMessageArmed: false);
+      }
+      debugPrint(
+        '[Chat] local match: trigger_emergency (ahead of the location fix)',
+      );
       await _runEmergency(profile);
+      return;
+    }
+    if (_oneShotCaretakerMessage) {
+      _oneShotCaretakerMessage = false;
+      state = state.copyWith(caretakerMessageArmed: false);
+      await _deliverCaretakerText(trimmed, profile);
+      return;
+    }
+    if (localIntent?.name == 'arm_caretaker_message') {
+      _oneShotCaretakerMessage = true;
+      state = state.copyWith(caretakerMessageArmed: true);
+      await _appendAssistantReply(
+        profile.language == AppLanguage.bangla
+            ? 'আপনি কী বার্তা পাঠাতে চান?'
+            : 'What message should I send to your caretaker?',
+        profile,
+        mayInviteAnswer: true,
+      );
+      return;
+    }
+    if (localIntent?.name == 'send_photo_to_caretaker') {
+      await _sendPhotoToCaretaker(profile, d);
       return;
     }
 
@@ -1385,7 +1818,9 @@ class ChatController extends Notifier<ChatState> {
       // Same defect and same fix as the hazard hub's and the Magic Button's
       // position lookups (open_bugs item 27). A cached fix is a nicety here;
       // the reply is not.
-      location = await Geolocator.getLastKnownPosition().timeout(_lastFixBudget);
+      location = await Geolocator.getLastKnownPosition().timeout(
+        _lastFixBudget,
+      );
     } catch (_) {
       // No last-known fix available (denied permission, web, first launch
       // before any GPS read, or the platform not answering) — proceed
@@ -1407,13 +1842,25 @@ class ChatController extends Notifier<ChatState> {
 
     final pendingSave = state.pendingPlaceSave;
     if (pendingSave != null) {
-      final handled = await _continuePlaceSave(pendingSave, trimmed, profile, location, d);
+      final handled = await _continuePlaceSave(
+        pendingSave,
+        trimmed,
+        profile,
+        location,
+        d,
+      );
       if (handled) return;
     }
 
     final pending = state.pendingClarification;
     if (pending != null) {
-      final handled = await _continueClarification(pending, trimmed, profile, location, d);
+      final handled = await _continueClarification(
+        pending,
+        trimmed,
+        profile,
+        location,
+        d,
+      );
       if (handled) return;
     }
 
@@ -1442,10 +1889,16 @@ class ChatController extends Notifier<ChatState> {
     final answeringQuestion = _assistantAwaitingAnswer;
     if (localIntent != null &&
         answeringQuestion &&
-        localIntent.name != 'trigger_emergency') {
-      debugPrint('[Chat] local match ${localIntent.name} suppressed — answering a question');
+        localIntent.name != 'trigger_emergency' &&
+        localIntent.name != 'arm_caretaker_message' &&
+        localIntent.name != 'send_photo_to_caretaker') {
+      debugPrint(
+        '[Chat] local match ${localIntent.name} suppressed — answering a question',
+      );
     } else if (localIntent != null) {
-      debugPrint('[Chat] local match: ${localIntent.name} ${localIntent.args} (skipping Gemini)');
+      debugPrint(
+        '[Chat] local match: ${localIntent.name} ${localIntent.args} (skipping Gemini)',
+      );
       // The Magic Button is a sequence, not a state change — speak, wait,
       // dispatch, call, alert — so it does not go through the executor,
       // which exists to apply one change and describe it. It also must not
@@ -1479,7 +1932,9 @@ class ChatController extends Notifier<ChatState> {
             routeAlternatives: state.routeAlternatives,
           );
       if (turn.updatedProfile != null) {
-        await ref.read(profileServiceProvider).saveProfile(turn.updatedProfile!);
+        await ref
+            .read(profileServiceProvider)
+            .saveProfile(turn.updatedProfile!);
       }
       // Reachable when a local match produces `cancel_route` through the
       // executor rather than through the shortcut above — kept so the two
@@ -1488,7 +1943,11 @@ class ChatController extends Notifier<ChatState> {
         await _cancelRoute(profile, d);
         return;
       }
-      await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
+      await _appendAssistantReply(
+        turn.responseText,
+        profile,
+        mayInviteAnswer: true,
+      );
       if (turn.scanFocus != null) {
         await _runScan(turn.scanFocus!, profile, question: turn.scanQuestion);
       }
@@ -1530,14 +1989,19 @@ class ChatController extends Notifier<ChatState> {
 
     final gemini = ref.read(geminiAssistantServiceProvider);
     if (gemini == null) {
-      await _appendAssistantReply(d.chatStubReply, profile, mayInviteAnswer: true);
+      await _appendAssistantReply(
+        d.chatStubReply,
+        profile,
+        mayInviteAnswer: true,
+      );
       return;
     }
 
     // Snapshot history *before* the message just appended above, so it
     // isn't duplicated when handed to Gemini as prior turns.
-    final history =
-        state.messages.length > 1 ? state.messages.sublist(0, state.messages.length - 1) : const <ChatMessage>[];
+    final history = state.messages.length > 1
+        ? state.messages.sublist(0, state.messages.length - 1)
+        : const <ChatMessage>[];
 
     final stopwatch = Stopwatch()..start();
     // Set the instant the first streamed chunk of a plain-text reply
@@ -1561,7 +2025,11 @@ class ChatController extends Notifier<ChatState> {
     Timer? stillWorking;
     if (!profile.isDeafOrHardOfHearing) {
       stillWorking = Timer(_stillWorkingAfter, () {
-        unawaited(ref.read(ttsServiceProvider).speak(d.chatStillWorking, language: profile.language));
+        unawaited(
+          ref
+              .read(ttsServiceProvider)
+              .speak(d.chatStillWorking, language: profile.language),
+        );
       });
     }
     // Whose turn this reply belongs to. Anything that comes back for an
@@ -1594,76 +2062,96 @@ class ChatController extends Notifier<ChatState> {
     try {
       debugPrint('[Chat] -> Gemini: "$trimmed"');
       state = state.copyWith(isAssistantTyping: true);
-      final turn = await gemini.converse(
-        userText: trimmed,
-        profile: profile,
-        recentHistory: history,
-        location: location,
-        // Scopes `resolve_hazard` to what the user is actually walking.
-        activeRoute: state.pendingRoute,
-        routeAlternatives: state.routeAlternatives,
-        onPartialText: (partial) {
-          // A superseded turn must not keep writing into the bubble — its
-          // chunks would overwrite the newer answer as they arrive.
-          if (superseded()) return;
-          firstChunkMs ??= stopwatch.elapsedMilliseconds;
-          if (!streaming) {
-            streaming = true;
-            state = state.copyWith(
-              isAssistantTyping: false,
-              messages: [
-                ...state.messages,
-                ChatMessage(sender: ChatSender.assistant, text: partial, timestamp: DateTime.now()),
-              ],
-            );
-          } else {
-            state = state.copyWith(messages: _withLastReplaced(text: partial));
-          }
+      final turn = await gemini
+          .converse(
+            userText: forModel,
+            profile: profile,
+            recentHistory: history,
+            location: location,
+            // Scopes `resolve_hazard` to what the user is actually walking.
+            activeRoute: state.pendingRoute,
+            routeAlternatives: state.routeAlternatives,
+            onPartialText: (partial) {
+              // A superseded turn must not keep writing into the bubble — its
+              // chunks would overwrite the newer answer as they arrive.
+              if (superseded()) return;
+              firstChunkMs ??= stopwatch.elapsedMilliseconds;
+              if (!streaming) {
+                streaming = true;
+                state = state.copyWith(
+                  isAssistantTyping: false,
+                  messages: [
+                    ...state.messages,
+                    ChatMessage(
+                      sender: ChatSender.assistant,
+                      text: partial,
+                      timestamp: DateTime.now(),
+                    ),
+                  ],
+                );
+              } else {
+                state = state.copyWith(
+                  messages: _withLastReplaced(text: partial),
+                );
+              }
 
-          // A shorter partial than we have already spoken means a *different
-          // backend* started streaming — the fallback took over after the
-          // primary died mid-sentence. Without this the user hears Groq's
-          // half-finished sentence and then Gemini's whole answer on top of
-          // it. Stop, forget what was said, and start again from the new
-          // stream. (`f5f5b1f` predates the fallback and has no such case.)
-          if (partial.length < lastSpokenIndex) {
-            debugPrint('[Chat] narration restarting — a second backend took the turn');
-            unawaited(ref.read(ttsServiceProvider).stop());
-            lastSpokenIndex = 0;
-          }
+              // A shorter partial than we have already spoken means a *different
+              // backend* started streaming — the fallback took over after the
+              // primary died mid-sentence. Without this the user hears Groq's
+              // half-finished sentence and then Gemini's whole answer on top of
+              // it. Stop, forget what was said, and start again from the new
+              // stream. (`f5f5b1f` predates the fallback and has no such case.)
+              if (partial.length < lastSpokenIndex) {
+                debugPrint(
+                  '[Chat] narration restarting — a second backend took the turn',
+                );
+                unawaited(ref.read(ttsServiceProvider).stop());
+                lastSpokenIndex = 0;
+              }
 
-          if (profile.isDeafOrHardOfHearing) return;
-          final bound = partial.lastIndexOf(sentenceEnd);
-          if (bound < lastSpokenIndex) return;
-          final chunk = partial.substring(lastSpokenIndex, bound + 1);
-          lastSpokenIndex = bound + 1;
-          // A chunk of nothing but punctuation or a newline is not speech,
-          // and handing it to the engine costs a platform round trip to say
-          // silence.
-          if (chunk.trim().isEmpty) return;
-          unawaited(ref.read(ttsServiceProvider).speak(chunk, language: profile.language));
-        },
-      ).timeout(_geminiBudget);
+              if (profile.isDeafOrHardOfHearing) return;
+              final bound = partial.lastIndexOf(sentenceEnd);
+              if (bound < lastSpokenIndex) return;
+              final chunk = partial.substring(lastSpokenIndex, bound + 1);
+              lastSpokenIndex = bound + 1;
+              // A chunk of nothing but punctuation or a newline is not speech,
+              // and handing it to the engine costs a platform round trip to say
+              // silence.
+              if (chunk.trim().isEmpty) return;
+              unawaited(
+                ref
+                    .read(ttsServiceProvider)
+                    .speak(chunk, language: profile.language),
+              );
+            },
+          )
+          .timeout(_geminiBudget);
       stillWorking?.cancel();
       if (superseded()) {
         // The user moved on. Speaking this now would answer a question they
         // have stopped asking, on top of an answer they already got.
-        debugPrint('[Chat] discarding a stale Gemini reply for turn $myTurn '
-            '(now on $_turnGeneration) after ${stopwatch.elapsedMilliseconds}ms');
-        if (streaming) state = state.copyWith(messages: _withoutLastAssistantBubble());
+        debugPrint(
+          '[Chat] discarding a stale Gemini reply for turn $myTurn '
+          '(now on $_turnGeneration) after ${stopwatch.elapsedMilliseconds}ms',
+        );
+        if (streaming)
+          state = state.copyWith(messages: _withoutLastAssistantBubble());
         state = state.copyWith(isAssistantTyping: false);
         return;
       }
       debugPrint(
-          '[Chat] <- Gemini in ${stopwatch.elapsedMilliseconds}ms '
-          '(first chunk ${firstChunkMs ?? -1}ms): "${turn.responseText}" '
-          '(overlay=${turn.overlayAction}, route=${turn.route != null}, '
-          'scan=${turn.scanFocus?.name ?? '-'}'
-          '${turn.scanQuestion == null ? '' : ' q="${turn.scanQuestion}"'}, '
-          'emergency=${turn.triggersEmergency}, cancelRoute=${turn.cancelsRoute}, '
-          'profileChanged=${turn.updatedProfile != null})');
+        '[Chat] <- Gemini in ${stopwatch.elapsedMilliseconds}ms '
+        '(first chunk ${firstChunkMs ?? -1}ms): "${turn.responseText}" '
+        '(overlay=${turn.overlayAction}, route=${turn.route != null}, '
+        'scan=${turn.scanFocus?.name ?? '-'}'
+        '${turn.scanQuestion == null ? '' : ' q="${turn.scanQuestion}"'}, '
+        'emergency=${turn.triggersEmergency}, cancelRoute=${turn.cancelsRoute}, '
+        'profileChanged=${turn.updatedProfile != null})',
+      );
       if (turn.updatedProfile != null) {
-        await ref.read(profileServiceProvider).saveProfile(turn.updatedProfile!);
+        await ref
+            .read(profileServiceProvider)
+            .saveProfile(turn.updatedProfile!);
       }
       // The model judged the user to be in danger. Handled before the reply
       // is spoken, and instead of it: the emergency sequence announces
@@ -1692,14 +2180,25 @@ class ChatController extends Notifier<ChatState> {
         // Reconcile with the final text and speak whatever the sentence
         // chunker did not already say — the tail after the last full stop,
         // which is most replies' final clause.
-        state = state.copyWith(isAssistantTyping: false, messages: _withLastReplaced(text: turn.responseText));
+        state = state.copyWith(
+          isAssistantTyping: false,
+          messages: _withLastReplaced(text: turn.responseText),
+        );
         final spokenSoFar = lastSpokenIndex.clamp(0, turn.responseText.length);
         final remaining = turn.responseText.substring(spokenSoFar);
         if (!profile.isDeafOrHardOfHearing && remaining.trim().isNotEmpty) {
-          unawaited(ref.read(ttsServiceProvider).speak(remaining, language: profile.language));
+          unawaited(
+            ref
+                .read(ttsServiceProvider)
+                .speak(remaining, language: profile.language),
+          );
         }
       } else {
-        await _appendAssistantReply(turn.responseText, profile, mayInviteAnswer: true);
+        await _appendAssistantReply(
+          turn.responseText,
+          profile,
+          mayInviteAnswer: true,
+        );
       }
       // No "answering a question" guard here any more, and that is the fix
       // rather than an oversight.
@@ -1761,9 +2260,13 @@ class ChatController extends Notifier<ChatState> {
       // (or any other intent the offline matcher doesn't know) silently
       // did nothing instead of opening Show Screen — Gemini's real call
       // was failing for an unknown reason, and there was no way to tell.
-      debugPrint('[Chat] Gemini call FAILED after ${stopwatch.elapsedMilliseconds}ms: $e');
+      debugPrint(
+        '[Chat] Gemini call FAILED after ${stopwatch.elapsedMilliseconds}ms: $e',
+      );
       debugPrintStack(stackTrace: st, label: '[Chat] Gemini failure stack');
-      final fallback = OfflineIntentMatcher.match(trimmed, profile.language) ?? d.chatStubReply;
+      final fallback =
+          OfflineIntentMatcher.match(trimmed, profile.language) ??
+          d.chatStubReply;
       await _appendAssistantReply(fallback, profile, mayInviteAnswer: true);
     }
   }
@@ -1797,7 +2300,11 @@ class ChatController extends Notifier<ChatState> {
   /// [SuggestedChipAction.sendCaretakerVoiceMemo] open overlays instead — the
   /// dashboard screen handles those directly rather than routing them
   /// through here.
-  Future<void> handleChip(SuggestedChip chip, UserProfile profile, String chipLabel) async {
+  Future<void> handleChip(
+    SuggestedChip chip,
+    UserProfile profile,
+    String chipLabel,
+  ) async {
     _appendUserMessage(chipLabel);
     switch (chip.action) {
       case SuggestedChipAction.cameraScan:
@@ -1824,4 +2331,6 @@ final chatHistoryStoreProvider = Provider<ChatHistoryStore>((ref) {
   return store;
 });
 
-final chatControllerProvider = NotifierProvider<ChatController, ChatState>(ChatController.new);
+final chatControllerProvider = NotifierProvider<ChatController, ChatState>(
+  ChatController.new,
+);

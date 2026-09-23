@@ -119,6 +119,7 @@ class _PlacePickerFieldState extends ConsumerState<PlacePickerField> {
         builder: (_) => MapPinPickerScreen(
           language: widget.profile.language,
           initialCentre: centre,
+          savedPlaces: widget.profile.savedPlaces,
         ),
       ),
     );

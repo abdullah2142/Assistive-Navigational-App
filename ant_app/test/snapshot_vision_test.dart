@@ -23,15 +23,14 @@ VisionDetection det(
   double top = 0.4,
   double right = 0.6,
   double bottom = 0.6,
-}) =>
-    VisionDetection(
-      label: label,
-      confidence: confidence,
-      left: left,
-      top: top,
-      right: right,
-      bottom: bottom,
-    );
+}) => VisionDetection(
+  label: label,
+  confidence: confidence,
+  left: left,
+  top: top,
+  right: right,
+  bottom: bottom,
+);
 
 void main() {
   group('HazardAssessor — the stop-or-go decision', () {
@@ -58,10 +57,22 @@ void main() {
       // every one of them is an alarm the user learns to walk through.
       final box = (left: 0.2, top: 0.25, right: 0.8, bottom: 0.95);
       final bus = assessor.assess([
-        det('bus', left: box.left, top: box.top, right: box.right, bottom: box.bottom),
+        det(
+          'bus',
+          left: box.left,
+          top: box.top,
+          right: box.right,
+          bottom: box.bottom,
+        ),
       ]);
       final person = assessor.assess([
-        det('person', left: box.left, top: box.top, right: box.right, bottom: box.bottom),
+        det(
+          'person',
+          left: box.left,
+          top: box.top,
+          right: box.right,
+          bottom: box.bottom,
+        ),
       ]);
       expect(bus.level, HazardLevel.imminent);
       expect(person.threatScore, lessThan(bus.threatScore));
@@ -79,21 +90,31 @@ void main() {
 
     test('low-confidence detections are ignored entirely', () {
       final verdict = assessor.assess([
-        det('bus', confidence: 0.2, left: 0.1, top: 0.1, right: 0.9, bottom: 1.0),
+        det(
+          'bus',
+          confidence: 0.2,
+          left: 0.1,
+          top: 0.1,
+          right: 0.9,
+          bottom: 1.0,
+        ),
       ]);
       expect(verdict.detections, isEmpty);
       expect(verdict.isImminent, isFalse);
     });
 
-    test('harmless COCO classes never raise the alarm but stay in the list', () {
-      // A potted plant filling the frame is not a reason to stop somebody
-      // mid-step — but it is still worth having available to describe.
-      final verdict = assessor.assess([
-        det('potted plant', left: 0.0, top: 0.0, right: 1.0, bottom: 1.0),
-      ]);
-      expect(verdict.level, HazardLevel.clear);
-      expect(verdict.detections.single.label, 'potted plant');
-    });
+    test(
+      'harmless COCO classes never raise the alarm but stay in the list',
+      () {
+        // A potted plant filling the frame is not a reason to stop somebody
+        // mid-step — but it is still worth having available to describe.
+        final verdict = assessor.assess([
+          det('potted plant', left: 0.0, top: 0.0, right: 1.0, bottom: 1.0),
+        ]);
+        expect(verdict.level, HazardLevel.clear);
+        expect(verdict.detections.single.label, 'potted plant');
+      },
+    );
 
     test('people are counted even when none of them is a hazard', () {
       final verdict = assessor.assess([
@@ -138,15 +159,18 @@ void main() {
       expect(VisionPrompt.normaliseDigits(''), isNull);
     });
 
-    test('an empty scene parses to empty lists rather than inventing content', () {
-      final scene = VisionPrompt.parse(
-        '{"say":"কিছু দেখা যাচ্ছে না।","hazards":[],"vehicles":[],"text_found":"","people_estimate":0}',
-        ScanFocus.surroundings,
-      );
-      expect(scene!.hazards, isEmpty);
-      expect(scene.vehicles, isEmpty);
-      expect(scene.hasHazards, isFalse);
-    });
+    test(
+      'an empty scene parses to empty lists rather than inventing content',
+      () {
+        final scene = VisionPrompt.parse(
+          '{"say":"কিছু দেখা যাচ্ছে না।","hazards":[],"vehicles":[],"text_found":"","people_estimate":0}',
+          ScanFocus.surroundings,
+        );
+        expect(scene!.hazards, isEmpty);
+        expect(scene.vehicles, isEmpty);
+        expect(scene.hasHazards, isFalse);
+      },
+    );
 
     test('a response with no sentence is rejected', () {
       // Everything else in a scene exists to support the one spoken line. A
@@ -177,14 +201,17 @@ void main() {
       expect(scene!.hazards.single.kind, 'fire');
     });
 
-    test('an unrecognised hazard kind falls back rather than being dropped', () {
-      final scene = VisionPrompt.parse(
-        '{"say":"ok","hazards":[{"kind":"a pile of bricks","description":"ইট"}]}',
-        ScanFocus.hazard,
-      );
-      expect(scene!.hazards.single.kind, 'other');
-      expect(scene.hazards.single.description, 'ইট');
-    });
+    test(
+      'an unrecognised hazard kind falls back rather than being dropped',
+      () {
+        final scene = VisionPrompt.parse(
+          '{"say":"ok","hazards":[{"kind":"a pile of bricks","description":"ইট"}]}',
+          ScanFocus.hazard,
+        );
+        expect(scene!.hazards.single.kind, 'other');
+        expect(scene.hazards.single.description, 'ইট');
+      },
+    );
 
     test('severity is clamped into range', () {
       final scene = VisionPrompt.parse(
@@ -227,16 +254,20 @@ void main() {
       expectsFocus('রাস্তা কি ফাঁকা', 'hazard', AppLanguage.bangla);
     });
 
-    test('open-ended questions ask for the surroundings focus', () {
-      expectsFocus("what's in front of me", 'surroundings', AppLanguage.english);
-      expectsFocus('what do you see', 'surroundings', AppLanguage.english);
-      expectsFocus('সামনে কী আছে', 'surroundings', AppLanguage.bangla);
+    test('direct ahead questions use one frame; explicit scans sweep', () {
+      expectsFocus("what's in front of me", 'ahead', AppLanguage.english);
+      expectsFocus('what do you see', 'ahead', AppLanguage.english);
+      expectsFocus('সামনে কী আছে', 'ahead', AppLanguage.bangla);
+      expectsFocus('look around', 'surroundings', AppLanguage.english);
     });
 
     test('vehicle wins over the generic reading when a phrase is both', () {
       // "what bus is this" is also a "what is this". The vehicle reading is
       // the useful one, and ordering is what guarantees it.
-      final intent = LocalIntentMatcher.match('what bus is this', AppLanguage.english);
+      final intent = LocalIntentMatcher.match(
+        'what bus is this',
+        AppLanguage.english,
+      );
       expect(intent?.args['focus'], 'vehicle');
     });
 
@@ -312,7 +343,11 @@ void main() {
           final admitsFailure = language == AppLanguage.bangla
               ? (line.contains('না') || line.contains('নি'))
               : RegExp(r'cannot|could not|did not|too many').hasMatch(line);
-          expect(admitsFailure, isTrue, reason: 'does not admit failure: "$line"');
+          expect(
+            admitsFailure,
+            isTrue,
+            reason: 'does not admit failure: "$line"',
+          );
         }
       });
 
@@ -320,15 +355,22 @@ void main() {
           '(${language.name})', () {
         final d = Dashboard.of(language);
         final line = d.visionHazardAbort(d.visionObjectLabel('bus'));
-        expect(line.split(RegExp(r'\s+')).length, lessThanOrEqualTo(8),
-            reason: 'too long to hear before stepping: "$line"');
+        expect(
+          line.split(RegExp(r'\s+')).length,
+          lessThanOrEqualTo(8),
+          reason: 'too long to hear before stepping: "$line"',
+        );
       });
 
       test('both languages are actually translated (${language.name})', () {
         final d = Dashboard.of(language);
         final bn = language == AppLanguage.bangla;
         final bengali = RegExp(r'[ঀ-৿]');
-        for (final line in [d.visionSweepPrompt, d.visionNoCamera, d.visionCaptureFailed]) {
+        for (final line in [
+          d.visionSweepPrompt,
+          d.visionNoCamera,
+          d.visionCaptureFailed,
+        ]) {
           expect(bengali.hasMatch(line), bn, reason: 'wrong language: "$line"');
         }
       });

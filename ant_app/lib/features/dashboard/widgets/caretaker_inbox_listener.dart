@@ -19,16 +19,22 @@ import '../providers/chat_providers.dart';
 /// Mounted for as long as the dashboard is, so it keeps listening while the
 /// user is doing something else in the app.
 class CaretakerInboxListener extends ConsumerStatefulWidget {
-  const CaretakerInboxListener({super.key, required this.profile, required this.child});
+  const CaretakerInboxListener({
+    super.key,
+    required this.profile,
+    required this.child,
+  });
 
   final UserProfile profile;
   final Widget child;
 
   @override
-  ConsumerState<CaretakerInboxListener> createState() => _CaretakerInboxListenerState();
+  ConsumerState<CaretakerInboxListener> createState() =>
+      _CaretakerInboxListenerState();
 }
 
-class _CaretakerInboxListenerState extends ConsumerState<CaretakerInboxListener> {
+class _CaretakerInboxListenerState
+    extends ConsumerState<CaretakerInboxListener> {
   /// Message ids already accounted for.
   ///
   /// Seeded from the *first* snapshot and never announced, which is the whole
@@ -71,7 +77,9 @@ class _CaretakerInboxListenerState extends ConsumerState<CaretakerInboxListener>
 
   Future<bool> _play(String audioBase64) async {
     try {
-      await _player.play(BytesSource(base64Decode(audioBase64), mimeType: 'audio/wav'));
+      await _player.play(
+        BytesSource(base64Decode(audioBase64), mimeType: 'audio/wav'),
+      );
       return true;
     } catch (e) {
       // A clip that will not decode or play must not swallow the fact that
@@ -85,27 +93,41 @@ class _CaretakerInboxListenerState extends ConsumerState<CaretakerInboxListener>
     if (!_seeded) {
       _seeded = true;
       _accountedFor.addAll(messages.map((m) => m.id));
-      debugPrint('[CaretakerInbox] listening — ${messages.length} already in history');
+      ref
+          .read(chatControllerProvider.notifier)
+          .restoreCaretakerInbox(messages, widget.profile);
+      debugPrint(
+        '[CaretakerInbox] listening — ${messages.length} already in history',
+      );
       return;
     }
-    final arrived = messages.where((m) => !_accountedFor.contains(m.id)).toList()
-      // `watchMessages` orders newest first; deliver oldest first so a
-      // sequence of memos is heard in the order it was written.
-      ..sort((a, b) => (a.createdAt ?? DateTime.now()).compareTo(b.createdAt ?? DateTime.now()));
+    final arrived =
+        messages.where((m) => !_accountedFor.contains(m.id)).toList()
+          // `watchMessages` orders newest first; deliver oldest first so a
+          // sequence of memos is heard in the order it was written.
+          ..sort(
+            (a, b) => (a.createdAt ?? DateTime.now()).compareTo(
+              b.createdAt ?? DateTime.now(),
+            ),
+          );
     if (arrived.isEmpty) return;
     _accountedFor.addAll(arrived.map((m) => m.id));
 
     for (final message in arrived) {
-      _queue = _queue.then((_) async {
-        if (!mounted) return;
-        await ref.read(chatControllerProvider.notifier).receiveCaretakerMessage(
-              message,
-              widget.profile,
-              playAudio: _play,
-            );
-      }).catchError((Object e) {
-        debugPrint('[CaretakerInbox] delivering ${message.id} failed: $e');
-      });
+      _queue = _queue
+          .then((_) async {
+            if (!mounted) return;
+            await ref
+                .read(chatControllerProvider.notifier)
+                .receiveCaretakerMessage(
+                  message,
+                  widget.profile,
+                  playAudio: _play,
+                );
+          })
+          .catchError((Object e) {
+            debugPrint('[CaretakerInbox] delivering ${message.id} failed: $e');
+          });
     }
   }
 

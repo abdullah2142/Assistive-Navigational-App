@@ -9,17 +9,10 @@ not the hopeful one.
 
 ## Next up
 
-1. **Reply to a specific message.** Let the user reply to a particular
-   assistant message so the conversation knows which one they mean — "that
-   one", "the second place you said". Today every turn is read against the
-   whole recent history and an ambiguous reference resolves to whatever the
-   model guesses. Needs a message id on the wire and a quoted-reply affordance
-   in the chat. *Medium.*
-2. **Camera aiming preview.** Open a viewfinder when the camera button is
-   tapped, so a sighted helper can aim. `SnapshotCamera` bans a preview
-   stream by design (the Snapshot Architecture's "no live video" rule) — this
-   reopens that decision rather than just adding a widget. *Medium, and an
-   architectural call first.*
+1. **Jam-based ETA.** See Commute planning below.
+2. **Transport suggestion.** See Commute planning below.
+3. **Phone contacts import.** See Later below.
+
 
 ## Locations and maps
 
@@ -77,6 +70,20 @@ reordered — they were in the 22 September list and were never built.
 - ~~**Weather warnings.**~~ Open-Meteo, keyless. Appended to a route only
   when it clears a high bar — rain now, rain likely within the hour, a
   thunderstorm, or an apparent temperature over 36°C.
+- ~~**Reply to a specific message.**~~ Long-press an assistant bubble to
+  quote it; the quote is sent to the model as context and shown in the
+  bubble. Carried as text rather than an id because the model reads a
+  transcript, not a database.
+- ~~**Camera aiming preview.**~~ A bounded exception to the no-live-video
+  rule: the preview lives only while the aiming screen is on top, is capped
+  at 45s, and is released on dispose however the screen is left. Offered
+  only to users with some usable vision — for a blind user a preview is a
+  screen between them and the answer, and the spoken sweep cues are their
+  aiming interface.
+- ~~**Search and pin wherever a place is added.**~~ `PlacePickerField` in
+  settings, `MapPickButton` in onboarding, and the map picker now searches
+  and offers candidates. Settings can also create a saved place, which it
+  never could.
 - ~~**Voicemail-style replay.**~~ `replay_voice_message(which)` steps through
   the session's memos — latest, repeat, previous, next — announcing the
   position before each. Ends clamp rather than wrap.

@@ -8,7 +8,9 @@ import '../../../core/localization/app_language.dart';
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/routing_service.dart';
+import '../../../core/services/place_categories.dart';
 import '../../../core/widgets/map_unavailable_placeholder.dart';
+import '../../onboarding/models/saved_place.dart';
 import '../widgets/destination_sheet.dart';
 
 /// Full-screen map for choosing a destination by pointing at it.
@@ -37,12 +39,14 @@ class MapPinPickerScreen extends StatefulWidget {
     required this.language,
     this.initialCentre,
     this.routing,
+    this.savedPlaces = const [],
   });
 
   final AppLanguage language;
 
   /// Injectable so the search bar can be exercised without a network.
   final RoutingService? routing;
+  final List<SavedPlace> savedPlaces;
 
   /// Where to open. The user's own position when it is known — starting at
   /// a city-wide view means panning across Dhaka before the map is any use.
@@ -67,6 +71,9 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
   /// Candidates for the current query, and whether one is in flight.
   List<GeocodeCandidate> _results = const [];
   bool _searching = false;
+  bool _resolving = false;
+  bool _programmaticCameraMove = false;
+  List<NearbyRefuge> _nearbyPlaces = const [];
 
   /// What the crosshair is currently over, once it has been named. Shown
   /// under the search bar so the user can see what they are about to pick
@@ -95,7 +102,9 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
       setState(() => _results = found);
       if (found.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(Dashboard.of(widget.language).pathSearchNoResults)),
+          SnackBar(
+            content: Text(Dashboard.of(widget.language).pathSearchNoResults),
+          ),
         );
       }
     } catch (e) {
@@ -111,18 +120,56 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
       _centre = candidate.location;
       _centreLabel = candidate.label;
       _results = const [];
+      _nearbyPlaces = const [];
       _search.text = candidate.spokenLabel;
     });
     if (MapsConfig.useOsmTiles) {
       _osmController.move(_toLL(candidate.location), _initialZoom);
     } else {
-      _googleController?.animateCamera(
-        gmaps.CameraUpdate.newLatLngZoom(candidate.location, _initialZoom),
-      );
+      final controller = _googleController;
+      if (controller != null) {
+        _programmaticCameraMove = true;
+        controller
+            .animateCamera(
+              gmaps.CameraUpdate.newLatLngZoom(
+                candidate.location,
+                _initialZoom,
+              ),
+            )
+            .whenComplete(() => _programmaticCameraMove = false);
+      }
     }
   }
 
   gmaps.GoogleMapController? _googleController;
+
+  Set<gmaps.Marker> get _googleMarkers => {
+    for (final place in widget.savedPlaces)
+      if (place.hasCoordinates)
+        gmaps.Marker(
+          markerId: gmaps.MarkerId('saved:${place.label}'),
+          position: gmaps.LatLng(place.lat!, place.lng!),
+          infoWindow: gmaps.InfoWindow(title: place.label),
+          onTap: () => _goTo(
+            GeocodeCandidate(
+              label: place.label,
+              location: gmaps.LatLng(place.lat!, place.lng!),
+            ),
+          ),
+        ),
+    for (var i = 0; i < _nearbyPlaces.length; i++)
+      gmaps.Marker(
+        markerId: gmaps.MarkerId('nearby:$i'),
+        position: _nearbyPlaces[i].location,
+        infoWindow: gmaps.InfoWindow(title: _nearbyPlaces[i].name),
+        onTap: () => _goTo(
+          GeocodeCandidate(
+            label: _nearbyPlaces[i].name,
+            location: _nearbyPlaces[i].location,
+          ),
+        ),
+      ),
+  };
 
   ll.LatLng _toLL(gmaps.LatLng p) => ll.LatLng(p.latitude, p.longitude);
 
@@ -133,20 +180,197 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
   /// a pair of coordinates is not. A pin dropped by panning alone has no
   /// name and that is fine — the caller falls back to whatever the user
   /// typed.
-  void _confirm() => Navigator.of(context).pop(
-        DestinationChoice(
-          method: DestinationMethod.pinned,
-          text: _centreLabel.isEmpty ? null : _centreLabel,
-          latitude: _centre.latitude,
-          longitude: _centre.longitude,
+  Future<void> _confirm() async {
+    if (_resolving) return;
+    setState(() => _resolving = true);
+    var label = _centreLabel.trim();
+    if (label.isEmpty) {
+      try {
+        final found = await _routing
+            .describeLocation(_centre)
+            .timeout(const Duration(seconds: 6));
+        label = found?.spokenLabel ?? '';
+      } catch (e) {
+        debugPrint('[MapPicker] reverse geocode failed: $e');
+      }
+    }
+    if (!mounted) return;
+    setState(() => _resolving = false);
+    final d = Dashboard.of(widget.language);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(d.pathPinConfirm),
+        content: Text(
+          label.isEmpty
+              ? d.pathPinConfirmUnknown
+              : d.pathPinConfirmPrompt(label),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(d.pathPinUsePoint),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    Navigator.of(context).pop(
+      DestinationChoice(
+        method: DestinationMethod.pinned,
+        text: label.isEmpty ? null : label,
+        latitude: _centre.latitude,
+        longitude: _centre.longitude,
+      ),
+    );
+  }
+
+  Future<void> _openMapMenu(Dashboard d) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Text(
+                d.pathMapMenu,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            if (widget.savedPlaces.isNotEmpty) ...[
+              ListTile(title: Text(d.pathSavedPlaces)),
+              for (final place in widget.savedPlaces)
+                ListTile(
+                  leading: const Icon(Icons.bookmark_outline_rounded),
+                  title: Text(place.label),
+                  subtitle: place.address.isEmpty ? null : Text(place.address),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _selectSavedPlace(place);
+                  },
+                ),
+            ],
+            ListTile(title: Text(d.pathNearbyPlaces)),
+            for (final category in placeCategories)
+              ListTile(
+                leading: const Icon(Icons.near_me_outlined),
+                title: Text(d.pathCategoryLabel(category.id)),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _loadNearby(category, d);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _selectSavedPlace(SavedPlace place) async {
+    if (place.hasCoordinates) {
+      _goTo(
+        GeocodeCandidate(
+          label: place.label,
+          location: gmaps.LatLng(place.lat!, place.lng!),
         ),
       );
+      return;
+    }
+    final address = place.address.trim();
+    if (address.isEmpty) return;
+    try {
+      final matches = await _routing.geocodeCandidates(address);
+      if (!mounted) return;
+      if (matches.isNotEmpty) {
+        _goTo(
+          GeocodeCandidate(
+            label: place.label,
+            location: matches.first.location,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('[MapPicker] saved place lookup failed: $e');
+    }
+  }
+
+  Future<void> _loadNearby(PlaceCategory category, Dashboard d) async {
+    setState(() {
+      _searching = true;
+    });
+    try {
+      final places = await _routing.nearbyOfCategory(
+        origin: _centre,
+        category: category,
+      );
+      if (!mounted) return;
+      setState(() {
+        _nearbyPlaces = places;
+        _searching = false;
+      });
+      if (places.isEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(d.pathSearchNoResults)));
+        return;
+      }
+      await showModalBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(title: Text(d.pathCategoryLabel(category.id))),
+              for (final place in places)
+                ListTile(
+                  leading: const Icon(Icons.place_outlined),
+                  title: Text(
+                    place.name.isEmpty
+                        ? d.pathCategoryLabel(category.id)
+                        : place.name,
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _goTo(
+                      GeocodeCandidate(
+                        label: place.name.isEmpty
+                            ? d.pathCategoryLabel(category.id)
+                            : place.name,
+                        location: place.location,
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[MapPicker] nearby lookup failed: $e');
+      if (mounted) setState(() => _searching = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final d = Dashboard.of(widget.language);
     return Scaffold(
-      appBar: AppBar(title: Text(d.pathPinOnMap)),
+      appBar: AppBar(
+        title: Text(d.pathPinOnMap),
+        actions: [
+          IconButton(
+            tooltip: d.pathMapMenu,
+            onPressed: () => _openMapMenu(d),
+            icon: const Icon(Icons.menu_rounded),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Expanded(
@@ -159,7 +383,11 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
                 // the exact centre of the screen the one place the map
                 // cannot be dragged from.
                 const IgnorePointer(
-                  child: Icon(Icons.place_rounded, size: 48, color: AppColors.danger),
+                  child: Icon(
+                    Icons.place_rounded,
+                    size: 48,
+                    color: AppColors.danger,
+                  ),
                 ),
                 Positioned(
                   top: 12,
@@ -190,7 +418,9 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
                                   child: SizedBox(
                                     width: 18,
                                     height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
                                   ),
                                 )
                               else
@@ -237,7 +467,9 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
                             child: Padding(
                               padding: const EdgeInsets.all(12),
                               child: Text(
-                                _centreLabel.isEmpty ? d.pathPinInstruction : _centreLabel,
+                                _centreLabel.isEmpty
+                                    ? d.pathPinInstruction
+                                    : _centreLabel,
                               ),
                             ),
                           ),
@@ -258,9 +490,14 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
                 child: SizedBox(
                   height: 56,
                   child: FilledButton.icon(
-                    onPressed: _confirm,
+                    onPressed: _resolving ? null : _confirm,
                     icon: const Icon(Icons.directions_rounded),
-                    label: Text(d.pathPinConfirm),
+                    label: _resolving
+                        ? const SizedBox.square(
+                            dimension: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(d.pathPinConfirm),
                   ),
                 ),
               ),
@@ -284,7 +521,11 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
           // reading yet.
           onPositionChanged: (camera, hasGesture) {
             if (!hasGesture) return;
-            _centre = gmaps.LatLng(camera.center.latitude, camera.center.longitude);
+            _centre = gmaps.LatLng(
+              camera.center.latitude,
+              camera.center.longitude,
+            );
+            _centreLabel = '';
           },
         ),
         children: [
@@ -292,6 +533,46 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
             urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             userAgentPackageName: 'com.ant.assistive.ant_app',
             evictErrorTileStrategy: EvictErrorTileStrategy.dispose,
+          ),
+          MarkerLayer(
+            markers: [
+              for (final place in widget.savedPlaces)
+                if (place.hasCoordinates)
+                  Marker(
+                    point: ll.LatLng(place.lat!, place.lng!),
+                    width: 44,
+                    height: 44,
+                    child: IconButton(
+                      tooltip: place.label,
+                      onPressed: () => _goTo(
+                        GeocodeCandidate(
+                          label: place.label,
+                          location: gmaps.LatLng(place.lat!, place.lng!),
+                        ),
+                      ),
+                      icon: const Icon(
+                        Icons.bookmark,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+              for (var i = 0; i < _nearbyPlaces.length; i++)
+                Marker(
+                  point: _toLL(_nearbyPlaces[i].location),
+                  width: 44,
+                  height: 44,
+                  child: IconButton(
+                    tooltip: _nearbyPlaces[i].name,
+                    onPressed: () => _goTo(
+                      GeocodeCandidate(
+                        label: _nearbyPlaces[i].name,
+                        location: _nearbyPlaces[i].location,
+                      ),
+                    ),
+                    icon: const Icon(Icons.place, color: AppColors.danger),
+                  ),
+                ),
+            ],
           ),
         ],
       );
@@ -303,11 +584,18 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
       );
     }
     return gmaps.GoogleMap(
-      initialCameraPosition: gmaps.CameraPosition(target: _centre, zoom: _initialZoom),
+      initialCameraPosition: gmaps.CameraPosition(
+        target: _centre,
+        zoom: _initialZoom,
+      ),
       onMapCreated: (c) => _googleController = c,
+      markers: _googleMarkers,
       myLocationEnabled: true,
       myLocationButtonEnabled: true,
       zoomControlsEnabled: true,
+      onCameraMoveStarted: () {
+        if (!_programmaticCameraMove) _centreLabel = '';
+      },
       onCameraMove: (position) => _centre = position.target,
     );
   }

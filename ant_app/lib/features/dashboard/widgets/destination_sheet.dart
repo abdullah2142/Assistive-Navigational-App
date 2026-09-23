@@ -3,10 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/routing_config.dart';
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/services/dhaka_places.dart';
 import '../../../core/services/earcon_service.dart';
+import '../../../core/services/place_categories.dart';
+import '../../../core/services/routing_service.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../onboarding/models/user_profile.dart';
@@ -16,7 +19,12 @@ enum DestinationMethod { typed, spoken, saved, pinned }
 
 /// What the sheet hands back.
 class DestinationChoice {
-  const DestinationChoice({required this.method, this.text, this.latitude, this.longitude});
+  const DestinationChoice({
+    required this.method,
+    this.text,
+    this.latitude,
+    this.longitude,
+  });
 
   final DestinationMethod method;
 
@@ -49,7 +57,12 @@ class DestinationChoice {
 /// Every row is a full-width 56dp target with its own semantics label, and
 /// the list is ordered by how little sight it needs: speak first.
 class DestinationSheet extends ConsumerStatefulWidget {
-  const DestinationSheet({super.key, required this.profile, required this.onPickOnMap});
+  const DestinationSheet({
+    super.key,
+    required this.profile,
+    required this.onPickOnMap,
+    this.routing,
+  });
 
   final UserProfile profile;
 
@@ -57,6 +70,7 @@ class DestinationSheet extends ConsumerStatefulWidget {
   /// needs the whole screen — a map inside a bottom sheet is too small to
   /// aim at, which defeats the one thing this option is for.
   final Future<DestinationChoice?> Function() onPickOnMap;
+  final RoutingService? routing;
 
   @override
   ConsumerState<DestinationSheet> createState() => _DestinationSheetState();
@@ -65,11 +79,25 @@ class DestinationSheet extends ConsumerStatefulWidget {
 class _DestinationSheetState extends ConsumerState<DestinationSheet> {
   final _controller = TextEditingController();
   bool _listening = false;
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
+  bool _searching = false;
+  List<GeocodeCandidate> _results = const [];
 
   late final SttService _stt = ref.read(sttServiceProvider);
+  // Use Google's configured Geocoding API for autocomplete. The debounce,
+  // three-character minimum and four-result cap bound lookups as the user
+  // types; OSM remains a fallback if Google is unavailable.
+  late final RoutingService _routing =
+      widget.routing ??
+      RoutingService(
+        backend: RoutingBackend.google,
+        allowFallback: RoutingConfig.allowOsmFallback,
+      );
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -79,6 +107,49 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
     if (text.isEmpty) return;
     Navigator.of(context)
         .pop(DestinationChoice(method: DestinationMethod.typed, text: text));
+  }
+
+  void _searchAsYouType(String value) {
+    _searchDebounce?.cancel();
+    final query = value.trim();
+    final generation = ++_searchGeneration;
+    if (query.length < 3 || categoryFor(query) != null) {
+      setState(() {
+        _results = const [];
+        _searching = false;
+      });
+      return;
+    }
+    setState(() => _searching = true);
+    _searchDebounce = Timer(const Duration(milliseconds: 1200), () async {
+      try {
+        final results = await _routing.geocodeCandidates(query, limit: 4);
+        if (!mounted || generation != _searchGeneration) return;
+        setState(() {
+          _results = results;
+          _searching = false;
+        });
+      } catch (e) {
+        debugPrint('[DestinationSheet] suggestions unavailable: $e');
+        if (!mounted || generation != _searchGeneration) return;
+        setState(() {
+          _results = const [];
+          _searching = false;
+        });
+      }
+    });
+  }
+
+  void _chooseCandidate(GeocodeCandidate candidate) {
+    _searchDebounce?.cancel();
+    Navigator.of(context).pop(
+      DestinationChoice(
+        method: DestinationMethod.typed,
+        text: candidate.spokenLabel,
+        latitude: candidate.location.latitude,
+        longitude: candidate.location.longitude,
+      ),
+    );
   }
 
   /// Speak the destination.
@@ -93,7 +164,8 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
     }
     if (!await _stt.ensureAvailable()) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d.chatVoiceUnavailable)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(d.chatVoiceUnavailable)));
       return;
     }
     setState(() => _listening = true);
@@ -106,7 +178,9 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
         // saved labels lead — what somebody calls their own home is a far
         // stronger hint than any gazetteer entry.
         phraseHints: placeNameHints(
-          savedPlaceLabels: [for (final p in widget.profile.savedPlaces) p.label],
+          savedPlaceLabels: [
+            for (final p in widget.profile.savedPlaces) p.label,
+          ],
           homeAddress: widget.profile.homeAddress,
           safePlaceAddress: widget.profile.safePlaceAddress,
         ),
@@ -115,8 +189,12 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
           _controller.text = text;
           _controller.selection = TextSelection.collapsed(offset: text.length);
           if (isFinal && text.trim().isNotEmpty) {
-            Navigator.of(context)
-                .pop(DestinationChoice(method: DestinationMethod.spoken, text: text.trim()));
+            Navigator.of(context).pop(
+              DestinationChoice(
+                method: DestinationMethod.spoken,
+                text: text.trim(),
+              ),
+            );
           }
         },
       );
@@ -134,7 +212,9 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
       child: Padding(
         // Clears the keyboard when the text field has focus, so the field
         // being typed into is never the thing hidden by what is typing into it.
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -181,6 +261,7 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
                           autofocus: false,
                           textInputAction: TextInputAction.search,
                           onSubmitted: (_) => _submitTyped(),
+                          onChanged: _searchAsYouType,
                           // Grows down the way the chat field does, so a long
                           // Dhaka address is read in full instead of scrolling
                           // sideways past the start of itself.
@@ -202,7 +283,9 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
                       hint: d.pathSpeakHint,
                       liveRegion: _listening,
                       child: Material(
-                        color: _listening ? AppColors.danger : AppColors.primary,
+                        color: _listening
+                            ? AppColors.danger
+                            : AppColors.primary,
                         shape: const CircleBorder(),
                         child: InkWell(
                           customBorder: const CircleBorder(),
@@ -211,7 +294,9 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
                             width: 52,
                             height: 52,
                             child: Icon(
-                              _listening ? Icons.mic_off_rounded : Icons.mic_rounded,
+                              _listening
+                                  ? Icons.mic_off_rounded
+                                  : Icons.mic_rounded,
                               color: Colors.white,
                               size: 26,
                             ),
@@ -222,6 +307,37 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
                   ],
                 ),
               ),
+
+              if (_searching)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              if (_results.isNotEmpty)
+                Card(
+                  margin: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final result in _results)
+                          ListTile(
+                            leading: const Icon(Icons.place_outlined),
+                            title: Text(result.spokenLabel),
+                            subtitle: result.label == result.spokenLabel
+                                ? null
+                                : Text(
+                                    result.label,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                            onTap: () => _chooseCandidate(result),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
 
               const SizedBox(height: 8),
               _SheetRow(
@@ -242,7 +358,10 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
                     icon: Icons.bookmark_rounded,
                     label: place.label,
                     onTap: () => Navigator.of(context).pop(
-                      DestinationChoice(method: DestinationMethod.saved, text: place.label),
+                      DestinationChoice(
+                        method: DestinationMethod.saved,
+                        text: place.label,
+                      ),
                     ),
                   ),
               ],
@@ -256,7 +375,12 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
 }
 
 class _SheetRow extends StatelessWidget {
-  const _SheetRow({required this.icon, required this.label, required this.onTap, this.hint});
+  const _SheetRow({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.hint,
+  });
 
   final IconData icon;
   final String label;
@@ -265,24 +389,27 @@ class _SheetRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
-        button: true,
-        label: label,
-        hint: hint,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            child: Row(
-              children: [
-                Icon(icon, size: 24),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(label, style: Theme.of(context).textTheme.titleMedium),
-                ),
-                const Icon(Icons.chevron_right_rounded, size: 20),
-              ],
+    button: true,
+    label: label,
+    hint: hint,
+    child: InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 24),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ),
-          ),
+            const Icon(Icons.chevron_right_rounded, size: 20),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 }

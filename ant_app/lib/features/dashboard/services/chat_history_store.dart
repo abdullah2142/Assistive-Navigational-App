@@ -77,7 +77,9 @@ class ChatHistoryStore {
       final decoded = jsonDecode(await file.readAsString());
       if (decoded is! Map<String, dynamic>) return const [];
       if (decoded['uid'] != uid) {
-        debugPrint('[ChatHistory] stored transcript belongs to another account — ignoring');
+        debugPrint(
+          '[ChatHistory] stored transcript belongs to another account — ignoring',
+        );
         return const [];
       }
       final raw = decoded['messages'];
@@ -89,11 +91,20 @@ class ChatHistoryStore {
         final sender = entry['sender'];
         final at = DateTime.tryParse(entry['timestamp'] as String? ?? '');
         if (text is! String || text.isEmpty || at == null) continue;
-        messages.add(ChatMessage(
-          sender: sender == 'user' ? ChatSender.user : ChatSender.assistant,
-          text: text,
-          timestamp: at,
-        ));
+        messages.add(
+          ChatMessage(
+            sender: switch (sender) {
+              'user' => ChatSender.user,
+              'caretaker' => ChatSender.caretaker,
+              _ => ChatSender.assistant,
+            },
+            text: text,
+            timestamp: at,
+            messageId: entry['id'] as String?,
+            replyToMessageId: entry['replyToMessageId'] as String?,
+            replyToText: entry['replyToText'] as String?,
+          ),
+        );
       }
       debugPrint('[ChatHistory] restored ${messages.length} messages');
       return messages;
@@ -135,19 +146,27 @@ class ChatHistoryStore {
           : messages;
       final file = await _file();
       await file.parent.create(recursive: true);
-      await file.writeAsString(jsonEncode({
-        'uid': uid,
-        'messages': [
-          for (final m in kept)
-            {
-              'sender': m.sender.name,
-              'text': m.text,
-              'timestamp': m.timestamp.toIso8601String(),
-            },
-        ],
-      }));
+      await file.writeAsString(
+        jsonEncode({
+          'uid': uid,
+          'messages': [
+            for (final m in kept)
+              {
+                'sender': m.sender.name,
+                'text': m.text,
+                'timestamp': m.timestamp.toIso8601String(),
+                'id': m.id,
+                if (m.replyToMessageId != null)
+                  'replyToMessageId': m.replyToMessageId,
+                if (m.replyToText != null) 'replyToText': m.replyToText,
+              },
+          ],
+        }),
+      );
     } catch (e) {
-      debugPrint('[ChatHistory] could not write the transcript (non-fatal): $e');
+      debugPrint(
+        '[ChatHistory] could not write the transcript (non-fatal): $e',
+      );
     }
   }
 

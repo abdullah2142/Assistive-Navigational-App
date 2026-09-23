@@ -19,11 +19,16 @@ import '../../../core/services/stt_service.dart';
 import '../../../core/services/wake_word_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../onboarding/models/user_profile.dart';
+import '../screens/camera_aiming_screen.dart';
+import '../models/chat_message.dart';
 import '../models/hazard_report.dart';
 import '../models/suggested_chip.dart';
 import '../providers/chat_providers.dart';
 import 'chat_bubble.dart';
 import 'suggested_chip_row.dart';
+import 'camera_aiming_dialog.dart';
+import '../../guardian/widgets/voice_memo_recorder_dialog.dart';
+import '../../guardian/providers/guardian_providers.dart';
 
 /// The Dynamic Chat Stream — top 60% of the Split-Mode Dashboard.
 class ChatStreamPanel extends ConsumerStatefulWidget {
@@ -48,17 +53,28 @@ class ChatStreamPanel extends ConsumerStatefulWidget {
   /// Second argument is non-null only for
   /// [SuggestedChipAction.reportHazard] triggered by a command that already
   /// named the hazard — see [HazardReportPrefill].
-  final void Function(SuggestedChipAction action, HazardReportPrefill? prefill) onOverlayChip;
+  final void Function(SuggestedChipAction action, HazardReportPrefill? prefill)
+  onOverlayChip;
   final UserProfile profile;
 
   @override
   ConsumerState<ChatStreamPanel> createState() => _ChatStreamPanelState();
 }
 
-class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsBindingObserver {
+class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel>
+    with WidgetsBindingObserver {
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
   bool _listening = false;
+  bool _caretakerMode = false;
+  bool _cameraAimDialogOpen = false;
+
+  /// The assistant message the next thing typed or said will answer.
+  ///
+  /// Set by long-pressing a bubble. Cleared on send and by the × on the
+  /// banner — a reply target that outlived its turn would silently attach an
+  /// old quote to an unrelated question.
+  ChatMessage? _replyingTo;
 
   /// True between "a listen was requested" and "that listen finished".
   /// Separate from [_listening], which only becomes true once the recognizer
@@ -72,7 +88,9 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
   // unmounted is unsafe").
   late final SttService _stt = ref.read(sttServiceProvider);
   late final WakeWordService _wakeWord = ref.read(wakeWordServiceProvider);
-  late final BackgroundListeningService _backgroundListening = ref.read(backgroundListeningServiceProvider);
+  late final BackgroundListeningService _backgroundListening = ref.read(
+    backgroundListeningServiceProvider,
+  );
 
   /// The Volume-Down hold. Registered here because this panel is alive for
   /// the whole time the dashboard is, which is the whole time the physical
@@ -90,11 +108,18 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
   /// same reason `_wakeWord` and `_backgroundListening` are: `dispose()`
   /// releases the camera, and `ref` is unsafe once the widget is unmounting.
   /// Forced in `initState` alongside the others.
-  late final SnapshotVisionService _vision = ref.read(snapshotVisionServiceProvider);
+  late final SnapshotVisionService _vision = ref.read(
+    snapshotVisionServiceProvider,
+  );
+  late final ChatController _chatController = ref.read(
+    chatControllerProvider.notifier,
+  );
 
   /// Module 6's unprompted hazard scanning. Held as a field for the same
   /// `ref`-in-dispose reason as the others.
-  late final AmbientHazardScanner _ambient = ref.read(ambientHazardScannerProvider);
+  late final AmbientHazardScanner _ambient = ref.read(
+    ambientHazardScannerProvider,
+  );
   StreamSubscription<String>? _ambientSub;
 
   @override
@@ -110,35 +135,43 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     _backgroundListening;
     _vision;
     _ambient;
+    _chatController.registerCameraAimer(
+      _openCameraAim,
+      finish: _closeCameraAim,
+    );
     // Spoken through the chat controller rather than straight to TTS, so an
     // ambient warning queues behind turn-by-turn guidance instead of talking
     // over it, and lands in the transcript for a Deaf-blind user.
     _ambientSub = _ambient.announcements.listen((line) {
       if (!mounted) return;
-      unawaited(ref
-          .read(chatControllerProvider.notifier)
-          .announceAmbientHazard(line, widget.profile));
+      unawaited(
+        ref
+            .read(chatControllerProvider.notifier)
+            .announceAmbientHazard(line, widget.profile),
+      );
     });
     unawaited(_ambient.start(widget.profile));
     // Feeds the scanner what is already known to be on this journey, so it
     // looks harder near a reported hazard or a crossing than it does on an
     // ordinary stretch of road. Cleared when the route goes away.
-    ref.listenManual(
-      chatControllerProvider.select((s) => s.pendingRoute),
-      (previous, route) {
-        _ambient.setRouteContext(
-          hazards: route?.verdict.allHazards ?? const [],
-          crossings: [
-            for (final step in route?.steps ?? const [])
-              if (step.maneuver == ManeuverKind.crossing) step.location,
-          ],
-        );
-      },
-    );
+    ref.listenManual(chatControllerProvider.select((s) => s.pendingRoute), (
+      previous,
+      route,
+    ) {
+      _ambient.setRouteContext(
+        hazards: route?.verdict.allHazards ?? const [],
+        crossings: [
+          for (final step in route?.steps ?? const [])
+            if (step.maneuver == ManeuverKind.crossing) step.location,
+        ],
+      );
+    });
     _emergencyChannel.onPhysicalTrigger(() async {
       if (!mounted) return;
       debugPrint('[Emergency] volume-down hold');
-      await ref.read(chatControllerProvider.notifier).triggerEmergency(widget.profile);
+      await ref
+          .read(chatControllerProvider.notifier)
+          .triggerEmergency(widget.profile);
     });
     _visionChannel.onSweepTrigger(() async {
       if (!mounted) return;
@@ -160,6 +193,53 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
       controller.ensureWelcomeMessage(d);
     });
     if (widget.profile.wakeWordEnabled) _startWakeWordListening();
+  }
+
+  Future<bool> _openCameraAim() async {
+    if (!mounted) return false;
+    final vision = _vision;
+    if (!await vision.camera.open()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Camera is unavailable or permission was denied.'),
+          ),
+        );
+      }
+      vision.closeCamera();
+      return false;
+    }
+    final controller = vision.camera.controller;
+    if (controller == null || !mounted) {
+      vision.closeCamera();
+      return false;
+    }
+    final confirmedByUser = Completer<bool>();
+    _cameraAimDialogOpen = true;
+    unawaited(
+      showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => CameraAimingDialog(
+          controller: controller,
+          onUseView: () {
+            if (!confirmedByUser.isCompleted) confirmedByUser.complete(true);
+          },
+        ),
+      ).then((confirmed) {
+        _cameraAimDialogOpen = false;
+        if (!confirmedByUser.isCompleted) {
+          confirmedByUser.complete(confirmed == true);
+        }
+        if (confirmed != true) vision.closeCamera();
+      }),
+    );
+    return confirmedByUser.future;
+  }
+
+  Future<void> _closeCameraAim() async {
+    if (!mounted || !_cameraAimDialogOpen) return;
+    Navigator.of(context).pop(true);
   }
 
   /// Backgrounding/locking is exactly when continuous listening matters
@@ -221,13 +301,16 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     // Before the enabled check below, which returns early. The dial can be
     // moved without the toggle changing at all — in fact that is the normal
     // case, since somebody tuning it has the wake word switched on already.
-    if (widget.profile.wakeWordThreshold != oldWidget.profile.wakeWordThreshold) {
+    if (widget.profile.wakeWordThreshold !=
+        oldWidget.profile.wakeWordThreshold) {
       _applyWakeWordThreshold();
     }
     if (widget.profile.hapticIntensity != oldWidget.profile.hapticIntensity) {
-      ref.read(hapticsServiceProvider).intensity = widget.profile.hapticIntensity;
+      ref.read(hapticsServiceProvider).intensity =
+          widget.profile.hapticIntensity;
     }
-    if (widget.profile.wakeWordEnabled == oldWidget.profile.wakeWordEnabled) return;
+    if (widget.profile.wakeWordEnabled == oldWidget.profile.wakeWordEnabled)
+      return;
     if (widget.profile.wakeWordEnabled) {
       _startWakeWordListening();
     } else {
@@ -270,6 +353,8 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
 
   @override
   void dispose() {
+    _vision.closeCamera();
+    _chatController.registerCameraAimer(null);
     WidgetsBinding.instance.removeObserver(this);
     _textController.dispose();
     _scrollController.dispose();
@@ -311,15 +396,83 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
       widget.onOverlayChip(chip.action, null);
       return;
     }
-    await ref.read(chatControllerProvider.notifier).handleChip(chip, widget.profile, chip.labelFor(d));
+
+    // The camera chip opens a viewfinder first, for the users who can use
+    // one. Asked for as: the camera should open for aiming when the button
+    // is tapped.
+    //
+    // Only for them. A user with no usable vision gets the sweep straight
+    // away, because a preview they cannot see is a screen standing between
+    // them and the answer — and Volume Up and the spoken request, which are
+    // their paths, never come through here at all.
+    if (chip.action == SuggestedChipAction.cameraScan &&
+        shouldOfferAiming(widget.profile.visionLevel)) {
+      final take = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => CameraAimingScreen(language: widget.profile.language),
+        ),
+      );
+      if (take != true || !mounted) return;
+      await ref.read(chatControllerProvider.notifier).runSweep(widget.profile);
+      _scrollToEnd();
+      return;
+    }
+    await ref
+        .read(chatControllerProvider.notifier)
+        .handleChip(chip, widget.profile, chip.labelFor(d));
     _scrollToEnd();
   }
 
   Future<void> _submitText() async {
     final text = _textController.text;
+    final replyTo = _replyingTo;
     _textController.clear();
-    await ref.read(chatControllerProvider.notifier).sendFreeText(text, widget.profile);
+    if (replyTo != null) setState(() => _replyingTo = null);
+    final chat = ref.read(chatControllerProvider.notifier);
+    if (_caretakerMode) {
+      await chat.sendCaretakerText(text, widget.profile);
+    } else {
+      await chat.sendFreeText(
+        text,
+        widget.profile,
+        replyTo: replyTo?.text,
+        replyToMessageId: replyTo?.id,
+      );
+    }
     _scrollToEnd();
+  }
+
+  Future<void> _sendCaretakerVoiceMemo() async {
+    final caretakerUid = widget.profile.pairedUserId;
+    if (caretakerUid == null) return;
+    final result = await VoiceMemoRecorderDialog.show(context);
+    if (!mounted || result == null || result.durationSeconds < 1) return;
+    try {
+      await ref
+          .read(communicationServiceProvider)
+          .sendVoiceMemo(
+            disabledUserUid: widget.profile.uid,
+            fromUid: widget.profile.uid,
+            toUid: caretakerUid,
+            audioBase64: result.audioBase64,
+            durationSeconds: result.durationSeconds,
+          );
+      ref
+          .read(chatControllerProvider.notifier)
+          .appendOutgoingCaretakerVoiceMemo(
+            result.audioBase64,
+            result.durationSeconds,
+          );
+      await ref
+          .read(chatControllerProvider.notifier)
+          .announceCaretakerVoiceMemoSent(widget.profile);
+      _scrollToEnd();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not send the voice message: $e')),
+      );
+    }
   }
 
   /// Push-to-talk, triggered either by the mic button or by wake-word
@@ -386,7 +539,8 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     try {
       if (!await _stt.ensureAvailable()) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d.chatVoiceUnavailable)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(d.chatVoiceUnavailable)));
         return;
       }
       setState(() => _listening = true);
@@ -418,7 +572,9 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
         // what somebody calls their own home is a far stronger hint than any
         // gazetteer entry, and it is the name they will actually say.
         phraseHints: placeNameHints(
-          savedPlaceLabels: [for (final p in widget.profile.savedPlaces) p.label],
+          savedPlaceLabels: [
+            for (final p in widget.profile.savedPlaces) p.label,
+          ],
           homeAddress: widget.profile.homeAddress,
           safePlaceAddress: widget.profile.safePlaceAddress,
         ),
@@ -429,7 +585,9 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
           // controller).
           if (!mounted) return;
           _textController.text = text;
-          _textController.selection = TextSelection.collapsed(offset: text.length);
+          _textController.selection = TextSelection.collapsed(
+            offset: text.length,
+          );
           if (isFinal) {
             setState(() => _listening = false);
             if (text.trim().isNotEmpty) _submitText();
@@ -465,17 +623,26 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
     // spoken, so the recognizer never opens under the app's own voice) and
     // this decides *whether the microphone is free* — `_beginListening`'s
     // own guards refuse if a session is already running.
-    ref.listen(chatControllerProvider.select((s) => s.answerInvitations), (previous, next) {
+    ref.listen(chatControllerProvider.select((s) => s.answerInvitations), (
+      previous,
+      next,
+    ) {
       if (previous == null || next <= previous) return;
       if (_listening || _startingListen) return;
       unawaited(_beginListening(Dashboard.of(widget.profile.language)));
     });
 
-    ref.listen(chatControllerProvider.select((s) => s.pendingOverlayAction), (previous, next) {
+    ref.listen(chatControllerProvider.select((s) => s.pendingOverlayAction), (
+      previous,
+      next,
+    ) {
       if (next == null) return;
       // Read the prefill from the same state snapshot, before clearing —
       // `clearPendingOverlay` clears both.
-      widget.onOverlayChip(next, ref.read(chatControllerProvider).pendingHazardPrefill);
+      widget.onOverlayChip(
+        next,
+        ref.read(chatControllerProvider).pendingHazardPrefill,
+      );
       ref.read(chatControllerProvider.notifier).clearPendingOverlay();
     });
 
@@ -485,7 +652,9 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
           child: ListView.builder(
             controller: _scrollController,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            itemCount: chatState.messages.length + (chatState.isAssistantTyping ? 1 : 0),
+            itemCount:
+                chatState.messages.length +
+                (chatState.isAssistantTyping ? 1 : 0),
             itemBuilder: (context, index) {
               if (index >= chatState.messages.length) {
                 return Padding(
@@ -507,18 +676,105 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
                   ),
                 );
               }
-              return ChatBubble(message: chatState.messages[index], strings: d);
+              final message = chatState.messages[index];
+              return ChatBubble(
+                message: message,
+                strings: d,
+                // Only the assistant's messages are worth replying to — a
+                // user quoting themselves tells the model nothing it does
+                // not already have.
+                onReply:
+                    message.sender == ChatSender.assistant &&
+                        message.text.trim().isNotEmpty
+                    ? () => setState(() => _replyingTo = message)
+                    : null,
+              );
             },
           ),
         ),
+        if (_replyingTo != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+            child: Semantics(
+              liveRegion: true,
+              label: d.chatReplyingTo(_replyingTo!.text),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: const Border(
+                    left: BorderSide(width: 3, color: AppColors.primary),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _replyingTo!.text,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    Semantics(
+                      button: true,
+                      label: d.chatReplyCancel,
+                      child: IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () => setState(() => _replyingTo = null),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SuggestedChipRow(
-            // The voice-message chip only exists once there is somebody to
-            // send one to — see `suggestedChipsFor`.
-            chips: suggestedChipsFor(caretakerPaired: widget.profile.pairedUserId != null),
-            strings: d,
-            onTap: (chip) => _handleChip(chip, d),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (widget.profile.pairedUserId != null)
+                FilterChip(
+                  avatar: Icon(
+                    _caretakerMode
+                        ? Icons.support_agent_rounded
+                        : Icons.support_agent_outlined,
+                    size: 18,
+                  ),
+                  label: const Text('Caretaker'),
+                  selected: _caretakerMode || chatState.caretakerMessageArmed,
+                  onSelected: (_) {
+                    final turnOn =
+                        !(_caretakerMode || chatState.caretakerMessageArmed);
+                    ref
+                        .read(chatControllerProvider.notifier)
+                        .clearOneShotCaretakerMessage();
+                    setState(() => _caretakerMode = turnOn);
+                  },
+                ),
+              if (widget.profile.pairedUserId != null)
+                ActionChip(
+                  avatar: const Icon(Icons.image_outlined, size: 18),
+                  label: const Text('Send image'),
+                  onPressed: () => ref
+                      .read(chatControllerProvider.notifier)
+                      .sendPhotoToCaretaker(widget.profile),
+                ),
+              SuggestedChipRow(
+                // The voice-message chip only exists once there is somebody to
+                // send one to — see `suggestedChipsFor`.
+                chips: suggestedChipsFor(
+                  caretakerPaired: widget.profile.pairedUserId != null,
+                ),
+                strings: d,
+                onTap: (chip) => _handleChip(chip, d),
+              ),
+            ],
           ),
         ),
         // Mic on the left of the input bar rather than on its own row.
@@ -532,6 +788,7 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               if (widget.onToggleMap != null) ...[
                 // Shaped like the mic and the send button, not like a bare
@@ -550,9 +807,13 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
                 // semantics label says show or hide.
                 Semantics(
                   button: true,
-                  label: widget.mapVisible ? d.mapHideSemantics : d.mapShowSemantics,
+                  label: widget.mapVisible
+                      ? d.mapHideSemantics
+                      : d.mapShowSemantics,
                   child: Material(
-                    color: widget.mapVisible ? AppColors.primary : AppColors.primaryLight,
+                    color: widget.mapVisible
+                        ? AppColors.primary
+                        : AppColors.primaryLight,
                     shape: const CircleBorder(),
                     child: InkWell(
                       customBorder: const CircleBorder(),
@@ -564,7 +825,9 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
                         width: 48,
                         height: 48,
                         child: Icon(
-                          widget.mapVisible ? Icons.map_rounded : Icons.map_outlined,
+                          widget.mapVisible
+                              ? Icons.map_rounded
+                              : Icons.map_outlined,
                           color: Colors.white,
                           size: 22,
                         ),
@@ -577,7 +840,11 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
               const SizedBox(width: 8),
               Semantics(
                 button: true,
-                label: _listening ? d.chatListeningSemantics : d.chatSpeakSemantics,
+                label: _listening
+                    ? d.chatListeningSemantics
+                    : _caretakerMode
+                    ? 'Record voice message for caretaker'
+                    : d.chatSpeakSemantics,
                 hint: d.chatSpeakHint,
                 liveRegion: _listening,
                 child: Material(
@@ -586,12 +853,17 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
                   elevation: 2,
                   child: InkWell(
                     customBorder: const CircleBorder(),
-                    onTap: () => _toggleListening(d),
+                    onTap: () => _caretakerMode
+                        ? _sendCaretakerVoiceMemo()
+                        : _toggleListening(d),
                     child: SizedBox(
                       width: 52,
                       height: 52,
-                      child: Icon(_listening ? Icons.mic_off_rounded : Icons.mic_rounded,
-                          color: Colors.white, size: 26),
+                      child: Icon(
+                        _listening ? Icons.mic_off_rounded : Icons.mic_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
                     ),
                   ),
                 ),
@@ -617,7 +889,10 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
                     decoration: InputDecoration(
                       hintText: d.chatInputHint,
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                     ),
                   ),
                 ),
@@ -635,7 +910,11 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
                     child: const SizedBox(
                       width: 48,
                       height: 48,
-                      child: Icon(Icons.send_rounded, color: Colors.white, size: 22),
+                      child: Icon(
+                        Icons.send_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
                     ),
                   ),
                 ),
@@ -646,5 +925,4 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
       ],
     );
   }
-
 }

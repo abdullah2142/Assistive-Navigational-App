@@ -11,7 +11,8 @@ import '../../features/dashboard/models/chat_message.dart';
 import '../../features/dashboard/models/hazard_report.dart';
 import '../../features/dashboard/models/suggested_chip.dart';
 import '../../features/onboarding/models/user_profile.dart';
-import '../../features/guardian/models/communication_message.dart' show ReplayDirection;
+import '../../features/guardian/models/communication_message.dart'
+    show ReplayDirection;
 import '../config/groq_config.dart';
 import '../localization/app_language.dart';
 import 'destination_clarifier.dart';
@@ -69,10 +70,10 @@ class GroqAssistantService implements AssistantService {
     required FunctionCallExecutor executor,
     ApiBudget? budget,
     http.Client? client,
-  })  : _apiKey = apiKey,
-        _executor = executor,
-        _budget = budget ?? defaultApiBudget,
-        _client = client ?? http.Client();
+  }) : _apiKey = apiKey,
+       _executor = executor,
+       _budget = budget ?? defaultApiBudget,
+       _client = client ?? http.Client();
 
   final String _apiKey;
   final FunctionCallExecutor _executor;
@@ -121,7 +122,10 @@ class GroqAssistantService implements AssistantService {
     // be parsed.
     final toolCalls = <int, _StreamingToolCall>{};
 
-    await for (final line in streamed.stream.transform(utf8.decoder).transform(const LineSplitter())) {
+    await for (final line
+        in streamed.stream
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())) {
       if (!line.startsWith('data: ')) continue;
       final payload = line.substring(6).trim();
       if (payload == '[DONE]') break;
@@ -149,9 +153,11 @@ class GroqAssistantService implements AssistantService {
         // gap between `prompt` and `cached` is what the rate limiter sees.
         final details = usage['prompt_tokens_details'] as Map<String, dynamic>?;
         final cached = details?['cached_tokens'] ?? 0;
-        debugPrint('[Groq] tokens: prompt=$prompt (cached=$cached, '
-            'billed≈${prompt is int && cached is int ? prompt - cached : '?'}) '
-            'completion=$completion tools=$selectedToolCount');
+        debugPrint(
+          '[Groq] tokens: prompt=$prompt (cached=$cached, '
+          'billed≈${prompt is int && cached is int ? prompt - cached : '?'}) '
+          'completion=$completion tools=$selectedToolCount',
+        );
       }
 
       final choices = chunk['choices'] as List<dynamic>?;
@@ -170,7 +176,10 @@ class GroqAssistantService implements AssistantService {
         for (final raw in deltaCalls) {
           final call = raw as Map<String, dynamic>;
           final index = call['index'] as int? ?? 0;
-          final entry = toolCalls.putIfAbsent(index, () => _StreamingToolCall());
+          final entry = toolCalls.putIfAbsent(
+            index,
+            () => _StreamingToolCall(),
+          );
           final function = call['function'] as Map<String, dynamic>?;
           if (function != null) {
             final name = function['name'] as String?;
@@ -183,7 +192,9 @@ class GroqAssistantService implements AssistantService {
     }
 
     if (toolCalls.isEmpty) {
-      return AssistantTurn(responseText: _textOrFallback(textBuffer.toString(), profile));
+      return AssistantTurn(
+        responseText: _textOrFallback(textBuffer.toString(), profile),
+      );
     }
 
     var workingProfile = profile;
@@ -205,7 +216,9 @@ class GroqAssistantService implements AssistantService {
       Map<String, dynamic> args;
       try {
         final raw = entry.argumentsJson.toString();
-        args = raw.trim().isEmpty ? {} : jsonDecode(raw) as Map<String, dynamic>;
+        args = raw.trim().isEmpty
+            ? {}
+            : jsonDecode(raw) as Map<String, dynamic>;
       } catch (_) {
         args = {};
       }
@@ -221,7 +234,8 @@ class GroqAssistantService implements AssistantService {
       workingProfile = applied.updatedProfile ?? workingProfile;
       overlay ??= applied.overlayAction;
       if (applied.route != null) route = applied.route;
-      if (applied.routeAlternatives != null) alternatives = applied.routeAlternatives;
+      if (applied.routeAlternatives != null)
+        alternatives = applied.routeAlternatives;
       hazardPrefill ??= applied.hazardPrefill;
       scanFocus ??= applied.scanFocus;
       scanQuestion ??= applied.scanQuestion;
@@ -234,7 +248,9 @@ class GroqAssistantService implements AssistantService {
 
     return AssistantTurn(
       responseText: confirmations.join(' '),
-      updatedProfile: identical(workingProfile, profile) ? null : workingProfile,
+      updatedProfile: identical(workingProfile, profile)
+          ? null
+          : workingProfile,
       overlayAction: overlay,
       route: route,
       routeAlternatives: alternatives,
@@ -265,32 +281,40 @@ class GroqAssistantService implements AssistantService {
   /// doesn't hang the whole chat UI indefinitely; past that, this throws and
   /// the caller falls back to the offline matcher exactly as it does for
   /// [AssistantBudgetExhausted].
-  Future<http.StreamedResponse> _sendWithRetry(List<Map<String, dynamic>> messages, List<Map<String, dynamic>> selectedTools, {bool isRetry = false}) async {
-    final request = http.Request('POST', Uri.parse('${GroqConfig.baseUrl}/chat/completions'))
-      ..headers.addAll({
-        'Authorization': 'Bearer $_apiKey',
-        'Content-Type': 'application/json',
-      })
-      ..body = jsonEncode({
-        'model': GroqConfig.chatModel,
-        'messages': messages,
-        'tools': selectedTools,
-        'temperature': 0.4,
-        'max_completion_tokens': 1024,
-        'stream': true,
-        // Makes Groq append a final chunk carrying `usage` — without this a
-        // streamed response reports nothing, and the only figure anyone has
-        // is arithmetic over the request body.
-        //
-        // That arithmetic has already been wrong once: the payload was
-        // believed to be ~5k tokens a turn, and measuring the serialised body
-        // put it between 800 and 1,400. Which of those is right decides
-        // whether this app gets one request a minute or six, so it is worth
-        // hearing from the only party that actually counts — and cached
-        // prefix tokens, which do not bill against TPM, are only visible
-        // here.
-        'stream_options': {'include_usage': true},
-      });
+  Future<http.StreamedResponse> _sendWithRetry(
+    List<Map<String, dynamic>> messages,
+    List<Map<String, dynamic>> selectedTools, {
+    bool isRetry = false,
+  }) async {
+    final request =
+        http.Request(
+            'POST',
+            Uri.parse('${GroqConfig.baseUrl}/chat/completions'),
+          )
+          ..headers.addAll({
+            'Authorization': 'Bearer $_apiKey',
+            'Content-Type': 'application/json',
+          })
+          ..body = jsonEncode({
+            'model': GroqConfig.chatModel,
+            'messages': messages,
+            'tools': selectedTools,
+            'temperature': 0.4,
+            'max_completion_tokens': 1024,
+            'stream': true,
+            // Makes Groq append a final chunk carrying `usage` — without this a
+            // streamed response reports nothing, and the only figure anyone has
+            // is arithmetic over the request body.
+            //
+            // That arithmetic has already been wrong once: the payload was
+            // believed to be ~5k tokens a turn, and measuring the serialised body
+            // put it between 800 and 1,400. Which of those is right decides
+            // whether this app gets one request a minute or six, so it is worth
+            // hearing from the only party that actually counts — and cached
+            // prefix tokens, which do not bill against TPM, are only visible
+            // here.
+            'stream_options': {'include_usage': true},
+          });
 
     final streamed = await _client.send(request);
     if (streamed.statusCode == 429 && !isRetry) {
@@ -304,7 +328,9 @@ class GroqAssistantService implements AssistantService {
     }
     if (streamed.statusCode >= 400) {
       final body = await streamed.stream.bytesToString();
-      throw Exception('Groq chat completion failed (${streamed.statusCode}): $body');
+      throw Exception(
+        'Groq chat completion failed (${streamed.statusCode}): $body',
+      );
     }
     return streamed;
   }
@@ -330,13 +356,25 @@ class GroqAssistantService implements AssistantService {
   }
 
   List<Map<String, dynamic>> _historyToMessages(List<ChatMessage> history) {
-    final recent = history.length > _historyTurns ? history.sublist(history.length - _historyTurns) : history;
-    return recent
-        .map((m) => {
-              'role': m.sender == ChatSender.user ? 'user' : 'assistant',
-              'content': m.text,
-            })
-        .toList();
+    final recent = history.length > _historyTurns
+        ? history.sublist(history.length - _historyTurns)
+        : history;
+    return recent.map((m) {
+      final isUser = m.sender == ChatSender.user;
+      final isCaretaker = m.sender == ChatSender.caretaker;
+      final content = isCaretaker
+          ? 'Caretaker message: ${m.text}'
+          : isUser && m.replyToMessageId != null
+          ? 'Reply to assistant message id "${m.replyToMessageId}" '
+                '(quoted text: "${m.replyToText ?? ''}"):\n${m.text}'
+          : isUser
+          ? m.text
+          : 'Assistant message id "${m.id}": ${m.text}';
+      return {
+        'role': isUser || isCaretaker ? 'user' : 'assistant',
+        'content': content,
+      };
+    }).toList();
   }
 
   /// Identical prompt to `GeminiAssistantService.buildPrompt` — see that
@@ -417,12 +455,12 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
   /// cacheable prefix. Sent as a `system` message rather than folded into the
   /// user's text so it cannot be mistaken for something they said.
   static Map<String, dynamic> _locationMessage(Position? location) => {
-        'role': 'system',
-        'content': location == null
-            ? 'Live location: Not available right now.'
-            : 'Live location: ${location.latitude.toStringAsFixed(5)}, '
-                '${location.longitude.toStringAsFixed(5)}',
-      };
+    'role': 'system',
+    'content': location == null
+        ? 'Live location: Not available right now.'
+        : 'Live location: ${location.latitude.toStringAsFixed(5)}, '
+              '${location.longitude.toStringAsFixed(5)}',
+  };
 
   /// The keywords that put each group of tools in front of the model.
   ///
@@ -521,7 +559,9 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
   /// prompt cache keys on — see [_coreTools].
   @visibleForTesting
   static List<String> toolOrderFor(String text) =>
-      _getRelevantTools(text).map((t) => t['function']['name'] as String).toList();
+      _getRelevantTools(text)
+          .map((t) => t['function']['name'] as String)
+          .toList();
 
   /// Every tool this service declares, in declaration order.
   ///
@@ -535,33 +575,53 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
 
   @visibleForTesting
   static Set<String> toolNamesFor(String text) =>
-      _getRelevantTools(text).map((t) => t['function']['name'] as String).toSet();
+      _getRelevantTools(text)
+          .map((t) => t['function']['name'] as String)
+          .toSet();
 
   /// Same 24 tools as `GeminiAssistantService._tools`, in OpenAI's
   /// `{type: "function", function: {...}}` tool-call shape.
   static final List<Map<String, dynamic>> _tools = [
-    _tool('pair_with_caretaker', 'Link to a caretaker via the 6-digit code they gave. Only if not already paired.',
-        properties: {'code': _str('The 6-digit pairing code.')}, required: ['code']),
-    _tool('update_setting', 'Change one accessibility/app setting.',
-        properties: {
-          'setting': _enumStr(
-            const [
-              'text_size', 'theme', 'language', 'verbosity', 'voice', 'vision_level', 'mobility_aid',
-              'deaf_hearing_mode', 'snapshot_consent', 'crowded_places_anxious', 'complex_instructions_hard',
-              'home_address', 'safe_place_address', 'wake_word_enabled', 'voice_auto_listen',
-            ],
-            'Which setting.',
-          ),
-          // Compressed from prose to a table. Same information, and the
-          // executor validates every value anyway — an unknown one is
-          // rejected with a spoken reply, not applied. The five booleans used
-          // to be named individually; grouping them is most of the saving.
-          'value': _str('text_size 0.8|1.0|1.25|1.5|2.0 (bigger/smaller = ONE step, never jump to an end) | '
-              'theme light|dark | language english|bangla | verbosity minimalist|descriptive | '
-              'voice bn-BD-female-1 | vision_level none|low|full | mobility_aid whiteCane|wheelchair|unassisted | '
-              'snapshot_consent always|askEachTime|never | addresses free text | rest true|false'),
-        },
-        required: ['setting', 'value']),
+    _tool(
+      'pair_with_caretaker',
+      'Link to a caretaker via the 6-digit code they gave. Only if not already paired.',
+      properties: {'code': _str('The 6-digit pairing code.')},
+      required: ['code'],
+    ),
+    _tool(
+      'update_setting',
+      'Change one accessibility/app setting.',
+      properties: {
+        'setting': _enumStr(const [
+          'text_size',
+          'theme',
+          'language',
+          'verbosity',
+          'voice',
+          'vision_level',
+          'mobility_aid',
+          'deaf_hearing_mode',
+          'snapshot_consent',
+          'crowded_places_anxious',
+          'complex_instructions_hard',
+          'home_address',
+          'safe_place_address',
+          'wake_word_enabled',
+          'voice_auto_listen',
+        ], 'Which setting.'),
+        // Compressed from prose to a table. Same information, and the
+        // executor validates every value anyway — an unknown one is
+        // rejected with a spoken reply, not applied. The five booleans used
+        // to be named individually; grouping them is most of the saving.
+        'value': _str(
+          'text_size 0.8|1.0|1.25|1.5|2.0 (bigger/smaller = ONE step, never jump to an end) | '
+          'theme light|dark | language english|bangla | verbosity minimalist|descriptive | '
+          'voice bn-BD-female-1 | vision_level none|low|full | mobility_aid whiteCane|wheelchair|unassisted | '
+          'snapshot_consent always|askEachTime|never | addresses free text | rest true|false',
+        ),
+      },
+      required: ['setting', 'value'],
+    ),
     // `phone` is deliberately NOT required.
     //
     // A model told a field is required fills it, and what it fills it with
@@ -571,18 +631,33 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     // user never gave. An emergency contact with a made-up number is worse
     // than no contact: it is a number the Magic Button will dial when
     // somebody is in trouble. Omitted, the executor asks.
-    _tool('add_emergency_contact',
-        'Add a Magic Button emergency contact. Omit phone if they have not said the number — never invent one.',
-        properties: {'name': _str('Name.'), 'phone': _str('Phone number, only if they gave it.')},
-        required: ['name']),
-    _tool('remove_emergency_contact', 'Remove an emergency contact by name.',
-        properties: {'name': _str('Contact to remove.')}, required: ['name']),
-    _tool('passerby_message', 'Add or remove a pre-written message to show a passerby.',
-        properties: {
-          'message': _str('Message text.'),
-          'remove': _enumStr(const ['true', 'false'], 'true removes a matching message instead of adding.'),
-        },
-        required: ['message']),
+    _tool(
+      'add_emergency_contact',
+      'Add a Magic Button emergency contact. Omit phone if they have not said the number — never invent one.',
+      properties: {
+        'name': _str('Name.'),
+        'phone': _str('Phone number, only if they gave it.'),
+      },
+      required: ['name'],
+    ),
+    _tool(
+      'remove_emergency_contact',
+      'Remove an emergency contact by name.',
+      properties: {'name': _str('Contact to remove.')},
+      required: ['name'],
+    ),
+    _tool(
+      'passerby_message',
+      'Add or remove a pre-written message to show a passerby.',
+      properties: {
+        'message': _str('Message text.'),
+        'remove': _enumStr(const [
+          'true',
+          'false',
+        ], 'true removes a matching message instead of adding.'),
+      },
+      required: ['message'],
+    ),
     // Trimmed, but every clause that survived is load-bearing, and this one
     // is deliberately the least aggressive of the three trims.
     //
@@ -615,9 +690,9 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
         'focus': _enumStr(
           const ['vehicle', 'sign', 'ahead', 'surroundings', 'hazard'],
           'ahead = what is directly in front (one frame, instant) — use this for '
-              '"what is in front of me". surroundings = a wide left-ahead-right sweep, '
-              'only for "what is around me". vehicle = which bus/rickshaw/CNG. '
-              'sign = read text. hazard = is the path walkable.',
+          '"what is in front of me". surroundings = a wide left-ahead-right sweep, '
+          'only for "what is around me". vehicle = which bus/rickshaw/CNG. '
+          'sign = read text. hazard = is the path walkable.',
         ),
         // Without this, the camera only ever answered the four canned
         // questions the focus enum names. "What colour is the rabbit" and
@@ -632,7 +707,10 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
       },
       required: ['focus'],
     ),
-    _tool('open_passerby_helper', 'Open the Passerby Helper overlay for a nearby stranger to read.'),
+    _tool(
+      'open_passerby_helper',
+      'Open the Passerby Helper overlay for a nearby stranger to read.',
+    ),
     // `subCategory` is a free string rather than a 25-value enum, which was
     // ~120 tokens on its own — over half this declaration, spent listing
     // values the user almost never names precisely.
@@ -646,9 +724,15 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
       'Open the hazard report form. Pass category/subCategory only if the user already named the hazard '
           '(never guess); omit either you\'re unsure of.',
       properties: {
-        'category': _enumStr(const ['crime', 'roadHazard', 'accessibilityBlock'], 'Broad kind, if said.'),
-        'subCategory': _str('Exact hazard in camelCase if named, e.g. pothole, mugging, openManhole, '
-            'blockedPath. Omit if unsure.'),
+        'category': _enumStr(const [
+          'crime',
+          'roadHazard',
+          'accessibilityBlock',
+        ], 'Broad kind, if said.'),
+        'subCategory': _str(
+          'Exact hazard in camelCase if named, e.g. pothole, mugging, openManhole, '
+          'blockedPath. Omit if unsure.',
+        ),
       },
     ),
     _tool(
@@ -658,12 +742,28 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
       properties: {
         'label': _str('e.g. "work", "school".'),
         'address': _str('Only if actually given.'),
-        'kind': _enumStr(const ['home', 'work', 'school', 'family', 'medical', 'worship', 'other'], 'Rough category.'),
+        'kind': _enumStr(const [
+          'home',
+          'work',
+          'school',
+          'family',
+          'medical',
+          'worship',
+          'other',
+        ], 'Rough category.'),
       },
       required: ['label'],
     ),
-    _tool('remove_place', 'Forget a saved place.', properties: {'label': _str('Place to remove.')}, required: ['label']),
-    _tool('resolve_hazard', 'Clear a reported hazard on the active route because it\'s gone — never for a new report.'),
+    _tool(
+      'remove_place',
+      'Forget a saved place.',
+      properties: {'label': _str('Place to remove.')},
+      required: ['label'],
+    ),
+    _tool(
+      'resolve_hazard',
+      'Clear a reported hazard on the active route because it\'s gone — never for a new report.',
+    ),
     _tool(
       'send_caretaker_message',
       'Send the paired caretaker a written message in the user\'s own words/language — never a summary. '
@@ -678,46 +778,67 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     // The user's own half of voluntary photo sharing. Camera only — a blind
     // user is not browsing a photo roll, and the gallery half belongs to the
     // caretaker's screen.
-    _tool('send_photo_to_caretaker',
-        'Take a photo with the camera and send it to the paired caretaker. For '
-            '"send them a picture", "show my caretaker this". Not for answering '
-            'their Snapshot Request, which is automatic.'),
-    _tool('replay_voice_message',
-        'Play a voice message the caretaker sent again. Use for "play that again", '
-            '"what did they say", "the one before that", "the next one".',
-        properties: {
-          'which': _enumStr(
-            const ['latest', 'repeat', 'previous', 'next'],
-            'latest = the newest. repeat = the one just played. '
-                'previous/next = step back or forward through them.',
-          ),
-        },
-        required: ['which']),
-    _tool('record_caretaker_voice_memo',
-        'Open the recorder for a voice message to the caretaker — use when they ask for their own *voice* specifically, not a transcription.'),
-    _tool('alert_caretaker',
-        'Tell the paired caretaker to check on them, with current position. NOT an emergency — for danger use trigger_emergency.'),
-    _tool('describe_current_location',
-        'Say where they are by road/area name — "where am I". No route, no destination. Never guess a street from raw coordinates.'),
+    _tool(
+      'send_photo_to_caretaker',
+      'Take a photo with the camera and send it to the paired caretaker. For '
+          '"send them a picture", "show my caretaker this". Not for answering '
+          'their Snapshot Request, which is automatic.',
+    ),
+    _tool(
+      'replay_voice_message',
+      'Play a voice message the caretaker sent again. Use for "play that again", '
+          '"what did they say", "the one before that", "the next one".',
+      properties: {
+        'which': _enumStr(
+          const ['latest', 'repeat', 'previous', 'next'],
+          'latest = the newest. repeat = the one just played. '
+          'previous/next = step back or forward through them.',
+        ),
+      },
+      required: ['which'],
+    ),
+    _tool(
+      'record_caretaker_voice_memo',
+      'Open the recorder for a voice message to the caretaker — use when they ask for their own *voice* specifically, not a transcription.',
+    ),
+    _tool(
+      'alert_caretaker',
+      'Tell the paired caretaker to check on them, with current position. NOT an emergency — for danger use trigger_emergency.',
+    ),
+    _tool(
+      'describe_current_location',
+      'Say where they are by road/area name — "where am I". No route, no destination. Never guess a street from raw coordinates.',
+    ),
     _tool(
       'request_route',
       'Plan+show a safety-checked walking route to a named destination. Use for "go somewhere"/directions, '
           'or a bare place right after you asked where.',
-      properties: {'destination': _str('As described, e.g. "Gulshan 2", "my office".')},
+      properties: {
+        'destination': _str('As described, e.g. "Gulshan 2", "my office".'),
+      },
       required: ['destination'],
     ),
-    _tool('request_alternative_route',
-        'Switch to a different road to the SAME destination already active. Not for a new journey (request_route). Never ask which alternative — nothing to choose from yet.'),
-    _tool('cancel_route',
-        'End the current walk entirely and clear the map. Distinct from request_alternative_route (same dest, new road) and replan_route (same dest, new start).'),
+    _tool(
+      'request_alternative_route',
+      'Switch to a different road to the SAME destination already active. Not for a new journey (request_route). Never ask which alternative — nothing to choose from yet.',
+    ),
+    _tool(
+      'cancel_route',
+      'End the current walk entirely and clear the map. Distinct from request_alternative_route (same dest, new road) and replan_route (same dest, new start).',
+    ),
     _tool(
       'remember_about_me',
       'Save or remove a durable fact about the user (preference/limitation/routine), said in passing '
           'or on request. Not for one-off asks or anything already in their profile.',
       properties: {
-        'note': _str('One short sentence, their point of view. To forget, words identifying the note; '
-            'omit entirely only to forget everything.'),
-        'forget': _enumStr(const ['true', 'false'], 'true removes the note instead of saving it.'),
+        'note': _str(
+          'One short sentence, their point of view. To forget, words identifying the note; '
+          'omit entirely only to forget everything.',
+        ),
+        'forget': _enumStr(const [
+          'true',
+          'false',
+        ], 'true removes the note instead of saving it.'),
       },
     ),
     // Merged pairs.
@@ -732,12 +853,22 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     // Only pairs where a wrong action is *recoverable* are merged. Contacts
     // and saved places stay separate on purpose: confusing add with remove
     // there deletes something the user cannot see was deleted.
-    _tool('set_map', 'Show or hide the dashboard map (incl. romanised Bangla "map dekhao"). '
-        'No route change. Hiding does not cancel the journey — that is manage_route.',
-        properties: {'visible': _enumStr(const ['true', 'false'], 'true shows it, false hides it.')},
-        required: ['visible']),
-    _tool('replan_route',
-        'Re-plan the SAME destination from where they stand now ("re-route", off-route, "which way from here"). Keeps destination, changes start — unlike request_alternative_route (keeps both, changes road).'),
+    _tool(
+      'set_map',
+      'Show or hide the dashboard map (incl. romanised Bangla "map dekhao"). '
+          'No route change. Hiding does not cancel the journey — that is manage_route.',
+      properties: {
+        'visible': _enumStr(const [
+          'true',
+          'false',
+        ], 'true shows it, false hides it.'),
+      },
+      required: ['visible'],
+    ),
+    _tool(
+      'replan_route',
+      'Re-plan the SAME destination from where they stand now ("re-route", off-route, "which way from here"). Keeps destination, changes start — unlike request_alternative_route (keeps both, changes road).',
+    ),
   ];
 
   static Map<String, dynamic> _tool(
@@ -760,10 +891,15 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     };
   }
 
-  static Map<String, dynamic> _str(String description) => {'type': 'string', 'description': description};
+  static Map<String, dynamic> _str(String description) => {
+    'type': 'string',
+    'description': description,
+  };
 
-  static Map<String, dynamic> _enumStr(List<String> values, String description) =>
-      {'type': 'string', 'enum': values, 'description': description};
+  static Map<String, dynamic> _enumStr(
+    List<String> values,
+    String description,
+  ) => {'type': 'string', 'enum': values, 'description': description};
 }
 
 class _StreamingToolCall {

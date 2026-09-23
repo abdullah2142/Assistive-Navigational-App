@@ -64,10 +64,14 @@ class LocalIntentMatcher {
   /// bare substring as negation silently swallowed every one of those route
   /// requests. Same lesson as `fuzzyVoiceMatch`'s "male" inside "female".
   static final _tokenSplit = RegExp(r'\s+');
-  static final _stripPunctuation = RegExp(r'[।?!.,;:\u0964\u0965"\u2018\u2019\u201c\u201d]');
+  static final _stripPunctuation = RegExp(
+    r'[।?!.,;:\u0964\u0965"\u2018\u2019\u201c\u201d]',
+  );
 
-  static Iterable<String> _words(String text) =>
-      text.split(_tokenSplit).map((w) => w.replaceAll(_stripPunctuation, '')).where((w) => w.isNotEmpty);
+  static Iterable<String> _words(String text) => text
+      .split(_tokenSplit)
+      .map((w) => w.replaceAll(_stripPunctuation, ''))
+      .where((w) => w.isNotEmpty);
 
   /// [recentSetting] is the setting the user most recently changed, if any.
   ///
@@ -82,8 +86,16 @@ class LocalIntentMatcher {
   /// applies to the one setting that was just changed, so a bare
   /// comparative can never reach a setting the user was not already
   /// talking about.
-  static LocalIntent? match(String rawText, AppLanguage language, {String? recentSetting}) {
-    final direct = _matchExactly(rawText, language, recentSetting: recentSetting);
+  static LocalIntent? match(
+    String rawText,
+    AppLanguage language, {
+    String? recentSetting,
+  }) {
+    final direct = _matchExactly(
+      rawText,
+      language,
+      recentSetting: recentSetting,
+    );
     if (direct != null) return direct;
 
     // Item 54, the general case. Bangla makes a command by attaching a verb
@@ -99,14 +111,24 @@ class LocalIntentMatcher {
     if (!hasBanglishImperative(rawText)) return null;
     final stripped = stripBanglishImperatives(rawText);
     if (stripped == rawText.trim()) return null;
-    final found = _matchExactly(stripped, language, recentSetting: recentSetting);
+    final found = _matchExactly(
+      stripped,
+      language,
+      recentSetting: recentSetting,
+    );
     if (found != null) {
-      debugPrint('[Intent] banglish: "$rawText" -> "$stripped" matched ${found.name}');
+      debugPrint(
+        '[Intent] banglish: "$rawText" -> "$stripped" matched ${found.name}',
+      );
     }
     return found;
   }
 
-  static LocalIntent? _matchExactly(String rawText, AppLanguage language, {String? recentSetting}) {
+  static LocalIntent? _matchExactly(
+    String rawText,
+    AppLanguage language, {
+    String? recentSetting,
+  }) {
     final text = rawText.trim();
     if (text.isEmpty) return null;
     final lower = text.toLowerCase();
@@ -127,6 +149,7 @@ class LocalIntentMatcher {
     // and it is the one intent where a slower answer is a worse answer.
     return _matchPairing(text) ??
         _matchResolveHazard(lower, text) ??
+        _matchCaretakerMode(lower, text) ??
         // Before `_matchOverlay`: "what's blocking the road" contains the
         // hazard-report vocabulary, and a user asking what is in front of
         // them wants to be told, not handed a reporting form.
@@ -195,15 +218,24 @@ class LocalIntentMatcher {
   /// the exact matchers above — the recall pass is the one place in this file
   /// that already tolerates spelling, and enumerating romanisations in a
   /// substring matcher is what does not scale.
-  static const _mishearable = <({String intent, List<String> en, List<String> bn})>[
-    (intent: 'open_hazard_report', en: ['hazard'], bn: ['বিপদ']),
-    (intent: 'open_hazard_report', en: ['report', 'problem'], bn: ['সমস্যা', 'জানাও']),
-    (intent: 'open_hazard_report', en: ['bipod', 'report'], bn: []),
-    (intent: 'open_hazard_report', en: ['bipod', 'janao'], bn: []),
-    (intent: 'open_passerby_helper', en: ['show', 'screen'], bn: ['স্ক্রিন', 'দেখাও']),
-    (intent: 'open_passerby_helper', en: ['screen', 'dekhao'], bn: []),
-    (intent: 'open_passerby_helper', en: ['screen', 'dekhan'], bn: []),
-  ];
+  static const _mishearable =
+      <({String intent, List<String> en, List<String> bn})>[
+        (intent: 'open_hazard_report', en: ['hazard'], bn: ['বিপদ']),
+        (
+          intent: 'open_hazard_report',
+          en: ['report', 'problem'],
+          bn: ['সমস্যা', 'জানাও'],
+        ),
+        (intent: 'open_hazard_report', en: ['bipod', 'report'], bn: []),
+        (intent: 'open_hazard_report', en: ['bipod', 'janao'], bn: []),
+        (
+          intent: 'open_passerby_helper',
+          en: ['show', 'screen'],
+          bn: ['স্ক্রিন', 'দেখাও'],
+        ),
+        (intent: 'open_passerby_helper', en: ['screen', 'dekhao'], bn: []),
+        (intent: 'open_passerby_helper', en: ['screen', 'dekhan'], bn: []),
+      ];
 
   /// A forgiving match on a long utterance is a coincidence, not a command.
   ///
@@ -239,11 +271,15 @@ class LocalIntentMatcher {
       // returning `open_hazard_report`), but it would have been a silent
       // catastrophe in a matcher that opens overlays, and the trap is set for
       // whoever adds the next entry rather than for the one that found it.
-      final enMatches = candidate.en.isNotEmpty && containsAllNear(lowered, candidate.en);
-      final bnMatches = candidate.bn.isNotEmpty &&
+      final enMatches =
+          candidate.en.isNotEmpty && containsAllNear(lowered, candidate.en);
+      final bnMatches =
+          candidate.bn.isNotEmpty &&
           candidate.bn.every((t) => words.any((w) => w.contains(t)));
       if (enMatches || bnMatches) {
-        debugPrint('[Intent] misheard-recall matched ${candidate.intent} in "$text"');
+        debugPrint(
+          '[Intent] misheard-recall matched ${candidate.intent} in "$text"',
+        );
         return LocalIntent(candidate.intent, const {});
       }
     }
@@ -277,11 +313,29 @@ class LocalIntentMatcher {
   /// words: `bachao`, `bachaw` and `banchao` are all ordinary ways of writing
   /// the same one.
   static const _emergencyStrong = [
-    'emergency', 'sos', 'save me', 'help help', 'i am in danger', "i'm in danger",
-    'bachao', 'bachaw', 'banchao', 'banchaw', 'bacao',
-    'bipode porechi', 'bipode porsi', 'bipode achi', 'bipod e porechi',
-    'joruri obostha', 'jaruri obostha', 'joruri obostha',
-    'বাঁচাও', 'বাঁচান', 'বিপদে পড়েছি', 'জরুরি অবস্থা', 'হেল্প হেল্প',
+    'emergency',
+    'sos',
+    'save me',
+    'help help',
+    'i am in danger',
+    "i'm in danger",
+    'bachao',
+    'bachaw',
+    'banchao',
+    'banchaw',
+    'bacao',
+    'bipode porechi',
+    'bipode porsi',
+    'bipode achi',
+    'bipod e porechi',
+    'joruri obostha',
+    'jaruri obostha',
+    'joruri obostha',
+    'বাঁচাও',
+    'বাঁচান',
+    'বিপদে পড়েছি',
+    'জরুরি অবস্থা',
+    'হেল্প হেল্প',
   ];
 
   /// Phrases that mean an emergency *only* in the right company.
@@ -331,9 +385,24 @@ class LocalIntentMatcher {
   /// cap only because `me` and `a` are counted: drop those and an errand
   /// becomes a three-word cry. `আমাকে` stays counted for the same reason.
   static const _cryFiller = {
-    'please', 'plz', 'someone', 'somebody', 'anyone', 'anybody', 'kindly',
-    'just', 'oh', 'hey', 'ant',
-    'একটু', 'কেউ', 'কেউই', 'একজন', 'দয়া', 'করে', 'প্লিজ',
+    'please',
+    'plz',
+    'someone',
+    'somebody',
+    'anyone',
+    'anybody',
+    'kindly',
+    'just',
+    'oh',
+    'hey',
+    'ant',
+    'একটু',
+    'কেউ',
+    'কেউই',
+    'একজন',
+    'দয়া',
+    'করে',
+    'প্লিজ',
   };
 
   /// How long the cry is once politeness is taken out of it.
@@ -396,9 +465,21 @@ class LocalIntentMatcher {
 
   /// Ways of asking *about* the feature rather than using it.
   static const _emergencyQuestionBlockers = [
-    'what happens', 'what if', 'if i say', 'when i say', 'is this', 'is that',
-    'how do i', 'how does', 'what does', 'supposed to', 'for testing',
-    'কী হবে', 'কি হবে', 'বললে কী', 'বললে কি',
+    'what happens',
+    'what if',
+    'if i say',
+    'when i say',
+    'is this',
+    'is that',
+    'how do i',
+    'how does',
+    'what does',
+    'supposed to',
+    'for testing',
+    'কী হবে',
+    'কি হবে',
+    'বললে কী',
+    'বললে কি',
   ];
 
   /// Words that make the utterance an errand or a settings change.
@@ -409,16 +490,50 @@ class LocalIntentMatcher {
   /// being taken somewhere against your will is the thing this feature is
   /// for.
   static const _emergencyErrandWords = [
-    'volume', 'shoes', 'settings', 'setting', 'font', 'text', 'theme',
-    'ordering', 'order', 'read', 'spell', 'remind', 'reminder',
-    'add', 'remove', 'delete', 'edit', 'setup', 'card',
-    'সেটিং', 'লেখা', 'ফন্ট', 'যোগ', 'মুছে',
+    'volume',
+    'shoes',
+    'settings',
+    'setting',
+    'font',
+    'text',
+    'theme',
+    'ordering',
+    'order',
+    'read',
+    'spell',
+    'remind',
+    'reminder',
+    'add',
+    'remove',
+    'delete',
+    'edit',
+    'setup',
+    'card',
+    'সেটিং',
+    'লেখা',
+    'ফন্ট',
+    'যোগ',
+    'মুছে',
   ];
 
   static const _emergencyErrandPhrases = [
-    'get to', 'go to', 'route to', 'directions', 'navigate', 'take me to',
-    'save my', 'save this', 'save as', 'set up', 'change my', 'turn off',
-    'turn on', 'switch off', 'switch on', 'message saying', 'emergency contact',
+    'get to',
+    'go to',
+    'route to',
+    'directions',
+    'navigate',
+    'take me to',
+    'save my',
+    'save this',
+    'save as',
+    'set up',
+    'change my',
+    'turn off',
+    'turn on',
+    'switch off',
+    'switch on',
+    'message saying',
+    'emergency contact',
   ];
 
   /// The Bangla half of [_emergencyErrandPhrases], matched on word
@@ -444,11 +559,15 @@ class LocalIntentMatcher {
 
   /// True when [text] is a call for help rather than a mention of one.
   static LocalIntent? _matchEmergency(String lower, String text) {
-    final strong = _emergencyStrong.any(lower.contains) || _emergencyStrong.any(text.contains);
-    final weak = _emergencyWeak.any(lower.contains) || _emergencyWeak.any(text.contains);
+    final strong =
+        _emergencyStrong.any(lower.contains) ||
+        _emergencyStrong.any(text.contains);
+    final weak =
+        _emergencyWeak.any(lower.contains) || _emergencyWeak.any(text.contains);
     if (!strong && !weak) return null;
 
-    if (_emergencyRefusals.any(lower.contains) || _emergencyRefusals.any(text.contains)) {
+    if (_emergencyRefusals.any(lower.contains) ||
+        _emergencyRefusals.any(text.contains)) {
       return null;
     }
     if (kQuestionBlockers.any(lower.contains)) return null;
@@ -470,7 +589,8 @@ class LocalIntentMatcher {
     // errand.
     if (strong) return const LocalIntent('trigger_emergency', {});
     final hasDistress =
-        _distressContext.any(lower.contains) || _distressContext.any(text.contains);
+        _distressContext.any(lower.contains) ||
+        _distressContext.any(text.contains);
     if (hasDistress || _cryLength(spoken) <= _maxBareCryWords) {
       return const LocalIntent('trigger_emergency', {});
     }
@@ -482,7 +602,13 @@ class LocalIntentMatcher {
   // bare "code" or "pair" alone is too generic (a PIN code, a "pair of
   // shoes" mentioned in passing) and would false-positive on an unrelated
   // 6-digit number in the same message.
-  static const _pairingWordsEn = ['pairing code', 'caretaker', 'pair with', 'link up with', 'link with'];
+  static const _pairingWordsEn = [
+    'pairing code',
+    'caretaker',
+    'pair with',
+    'link up with',
+    'link with',
+  ];
   static const _pairingWordsBn = ['পেয়ারিং কোড', 'দেখাশোনাকারী', 'যুক্ত করো'];
 
   /// A bare 6-digit number alone isn't enough (could be anything) — also
@@ -493,7 +619,9 @@ class LocalIntentMatcher {
     final digitsMatch = _sixDigits.firstMatch(text);
     if (digitsMatch == null) return null;
     final lower = text.toLowerCase();
-    final hasPairingWord = _pairingWordsEn.any(lower.contains) || _pairingWordsBn.any(text.contains);
+    final hasPairingWord =
+        _pairingWordsEn.any(lower.contains) ||
+        _pairingWordsBn.any(text.contains);
     if (!hasPairingWord) return null;
     return LocalIntent('pair_with_caretaker', {'code': digitsMatch.group(1)});
   }
@@ -539,21 +667,94 @@ class LocalIntentMatcher {
   /// "broken" could mean any of several sub-categories, and guessing wrong
   /// files a real report under the wrong hazard type — which then clusters
   /// with the wrong reports and decays on the wrong schedule.
-  static const _namedHazards = <({String category, String subCategory, List<String> en, List<String> bn})>[
-    (category: 'crime', subCategory: 'mugging', en: ['mugging', 'mugged', 'robbery'], bn: ['ছিনতাই']),
-    (category: 'crime', subCategory: 'harassment', en: ['harassment', 'harassed'], bn: ['উত্যক্ত']),
-    (category: 'crime', subCategory: 'stalking', en: ['stalking', 'being followed'], bn: ['পিছু নিচ্ছে', 'পিছু নেওয়া']),
-    (category: 'crime', subCategory: 'poorLighting', en: ['no street light', 'poor lighting', 'no lighting'], bn: ['রাস্তায় আলো নেই']),
-    (category: 'roadHazard', subCategory: 'openManhole', en: ['open manhole', 'manhole'], bn: ['ম্যানহোল']),
-    (category: 'roadHazard', subCategory: 'pothole', en: ['pothole', 'broken road'], bn: ['গর্ত', 'রাস্তা ভাঙা']),
-    (category: 'roadHazard', subCategory: 'flooding', en: ['flooding', 'waterlogging', 'water logged'], bn: ['পানি জমে']),
-    (category: 'roadHazard', subCategory: 'construction', en: ['construction'], bn: ['নির্মাণকাজ']),
-    (category: 'roadHazard', subCategory: 'debrisFallenTree', en: ['fallen tree'], bn: ['গাছ পড়ে']),
-    (category: 'accessibilityBlock', subCategory: 'stairsOnly', en: ['stairs only', 'only stairs', 'no ramp'], bn: ['শুধু সিঁড়ি', 'র‍্যাম্প নেই']),
-    (category: 'accessibilityBlock', subCategory: 'brokenRamp', en: ['broken ramp'], bn: ['ঢালু পথ ভাঙা']),
-    (category: 'accessibilityBlock', subCategory: 'noCurbCut', en: ['no curb cut', 'no kerb cut'], bn: ['ঢালু পথ নেই']),
-    (category: 'accessibilityBlock', subCategory: 'blockedByVendors', en: ['vendors blocking', 'blocked by vendors', 'hawkers'], bn: ['হকার']),
-  ];
+  static const _namedHazards =
+      <
+        ({
+          String category,
+          String subCategory,
+          List<String> en,
+          List<String> bn,
+        })
+      >[
+        (
+          category: 'crime',
+          subCategory: 'mugging',
+          en: ['mugging', 'mugged', 'robbery'],
+          bn: ['ছিনতাই'],
+        ),
+        (
+          category: 'crime',
+          subCategory: 'harassment',
+          en: ['harassment', 'harassed'],
+          bn: ['উত্যক্ত'],
+        ),
+        (
+          category: 'crime',
+          subCategory: 'stalking',
+          en: ['stalking', 'being followed'],
+          bn: ['পিছু নিচ্ছে', 'পিছু নেওয়া'],
+        ),
+        (
+          category: 'crime',
+          subCategory: 'poorLighting',
+          en: ['no street light', 'poor lighting', 'no lighting'],
+          bn: ['রাস্তায় আলো নেই'],
+        ),
+        (
+          category: 'roadHazard',
+          subCategory: 'openManhole',
+          en: ['open manhole', 'manhole'],
+          bn: ['ম্যানহোল'],
+        ),
+        (
+          category: 'roadHazard',
+          subCategory: 'pothole',
+          en: ['pothole', 'broken road'],
+          bn: ['গর্ত', 'রাস্তা ভাঙা'],
+        ),
+        (
+          category: 'roadHazard',
+          subCategory: 'flooding',
+          en: ['flooding', 'waterlogging', 'water logged'],
+          bn: ['পানি জমে'],
+        ),
+        (
+          category: 'roadHazard',
+          subCategory: 'construction',
+          en: ['construction'],
+          bn: ['নির্মাণকাজ'],
+        ),
+        (
+          category: 'roadHazard',
+          subCategory: 'debrisFallenTree',
+          en: ['fallen tree'],
+          bn: ['গাছ পড়ে'],
+        ),
+        (
+          category: 'accessibilityBlock',
+          subCategory: 'stairsOnly',
+          en: ['stairs only', 'only stairs', 'no ramp'],
+          bn: ['শুধু সিঁড়ি', 'র‍্যাম্প নেই'],
+        ),
+        (
+          category: 'accessibilityBlock',
+          subCategory: 'brokenRamp',
+          en: ['broken ramp'],
+          bn: ['ঢালু পথ ভাঙা'],
+        ),
+        (
+          category: 'accessibilityBlock',
+          subCategory: 'noCurbCut',
+          en: ['no curb cut', 'no kerb cut'],
+          bn: ['ঢালু পথ নেই'],
+        ),
+        (
+          category: 'accessibilityBlock',
+          subCategory: 'blockedByVendors',
+          en: ['vendors blocking', 'blocked by vendors', 'hawkers'],
+          bn: ['হকার'],
+        ),
+      ];
 
   /// Verbs that turn a hazard *mention* into a hazard *report*.
   ///
@@ -561,7 +762,16 @@ class LocalIntentMatcher {
   /// "is there a manhole near me?" would file a report about a manhole the
   /// user was only asking about. Reports feed a system that closes roads
   /// for other people, so a false one costs more than a missed one.
-  static const _reportVerbsEn = ['report', 'flag', 'there is a', "there's a", 'there is an', "there's an", 'i see a', 'i see an'];
+  static const _reportVerbsEn = [
+    'report',
+    'flag',
+    'there is a',
+    "there's a",
+    'there is an',
+    "there's an",
+    'i see a',
+    'i see an',
+  ];
   static const _reportVerbsBn = ['জানাও', 'রিপোর্ট', 'আছে'];
 
   // ---- look_around (Module 6) -------------------------------------------
@@ -582,60 +792,136 @@ class LocalIntentMatcher {
   /// common in ordinary speech to open a camera on, and this file's whole
   /// contract is that a local match is more certain than a model call, not
   /// less — see the class doc.
-  static const _lookAround = <({String focus, List<String> en, List<String> bn})>[
-    (
-      focus: 'vehicle',
-      en: [
-        'what bus', 'which bus', 'what number bus', 'which number bus',
-        'is this bus', 'what vehicle', 'which vehicle', 'what is this bus',
-        'kon bus', 'ki bus', 'bus ta kon', 'kon gari',
-      ],
-      bn: [
-        'কোন বাস', 'কী বাস', 'কি বাস', 'বাসটা কোন', 'বাসটি কোন',
-        'কত নম্বর বাস', 'কোন গাড়ি', 'বাসের নম্বর',
-      ],
-    ),
-    (
-      focus: 'sign',
-      en: [
-        'what does the sign', 'what does that sign', 'read the sign',
-        'read this sign', 'what does it say', 'what is written',
-        'read the board', 'sign e ki', 'lekha ta ki', 'ki lekha',
-      ],
-      bn: [
-        'সাইনে কী', 'সাইনে কি', 'সাইনবোর্ডে', 'কী লেখা', 'কি লেখা',
-        'লেখাটা পড়', 'সাইনটা পড়', 'বোর্ডে কী',
-      ],
-    ),
-    (
-      focus: 'hazard',
-      en: [
-        'is it safe to cross', 'can i cross', 'safe to cross', 'is the road clear',
-        'is the path clear', 'anything in my way', 'is anything blocking',
-        'is the way clear', 'can i walk', 'is it clear ahead',
-        'rasta clear', 'rasta ki clear', 'par hote parbo', 'jete parbo ki',
-      ],
-      bn: [
-        'পার হওয়া', 'পার হতে পারব', 'রাস্তা কি ফাঁকা', 'রাস্তা ফাঁকা',
-        'পথ পরিষ্কার', 'সামনে কিছু আছে', 'কিছু আটকে', 'যেতে পারব',
-      ],
-    ),
-    (
-      focus: 'surroundings',
-      en: [
-        'what is in front of me', "what's in front of me", 'what is ahead',
-        "what's ahead", 'what is around me', "what's around me",
-        'what do you see', 'what can you see', 'describe what you see',
-        'look around', 'what is this place', 'use the camera', 'take a look',
-        'samne ki ache', 'shamne ki ache', 'ki ache samne', 'asepashe ki',
-      ],
-      bn: [
-        'সামনে কী আছে', 'সামনে কি আছে', 'সামনে কী', 'আশেপাশে কী',
-        'আশেপাশে কি', 'আশপাশে কী', 'কী দেখতে পাচ্ছ', 'কি দেখতে পাচ্ছ',
-        'একটু দেখ', 'ক্যামেরা দিয়ে দেখ', 'চারপাশে কী',
-      ],
-    ),
-  ];
+  static const _lookAround =
+      <({String focus, List<String> en, List<String> bn})>[
+        (
+          focus: 'vehicle',
+          en: [
+            'what bus',
+            'which bus',
+            'what number bus',
+            'which number bus',
+            'is this bus',
+            'what vehicle',
+            'which vehicle',
+            'what is this bus',
+            'kon bus',
+            'ki bus',
+            'bus ta kon',
+            'kon gari',
+          ],
+          bn: [
+            'কোন বাস',
+            'কী বাস',
+            'কি বাস',
+            'বাসটা কোন',
+            'বাসটি কোন',
+            'কত নম্বর বাস',
+            'কোন গাড়ি',
+            'বাসের নম্বর',
+          ],
+        ),
+        (
+          focus: 'sign',
+          en: [
+            'what does the sign',
+            'what does that sign',
+            'read the sign',
+            'read this sign',
+            'what does it say',
+            'what is written',
+            'read the board',
+            'sign e ki',
+            'lekha ta ki',
+            'ki lekha',
+          ],
+          bn: [
+            'সাইনে কী',
+            'সাইনে কি',
+            'সাইনবোর্ডে',
+            'কী লেখা',
+            'কি লেখা',
+            'লেখাটা পড়',
+            'সাইনটা পড়',
+            'বোর্ডে কী',
+          ],
+        ),
+        (
+          focus: 'hazard',
+          en: [
+            'is it safe to cross',
+            'can i cross',
+            'safe to cross',
+            'is the road clear',
+            'is the path clear',
+            'anything in my way',
+            'is anything blocking',
+            'is the way clear',
+            'can i walk',
+            'is it clear ahead',
+            'rasta clear',
+            'rasta ki clear',
+            'par hote parbo',
+            'jete parbo ki',
+          ],
+          bn: [
+            'পার হওয়া',
+            'পার হতে পারব',
+            'রাস্তা কি ফাঁকা',
+            'রাস্তা ফাঁকা',
+            'পথ পরিষ্কার',
+            'সামনে কিছু আছে',
+            'কিছু আটকে',
+            'যেতে পারব',
+          ],
+        ),
+        (
+          // A direct question about the scene ahead is one frame.
+          focus: 'ahead',
+          en: [
+            'what is in front of me',
+            "what's in front of me",
+            'what is ahead',
+            "what's ahead",
+            'what do you see',
+            'what can you see',
+            'describe what you see',
+            'what is this place',
+            'use the camera',
+            'take a look',
+            'samne ki ache',
+            'shamne ki ache',
+            'ki ache samne',
+            'asepashe ki',
+          ],
+          bn: [
+            'সামনে কী আছে',
+            'সামনে কি আছে',
+            'সামনে কী',
+            'কী দেখতে পাচ্ছ',
+            'কি দেখতে পাচ্ছ',
+            'ক্যামেরা দিয়ে দেখ',
+          ],
+        ),
+        (
+          focus: 'surroundings',
+          en: [
+            'what is around me',
+            "what's around me",
+            'look around',
+            'sweep around',
+            'scan around',
+            'চারপাশে কী',
+          ],
+          bn: [
+            'আশেপাশে কী',
+            'আশেপাশে কি',
+            'আশপাশে কী',
+            'একটু চারপাশ দেখ',
+            'চারপাশটা দেখ',
+          ],
+        ),
+      ];
 
   /// Meta-question guards for [_matchLookAround].
   ///
@@ -652,9 +938,22 @@ class LocalIntentMatcher {
   /// What survives is the genuine case: somebody working out what the app can
   /// do, rather than asking it to do something.
   static const _lookAroundBlockers = [
-    'what happens', 'what if', 'if i say', 'when i say', 'how do i', 'how does',
-    'supposed to', 'for testing', 'can you even', 'are you able to',
-    'কী হবে', 'কি হবে', 'বললে কী', 'বললে কি', 'পারো কি', 'পারবে কি',
+    'what happens',
+    'what if',
+    'if i say',
+    'when i say',
+    'how do i',
+    'how does',
+    'supposed to',
+    'for testing',
+    'can you even',
+    'are you able to',
+    'কী হবে',
+    'কি হবে',
+    'বললে কী',
+    'বললে কি',
+    'পারো কি',
+    'পারবে কি',
   ];
 
   static LocalIntent? _matchLookAround(String lower, String text) {
@@ -662,10 +961,46 @@ class LocalIntentMatcher {
         _lookAroundBlockers.any(text.contains)) {
       return null;
     }
+    final wantsCaretaker = [
+      'to my caretaker',
+      'to caretaker',
+      'to my caregiver',
+      'to caregiver',
+      'to my guardian',
+      'caretaker ke',
+      'caretaker ke kache',
+      'কেয়ারটেকারকে',
+      'কেয়ারগিভারকে',
+    ].any((p) => lower.contains(p) || text.contains(p));
+    final aheadFocus = _lookAround.firstWhere(
+      (group) => group.focus == 'ahead',
+    );
+    if (wantsCaretaker &&
+        (aheadFocus.en.any(lower.contains) ||
+            aheadFocus.bn.any(text.contains))) {
+      return const LocalIntent('send_photo_to_caretaker', {});
+    }
     for (final group in _lookAround) {
       if (group.en.any(lower.contains) || group.bn.any(text.contains)) {
         return LocalIntent('look_around', {'focus': group.focus});
       }
+    }
+    return null;
+  }
+
+  /// Arms one following utterance as a written caretaker message. This is
+  /// intentionally distinct from a memo that already includes its content.
+  static LocalIntent? _matchCaretakerMode(String lower, String text) {
+    const phrases = [
+      'send a message to my caretaker',
+      'send message to my caretaker',
+      'send a message to my caregiver',
+      'send message to caretaker',
+      'আমার কেয়ারটেকারকে বার্তা পাঠাও',
+      'কেয়ারটেকারকে মেসেজ পাঠাও',
+    ];
+    if (phrases.any((p) => lower.trim() == p || text.trim() == p)) {
+      return const LocalIntent('arm_caretaker_message', {});
     }
     return null;
   }
@@ -683,7 +1018,8 @@ class LocalIntentMatcher {
       return const LocalIntent('open_passerby_helper', {});
     }
 
-    final isReport = _reportVerbsEn.any(lower.contains) || _reportVerbsBn.any(text.contains);
+    final isReport =
+        _reportVerbsEn.any(lower.contains) || _reportVerbsBn.any(text.contains);
     if (isReport) {
       for (final hazard in _namedHazards) {
         if (hazard.en.any(lower.contains) || hazard.bn.any(text.contains)) {
@@ -705,22 +1041,66 @@ class LocalIntentMatcher {
 
   /// Bare comparatives, per setting and direction. Matched only when that
   /// same setting was the last one changed.
-  static const _followUps = <({String setting, String value, List<String> words})>[
-    (setting: 'text_size', value: '_bigger', words: [
-      'bigger', 'even bigger', 'larger', 'more', 'a bit more', 'again', 'increase',
-      'বড়', 'আরও বড়', 'আরেকটু', 'আরও',
-    ]),
-    (setting: 'text_size', value: '_smaller', words: [
-      'smaller', 'even smaller', 'less', 'a bit less', 'decrease',
-      'ছোট', 'আরও ছোট', 'কম',
-    ]),
-    (setting: 'verbosity', value: 'minimalist', words: [
-      'shorter', 'even shorter', 'less', 'briefer', 'সংক্ষেপে', 'আরও ছোট', 'কম',
-    ]),
-    (setting: 'verbosity', value: 'descriptive', words: [
-      'longer', 'more', 'even more', 'more detail', 'বিস্তারিত', 'আরও', 'বেশি',
-    ]),
-  ];
+  static const _followUps =
+      <({String setting, String value, List<String> words})>[
+        (
+          setting: 'text_size',
+          value: '_bigger',
+          words: [
+            'bigger',
+            'even bigger',
+            'larger',
+            'more',
+            'a bit more',
+            'again',
+            'increase',
+            'বড়',
+            'আরও বড়',
+            'আরেকটু',
+            'আরও',
+          ],
+        ),
+        (
+          setting: 'text_size',
+          value: '_smaller',
+          words: [
+            'smaller',
+            'even smaller',
+            'less',
+            'a bit less',
+            'decrease',
+            'ছোট',
+            'আরও ছোট',
+            'কম',
+          ],
+        ),
+        (
+          setting: 'verbosity',
+          value: 'minimalist',
+          words: [
+            'shorter',
+            'even shorter',
+            'less',
+            'briefer',
+            'সংক্ষেপে',
+            'আরও ছোট',
+            'কম',
+          ],
+        ),
+        (
+          setting: 'verbosity',
+          value: 'descriptive',
+          words: [
+            'longer',
+            'more',
+            'even more',
+            'more detail',
+            'বিস্তারিত',
+            'আরও',
+            'বেশি',
+          ],
+        ),
+      ];
 
   /// A follow-up has to be *short*. "Even bigger" is an adjustment;
   /// "bigger crowds make me anxious" is a sentence that happens to contain
@@ -732,7 +1112,9 @@ class LocalIntentMatcher {
     if (recentSetting == null) return null;
     final words = voiceWords(text);
     if (words.isEmpty || words.length > _maxFollowUpWords) return null;
-    if (containsAny(words, kQuestionBlockers) || containsAny(words, kAllNegations)) return null;
+    if (containsAny(words, kQuestionBlockers) ||
+        containsAny(words, kAllNegations))
+      return null;
 
     // Both directions of the same setting present ("bigger or smaller?") is
     // a question, not an instruction.
@@ -740,7 +1122,10 @@ class LocalIntentMatcher {
         .where((f) => f.setting == recentSetting && containsAny(words, f.words))
         .toList();
     if (hits.length != 1) return null;
-    return LocalIntent('update_setting', {'setting': hits.first.setting, 'value': hits.first.value});
+    return LocalIntent('update_setting', {
+      'setting': hits.first.setting,
+      'value': hits.first.value,
+    });
   }
 
   // ---- resolve_hazard ----------------------------------------------------
@@ -817,31 +1202,66 @@ class LocalIntentMatcher {
       // both are ordinary transliterations of "ANT" and Google STT returns
       // either. `ওয়েকওয়ার্ড` unspaced because compound loanwords are
       // frequently transcribed without the space.
-      subject: VoicePhrase(anchors: [
-        'hey jarvis', 'jarvis', 'হেই জার্ভিস', 'জার্ভিস',
-        'hey ant', 'wake word', 'wakeword', 'wake-word',
-        'হে অ্যান্ট', 'হেই অ্যান্ট', 'হে এন্ট', 'হেই এন্ট',
-        'অ্যান্ট', 'ওয়েক ওয়ার্ড', 'ওয়েকওয়ার্ড', 'ভয়েস ট্রিগার',
-      ]),
+      subject: VoicePhrase(
+        anchors: [
+          'hey jarvis',
+          'jarvis',
+          'হেই জার্ভিস',
+          'জার্ভিস',
+          'hey ant',
+          'wake word',
+          'wakeword',
+          'wake-word',
+          'হে অ্যান্ট',
+          'হেই অ্যান্ট',
+          'হে এন্ট',
+          'হেই এন্ট',
+          'অ্যান্ট',
+          'ওয়েক ওয়ার্ড',
+          'ওয়েকওয়ার্ড',
+          'ভয়েস ট্রিগার',
+        ],
+      ),
     ),
     (
       setting: 'voice_auto_listen',
-      subject: VoicePhrase(anchors: [
-        'auto listen', 'autolisten', 'automatic listening', 'listen automatically',
-        'অটো লিসেন', 'নিজে থেকে শোনা',
-      ]),
+      subject: VoicePhrase(
+        anchors: [
+          'auto listen',
+          'autolisten',
+          'automatic listening',
+          'listen automatically',
+          'অটো লিসেন',
+          'নিজে থেকে শোনা',
+        ],
+      ),
     ),
   ];
 
   static const _onWords = [
-    'on', 'enable', 'enabled', 'activate', 'start', 'switch on',
-    'চালু', 'অন', 'চালাও',
+    'on',
+    'enable',
+    'enabled',
+    'activate',
+    'start',
+    'switch on',
+    'চালু',
+    'অন',
+    'চালাও',
   ];
   // `অফ` is the English word as Bangla speakers use it — "অফ করো" is at least
   // as common as "বন্ধ করো" and matched nothing.
   static const _offWords = [
-    'off', 'disable', 'disabled', 'deactivate', 'stop', 'switch off', 'turn off',
-    'বন্ধ', 'অফ', 'বন্ধো',
+    'off',
+    'disable',
+    'disabled',
+    'deactivate',
+    'stop',
+    'switch off',
+    'turn off',
+    'বন্ধ',
+    'অফ',
+    'বন্ধো',
   ];
 
   static LocalIntent? _matchToggle(List<String> words) {
@@ -857,7 +1277,10 @@ class LocalIntentMatcher {
         'false',
       );
       if (value == null) return null;
-      return LocalIntent('update_setting', {'setting': entry.setting, 'value': value});
+      return LocalIntent('update_setting', {
+        'setting': entry.setting,
+        'value': value,
+      });
     }
     return null;
   }
@@ -875,76 +1298,149 @@ class LocalIntentMatcher {
   /// পাই" ("I can hear") is a literal prefix of "শুনতে পাই না" ("I cannot
   /// hear"), and matching the affirmative list on the negative sentence set
   /// a Deaf user's accommodation to exactly the wrong value.
-  static const _traitSettings = <({String setting, List<VoicePhrase> present, List<VoicePhrase> absent})>[
-    (
-      setting: 'deaf_hearing_mode',
-      present: [
-        VoicePhrase(anchors: ['deaf', 'text mode', 'বধির', 'লেখা মোড']),
-        VoicePhrase(
-          anchors: ['hear', 'hearing', 'শুনি', 'শুনতে'],
-          context: [
-            ...kAllNegations,
-            'hard', 'trouble', 'difficulty', 'difficult', 'problem', 'issue', 'poor', 'badly',
-            'কষ্ট', 'সমস্যা', 'কম',
+  static const _traitSettings =
+      <({String setting, List<VoicePhrase> present, List<VoicePhrase> absent})>[
+        (
+          setting: 'deaf_hearing_mode',
+          present: [
+            VoicePhrase(anchors: ['deaf', 'text mode', 'বধির', 'লেখা মোড']),
+            VoicePhrase(
+              anchors: ['hear', 'hearing', 'শুনি', 'শুনতে'],
+              context: [
+                ...kAllNegations,
+                'hard',
+                'trouble',
+                'difficulty',
+                'difficult',
+                'problem',
+                'issue',
+                'poor',
+                'badly',
+                'কষ্ট',
+                'সমস্যা',
+                'কম',
+              ],
+              requireContext: true,
+            ),
           ],
-          requireContext: true,
+          absent: [
+            VoicePhrase(
+              anchors: ['hear', 'hearing', 'শুনি', 'শুনতে'],
+              context: [
+                'fine',
+                'well',
+                'good',
+                'normal',
+                'normally',
+                'okay',
+                'ok',
+                'ঠিক',
+                'ভালো',
+                'স্বাভাবিক',
+                'পাই',
+              ],
+              requireContext: true,
+              blockers: kAllNegations,
+            ),
+          ],
         ),
-      ],
-      absent: [
-        VoicePhrase(
-          anchors: ['hear', 'hearing', 'শুনি', 'শুনতে'],
-          context: ['fine', 'well', 'good', 'normal', 'normally', 'okay', 'ok', 'ঠিক', 'ভালো', 'স্বাভাবিক', 'পাই'],
-          requireContext: true,
-          blockers: kAllNegations,
+        (
+          setting: 'crowded_places_anxious',
+          present: [
+            VoicePhrase(
+              anchors: [
+                'anxious',
+                'anxiety',
+                'panic',
+                'nervous',
+                'uncomfortable',
+                'অস্বস্তি',
+                'ভয়',
+              ],
+              context: [
+                'crowd',
+                'crowds',
+                'crowded',
+                'busy',
+                'ভিড়',
+                'জনসমাগম',
+              ],
+              requireContext: true,
+              blockers: kAllNegations,
+            ),
+          ],
+          absent: [
+            VoicePhrase(
+              anchors: [
+                'fine',
+                'okay',
+                'ok',
+                'comfortable',
+                'ঠিক',
+                'সমস্যা নেই',
+              ],
+              context: ['crowd', 'crowds', 'crowded', 'busy', 'ভিড়'],
+              requireContext: true,
+            ),
+            VoicePhrase(
+              anchors: ['anxious', 'anxiety', 'nervous', 'bother', 'অস্বস্তি'],
+              context: ['crowd', 'crowds', 'crowded', 'ভিড়'],
+              requireContext: true,
+              // Only reached when the statement IS negated — "crowds don't
+              // bother me".
+              blockers: [],
+            ),
+          ],
         ),
-      ],
-    ),
-    (
-      setting: 'crowded_places_anxious',
-      present: [
-        VoicePhrase(
-          anchors: ['anxious', 'anxiety', 'panic', 'nervous', 'uncomfortable', 'অস্বস্তি', 'ভয়'],
-          context: ['crowd', 'crowds', 'crowded', 'busy', 'ভিড়', 'জনসমাগম'],
-          requireContext: true,
-          blockers: kAllNegations,
+        (
+          setting: 'complex_instructions_hard',
+          present: [
+            VoicePhrase(
+              anchors: [
+                'simple',
+                'simpler',
+                'hard',
+                'difficult',
+                'confusing',
+                'সহজ',
+                'কষ্ট',
+                'কঠিন',
+              ],
+              context: [
+                'instruction',
+                'instructions',
+                'steps',
+                'directions',
+                'explain',
+                'নির্দেশ',
+                'ধাপ',
+              ],
+              requireContext: true,
+              blockers: kAllNegations,
+            ),
+          ],
+          absent: [
+            VoicePhrase(
+              anchors: [
+                'follow',
+                'understand',
+                'fine',
+                'বুঝতে পারি',
+                'সমস্যা নেই',
+              ],
+              context: [
+                'instruction',
+                'instructions',
+                'steps',
+                'complex',
+                'নির্দেশ',
+              ],
+              requireContext: true,
+              blockers: kAllNegations,
+            ),
+          ],
         ),
-      ],
-      absent: [
-        VoicePhrase(
-          anchors: ['fine', 'okay', 'ok', 'comfortable', 'ঠিক', 'সমস্যা নেই'],
-          context: ['crowd', 'crowds', 'crowded', 'busy', 'ভিড়'],
-          requireContext: true,
-        ),
-        VoicePhrase(
-          anchors: ['anxious', 'anxiety', 'nervous', 'bother', 'অস্বস্তি'],
-          context: ['crowd', 'crowds', 'crowded', 'ভিড়'],
-          requireContext: true,
-          // Only reached when the statement IS negated — "crowds don't
-          // bother me".
-          blockers: [],
-        ),
-      ],
-    ),
-    (
-      setting: 'complex_instructions_hard',
-      present: [
-        VoicePhrase(
-          anchors: ['simple', 'simpler', 'hard', 'difficult', 'confusing', 'সহজ', 'কষ্ট', 'কঠিন'],
-          context: ['instruction', 'instructions', 'steps', 'directions', 'explain', 'নির্দেশ', 'ধাপ'],
-          requireContext: true,
-          blockers: kAllNegations,
-        ),
-      ],
-      absent: [
-        VoicePhrase(
-          anchors: ['follow', 'understand', 'fine', 'বুঝতে পারি', 'সমস্যা নেই'],
-          context: ['instruction', 'instructions', 'steps', 'complex', 'নির্দেশ'],
-          requireContext: true,
-          blockers: kAllNegations,
-        ),
-      ],
-    ),
-  ];
+      ];
 
   static LocalIntent? _matchTraitSetting(List<String> words) {
     for (final entry in _traitSettings) {
@@ -953,10 +1449,10 @@ class LocalIntentMatcher {
       // Both or neither is not something to guess at — a trait stated two
       // ways in one sentence needs a reader, not a pattern.
       if (present == absent) continue;
-      return LocalIntent(
-        'update_setting',
-        {'setting': entry.setting, 'value': present ? 'true' : 'false'},
-      );
+      return LocalIntent('update_setting', {
+        'setting': entry.setting,
+        'value': present ? 'true' : 'false',
+      });
     }
     return null;
   }
@@ -974,41 +1470,124 @@ class LocalIntentMatcher {
   /// everyday word like "dark" or "light" from firing on an ordinary
   /// sentence. See `VoicePhrase.requireContext`.
   static const _appearanceContext = [
-    'mode', 'theme', 'screen', 'display', 'background', 'colour', 'color', 'app',
-    'make', 'turn', 'switch', 'set', 'change', 'put', 'want', 'like', 'prefer',
-    'মোড', 'থিম', 'স্ক্রিন', 'পর্দা', 'রং', 'করো', 'কর', 'দাও', 'চাই',
+    'mode',
+    'theme',
+    'screen',
+    'display',
+    'background',
+    'colour',
+    'color',
+    'app',
+    'make',
+    'turn',
+    'switch',
+    'set',
+    'change',
+    'put',
+    'want',
+    'like',
+    'prefer',
+    'মোড',
+    'থিম',
+    'স্ক্রিন',
+    'পর্দা',
+    'রং',
+    'করো',
+    'কর',
+    'দাও',
+    'চাই',
   ];
 
   static const _darkPhrase = VoicePhrase(
-    anchors: ['dark', 'darker', 'darken', 'black', 'night mode', 'ডার্ক', 'গাঢ়', 'কালো', 'অন্ধকার'],
+    anchors: [
+      'dark',
+      'darker',
+      'darken',
+      'black',
+      'night mode',
+      'ডার্ক',
+      'গাঢ়',
+      'কালো',
+      'অন্ধকার',
+    ],
     context: _appearanceContext,
     requireContext: true,
     // "It's getting dark outside" must never flip the theme.
-    blockers: ['outside', 'sky', 'evening', 'বাইরে', 'আকাশ', ...kQuestionBlockers],
+    blockers: [
+      'outside',
+      'sky',
+      'evening',
+      'বাইরে',
+      'আকাশ',
+      ...kQuestionBlockers,
+    ],
   );
 
   static const _lightPhrase = VoicePhrase(
-    anchors: ['light', 'lighter', 'brighter', 'brighten', 'white', 'day mode', 'লাইট', 'হালকা', 'উজ্জ্বল', 'সাদা'],
+    anchors: [
+      'light',
+      'lighter',
+      'brighter',
+      'brighten',
+      'white',
+      'day mode',
+      'লাইট',
+      'হালকা',
+      'উজ্জ্বল',
+      'সাদা',
+    ],
     context: _appearanceContext,
     requireContext: true,
     // "The street light is broken" is a hazard report, not a theme change.
     blockers: [
-      'street', 'streetlight', 'lamp', 'bulb', 'torch', 'flashlight', 'রাস্তার', 'বাতি', 'ল্যাম্প',
+      'street',
+      'streetlight',
+      'lamp',
+      'bulb',
+      'torch',
+      'flashlight',
+      'রাস্তার',
+      'বাতি',
+      'ল্যাম্প',
       ...kQuestionBlockers,
     ],
   );
 
   static LocalIntent? _matchTheme(String lower, String text) {
-    final value = exclusive(voiceWords(text), _darkPhrase, 'dark', _lightPhrase, 'light');
-    return value == null ? null : LocalIntent('update_setting', {'setting': 'theme', 'value': value});
+    final value = exclusive(
+      voiceWords(text),
+      _darkPhrase,
+      'dark',
+      _lightPhrase,
+      'light',
+    );
+    return value == null
+        ? null
+        : LocalIntent('update_setting', {'setting': 'theme', 'value': value});
   }
 
   // ---- language ------------------------------------------------------
 
   static const _languageContext = [
-    'speak', 'speaking', 'talk', 'talking', 'say', 'reply', 'replies', 'answer',
-    'language', 'switch', 'change', 'use', 'in',
-    'ভাষা', 'বলো', 'বল', 'কথা', 'বলুন', 'করো',
+    'speak',
+    'speaking',
+    'talk',
+    'talking',
+    'say',
+    'reply',
+    'replies',
+    'answer',
+    'language',
+    'switch',
+    'change',
+    'use',
+    'in',
+    'ভাষা',
+    'বলো',
+    'বল',
+    'কথা',
+    'বলুন',
+    'করো',
   ];
 
   static const _banglaPhrase = VoicePhrase(
@@ -1025,28 +1604,80 @@ class LocalIntentMatcher {
   );
 
   static LocalIntent? _matchLanguage(String lower, String text) {
-    final value = exclusive(voiceWords(text), _banglaPhrase, 'bangla', _englishPhrase, 'english');
-    return value == null ? null : LocalIntent('update_setting', {'setting': 'language', 'value': value});
+    final value = exclusive(
+      voiceWords(text),
+      _banglaPhrase,
+      'bangla',
+      _englishPhrase,
+      'english',
+    );
+    return value == null
+        ? null
+        : LocalIntent('update_setting', {
+            'setting': 'language',
+            'value': value,
+          });
   }
 
   // ---- verbosity -------------------------------------------------------
 
   static const _speechContext = [
-    'talk', 'talking', 'talks', 'say', 'saying', 'speak', 'tell', 'reply', 'replies',
-    'answer', 'answers', 'words', 'explanation', 'instructions', 'keep', 'be', 'you',
-    'কথা', 'বলো', 'বল', 'উত্তর', 'নির্দেশ',
+    'talk',
+    'talking',
+    'talks',
+    'say',
+    'saying',
+    'speak',
+    'tell',
+    'reply',
+    'replies',
+    'answer',
+    'answers',
+    'words',
+    'explanation',
+    'instructions',
+    'keep',
+    'be',
+    'you',
+    'কথা',
+    'বলো',
+    'বল',
+    'উত্তর',
+    'নির্দেশ',
   ];
 
   static const _minimalPhrase = VoicePhrase(
-    anchors: ['brief', 'briefer', 'concise', 'minimal', 'minimalist', 'shorter', 'short', 'less',
-      'সংক্ষেপে', 'সংক্ষিপ্ত', 'ছোট', 'কম'],
+    anchors: [
+      'brief',
+      'briefer',
+      'concise',
+      'minimal',
+      'minimalist',
+      'shorter',
+      'short',
+      'less',
+      'সংক্ষেপে',
+      'সংক্ষিপ্ত',
+      'ছোট',
+      'কম',
+    ],
     context: _speechContext,
     requireContext: true,
     blockers: kQuestionBlockers,
   );
   static const _descriptivePhrase = VoicePhrase(
-    anchors: ['detail', 'details', 'detailed', 'descriptive', 'explain', 'longer', 'more',
-      'বিস্তারিত', 'বেশি', 'খুলে'],
+    anchors: [
+      'detail',
+      'details',
+      'detailed',
+      'descriptive',
+      'explain',
+      'longer',
+      'more',
+      'বিস্তারিত',
+      'বেশি',
+      'খুলে',
+    ],
     context: _speechContext,
     requireContext: true,
     blockers: kQuestionBlockers,
@@ -1054,8 +1685,18 @@ class LocalIntentMatcher {
 
   static LocalIntent? _matchVerbosity(String lower, String text) {
     final value = exclusive(
-        voiceWords(text), _minimalPhrase, 'minimalist', _descriptivePhrase, 'descriptive');
-    return value == null ? null : LocalIntent('update_setting', {'setting': 'verbosity', 'value': value});
+      voiceWords(text),
+      _minimalPhrase,
+      'minimalist',
+      _descriptivePhrase,
+      'descriptive',
+    );
+    return value == null
+        ? null
+        : LocalIntent('update_setting', {
+            'setting': 'verbosity',
+            'value': value,
+          });
   }
 
   // ---- text size (relative bump, not an absolute value — this matcher
@@ -1064,7 +1705,15 @@ class LocalIntentMatcher {
   // before calling the executor) ------------------------------------------
 
   static const _textContext = [
-    'text', 'texts', 'font', 'fonts', 'letters', 'letter', 'size', 'words', 'writing',
+    'text',
+    'texts',
+    'font',
+    'fonts',
+    'letters',
+    'letter',
+    'size',
+    'words',
+    'writing',
     'print', 'type',
     // Romanised, item 54 — `lekha` is "writing", `okkhor`/`horof` are
     // "letters". Context words rather than anchors, exactly like their
@@ -1075,26 +1724,63 @@ class LocalIntentMatcher {
   ];
 
   static const _biggerPhrase = VoicePhrase(
-    anchors: ['bigger', 'larger', 'increase', 'enlarge', 'big', 'large', 'zoom in',
-      'boro', 'borro', 'baraw', 'barao', 'bararo',
-      'বড়', 'বাড়াও', 'বাড়ান'],
+    anchors: [
+      'bigger',
+      'larger',
+      'increase',
+      'enlarge',
+      'big',
+      'large',
+      'zoom in',
+      'boro',
+      'borro',
+      'baraw',
+      'barao',
+      'bararo',
+      'বড়',
+      'বাড়াও',
+      'বাড়ান',
+    ],
     context: _textContext,
     requireContext: true,
     blockers: kQuestionBlockers,
   );
   static const _smallerPhrase = VoicePhrase(
-    anchors: ['smaller', 'decrease', 'reduce', 'shrink', 'small', 'zoom out',
-      'choto', 'chota', 'komao', 'koman', 'kom',
-      'ছোট', 'কমাও', 'কমান'],
+    anchors: [
+      'smaller',
+      'decrease',
+      'reduce',
+      'shrink',
+      'small',
+      'zoom out',
+      'choto',
+      'chota',
+      'komao',
+      'koman',
+      'kom',
+      'ছোট',
+      'কমাও',
+      'কমান',
+    ],
     context: _textContext,
     requireContext: true,
     blockers: kQuestionBlockers,
   );
 
   static LocalIntent? _matchTextSize(String lower, String text) {
-    final value =
-        exclusive(voiceWords(text), _biggerPhrase, '_bigger', _smallerPhrase, '_smaller');
-    return value == null ? null : LocalIntent('update_setting', {'setting': 'text_size', 'value': value});
+    final value = exclusive(
+      voiceWords(text),
+      _biggerPhrase,
+      '_bigger',
+      _smallerPhrase,
+      '_smaller',
+    );
+    return value == null
+        ? null
+        : LocalIntent('update_setting', {
+            'setting': 'text_size',
+            'value': value,
+          });
   }
 
   // ---- request_route -----------------------------------------------------
@@ -1142,7 +1828,14 @@ class LocalIntentMatcher {
   /// Gulshan?" and "how far is it to go to Uttara" are questions about a
   /// journey, not a request to start one — and starting to walk someone
   /// somewhere they were only wondering about is a real failure.
-  static const _routeBlockers = ['should i', 'how far', 'how long', 'is it safe', 'কতদূর', 'কেমন লাগবে'];
+  static const _routeBlockers = [
+    'should i',
+    'how far',
+    'how long',
+    'is it safe',
+    'কতদূর',
+    'কেমন লাগবে',
+  ];
 
   /// Phrases that mean the user is *rejecting* a destination, not naming one.
   ///
@@ -1174,14 +1867,31 @@ class LocalIntentMatcher {
   }
 
   static const _vagueDestinations = {
-    'somewhere', 'anywhere', 'someplace', 'somewhere else', 'anywhere else',
-    'কোথাও', 'যেকোনো জায়গা',
+    'somewhere',
+    'anywhere',
+    'someplace',
+    'somewhere else',
+    'anywhere else',
+    'কোথাও',
+    'যেকোনো জায়গা',
   };
 
   static const _routeRefusals = [
-    'not my', "isn't my", 'is not my', 'not the', 'somewhere else', 'another place',
-    'different place', 'wrong place', 'not there', "don't want to go", 'do not want to go',
-    'আমার না', 'অন্য কোথাও', 'অন্য জায়গা', 'ভুল জায়গা',
+    'not my',
+    "isn't my",
+    'is not my',
+    'not the',
+    'somewhere else',
+    'another place',
+    'different place',
+    'wrong place',
+    'not there',
+    "don't want to go",
+    'do not want to go',
+    'আমার না',
+    'অন্য কোথাও',
+    'অন্য জায়গা',
+    'ভুল জায়গা',
   ];
 
   /// Bangla place names commonly carry the destination postposition
@@ -1208,14 +1918,16 @@ class LocalIntentMatcher {
   /// and *end* one (nothing Bangla immediately after). The trailing
   /// assertion also retires a latent ordering bug: `যাব` listed before
   /// `যাবো` used to win on "যাবো" and leave a stranded ো behind.
-  static final _routeBnPattern =
-      RegExp(r'(.+?)\s*(?<![ঀ-৿])(?:যেতে চাই|যাবো|যাব)(?![ঀ-৿])');
+  static final _routeBnPattern = RegExp(
+    r'(.+?)\s*(?<![ঀ-৿])(?:যেতে চাই|যাবো|যাব)(?![ঀ-৿])',
+  );
 
   /// "আমি অফিসে যাব না" (I will *not* go to the office) must not trigger a
   /// route request. Checked as a whole *word* — see [_bnNegationParticles]
   /// and [_words] for why a substring check was wrong here, and which real
   /// destinations it was silently refusing to route to.
-  static bool _isNegatedBn(String text) => _words(text).any(_bnNegationParticles.contains);
+  static bool _isNegatedBn(String text) =>
+      _words(text).any(_bnNegationParticles.contains);
 
   /// Words that lead a spoken destination clause without being part of the
   /// place name.
@@ -1228,10 +1940,34 @@ class LocalIntentMatcher {
   /// user heard "I don't know where that is" about a place the geocoder
   /// knows perfectly well.
   static const _leadingFillerBn = [
-    'আমি', 'আমরা', 'আমাকে', 'আমার', 'তুমি', 'আপনি', 'এখন', 'একটু', 'দয়া', 'করে', 'প্লিজ', 'চলো', 'নিয়ে',
+    'আমি',
+    'আমরা',
+    'আমাকে',
+    'আমার',
+    'তুমি',
+    'আপনি',
+    'এখন',
+    'একটু',
+    'দয়া',
+    'করে',
+    'প্লিজ',
+    'চলো',
+    'নিয়ে',
   ];
   static const _leadingFillerEn = [
-    'please', 'now', 'ok', 'okay', 'so', 'um', 'uh', 'hey', 'well', 'just', 'can', 'you', 'i',
+    'please',
+    'now',
+    'ok',
+    'okay',
+    'so',
+    'um',
+    'uh',
+    'hey',
+    'well',
+    'just',
+    'can',
+    'you',
+    'i',
   ];
 
   /// Trims the politeness and filler speech recognizers faithfully
@@ -1251,7 +1987,10 @@ class LocalIntentMatcher {
         // defined by ASCII `\w`, so it never matches after a Bangla
         // character and this stripped nothing at all in the language that
         // needed it most.
-        final pattern = RegExp('^${RegExp.escape(filler)}(?:[\\s,]+|\$)', caseSensitive: false);
+        final pattern = RegExp(
+          '^${RegExp.escape(filler)}(?:[\\s,]+|\$)',
+          caseSensitive: false,
+        );
         final trimmed = out.replaceFirst(pattern, '');
         if (trimmed != out && trimmed.trim().isNotEmpty) {
           out = trimmed.trim();
@@ -1260,12 +1999,26 @@ class LocalIntentMatcher {
       }
     }
 
-    const trailing = ['please', 'thanks', 'thank you', 'now', 'right now', 'ok', 'okay', 'দয়া করে', 'প্লিজ', 'এখন'];
+    const trailing = [
+      'please',
+      'thanks',
+      'thank you',
+      'now',
+      'right now',
+      'ok',
+      'okay',
+      'দয়া করে',
+      'প্লিজ',
+      'এখন',
+    ];
     var changed = true;
     while (changed) {
       changed = false;
       for (final filler in trailing) {
-        final pattern = RegExp('[ ,]+${RegExp.escape(filler)}[.!?]*\$', caseSensitive: false);
+        final pattern = RegExp(
+          '[ ,]+${RegExp.escape(filler)}[.!?]*\$',
+          caseSensitive: false,
+        );
         final trimmed = out.replaceFirst(pattern, '');
         if (trimmed != out) {
           out = trimmed;
@@ -1285,12 +2038,30 @@ class LocalIntentMatcher {
   /// already returned were being thrown away, and there was no command that
   /// would have reached them anyway.
   static const _alternativeRoutePhrases = [
-    'different route', 'another route', 'other route', 'different way',
-    'another way', 'other way', 'different path', 'another path',
-    'different road', 'another road', 'change the route', 'change route',
-    'not this route', "don't like this route", 'dont like this route',
-    'অন্য পথ', 'আরেকটা পথ', 'আরেকটি পথ', 'অন্য রাস্তা', 'আরেকটা রাস্তা',
-    'অন্য কোনো পথ', 'অন্য কোন পথ', 'পথ পাল্টাও', 'পথ বদলাও',
+    'different route',
+    'another route',
+    'other route',
+    'different way',
+    'another way',
+    'other way',
+    'different path',
+    'another path',
+    'different road',
+    'another road',
+    'change the route',
+    'change route',
+    'not this route',
+    "don't like this route",
+    'dont like this route',
+    'অন্য পথ',
+    'আরেকটা পথ',
+    'আরেকটি পথ',
+    'অন্য রাস্তা',
+    'আরেকটা রাস্তা',
+    'অন্য কোনো পথ',
+    'অন্য কোন পথ',
+    'পথ পাল্টাও',
+    'পথ বদলাও',
   ];
 
   /// "Re-route" — start again from where I am standing.
@@ -1304,9 +2075,18 @@ class LocalIntentMatcher {
   /// Distinct from [_alternativeRoutePhrases]: the same destination by a
   /// *different* road versus the same destination from a *new* origin.
   static const _replanPhrases = [
-    're-route', 'reroute', 're route', 'route again', 'plan again',
-    'find the way again', 'where do i go from here', 'start over',
-    'নতুন পথ', 'আবার পথ', 'পথ খুঁজে দাও', 'এখান থেকে পথ',
+    're-route',
+    'reroute',
+    're route',
+    'route again',
+    'plan again',
+    'find the way again',
+    'where do i go from here',
+    'start over',
+    'নতুন পথ',
+    'আবার পথ',
+    'পথ খুঁজে দাও',
+    'এখান থেকে পথ',
   ];
 
   /// A destination named in the same breath means this is a fresh journey,
@@ -1334,7 +2114,11 @@ class LocalIntentMatcher {
     // through the first.
     'trip cancel koro', 'trip cancel', 'cancel koro', 'route cancel koro',
     'trip bondho koro', 'trip bondo koro', 'jawa bondho koro',
-    'ট্রিপ বাতিল', 'যাত্রা বাতিল', 'পথ বাতিল', 'পথ দেখানো বন্ধ', 'নেভিগেশন বন্ধ',
+    'ট্রিপ বাতিল',
+    'যাত্রা বাতিল',
+    'পথ বাতিল',
+    'পথ দেখানো বন্ধ',
+    'নেভিগেশন বন্ধ',
     'ট্রিপ বন্ধ করো', 'বাতিল করো',
   ];
 
@@ -1389,7 +2173,11 @@ class LocalIntentMatcher {
     'what road am i on', 'what street am i on', 'where have i ended up',
     'tell me where i am', 'say where i am',
     // Romanised Bangla, item 54.
-    'kothay achi', 'ami kothay', 'amra kothay', 'ei jayga kon', 'kon jaygay achi',
+    'kothay achi',
+    'ami kothay',
+    'amra kothay',
+    'ei jayga kon',
+    'kon jaygay achi',
     'kothay ache', 'ami kothay achi',
     // Bangla script.
     'আমি কোথায়', 'কোথায় আছি', 'আমরা কোথায়', 'এটা কোন জায়গা',
@@ -1428,14 +2216,31 @@ class LocalIntentMatcher {
   /// Romanised Bangla is first-class here because the reported phrase was
   /// `map on koro` (item 54).
   static const _showMap = [
-    'show the map', 'show map', 'open the map', 'open map', 'see the map',
-    'bring up the map', 'map please', 'let me see the map', 'display the map',
-    'map on koro', 'map on', 'map dekhao', 'map dekha',
-    'ম্যাপ দেখাও', 'ম্যাপ খোলো', 'ম্যাপ চালু করো', 'মানচিত্র দেখাও',
+    'show the map',
+    'show map',
+    'open the map',
+    'open map',
+    'see the map',
+    'bring up the map',
+    'map please',
+    'let me see the map',
+    'display the map',
+    'map on koro',
+    'map on',
+    'map dekhao',
+    'map dekha',
+    'ম্যাপ দেখাও',
+    'ম্যাপ খোলো',
+    'ম্যাপ চালু করো',
+    'মানচিত্র দেখাও',
   ];
 
   static const _hideMap = [
-    'hide the map', 'hide map', 'close the map', 'close map', 'put the map away',
+    'hide the map',
+    'hide map',
+    'close the map',
+    'close map',
+    'put the map away',
     'get rid of the map', 'i dont need the map', 'turn off the map',
     // Both the full form and what is left after `koro` is stripped, and both
     // spellings of `bondho`: the second pass hands the matcher "map bondo",
@@ -1527,8 +2332,12 @@ class LocalIntentMatcher {
     if (_replanPhrases.any((p) => lower.contains(p) || text.contains(p))) {
       return hasDestination ? null : const LocalIntent('replan_route', {});
     }
-    if (_alternativeRoutePhrases.any((p) => lower.contains(p) || text.contains(p))) {
-      return hasDestination ? null : const LocalIntent('request_alternative_route', {});
+    if (_alternativeRoutePhrases.any(
+      (p) => lower.contains(p) || text.contains(p),
+    )) {
+      return hasDestination
+          ? null
+          : const LocalIntent('request_alternative_route', {});
     }
     return null;
   }
@@ -1536,14 +2345,18 @@ class LocalIntentMatcher {
   static LocalIntent? _matchRoute(String lower, String text, bool bn) {
     final words = voiceWords(text);
     if (containsAny(words, _routeBlockers)) return null;
-    if (_routeRefusals.any((p) => lower.contains(p) || text.contains(p))) return null;
+    if (_routeRefusals.any((p) => lower.contains(p) || text.contains(p)))
+      return null;
 
     final bareMatch = _routeBarePattern.firstMatch(text);
     if (bareMatch != null) {
       // Normalized to the bare place word — "take me back home" and "go to
       // work" become "home"/"work", which is what `SavedPlaceMatcher`
       // resolves against.
-      final raw = bareMatch.group(1)!.toLowerCase().replaceAll(RegExp(r'^to (the )?'), '');
+      final raw = bareMatch
+          .group(1)!
+          .toLowerCase()
+          .replaceAll(RegExp(r'^to (the )?'), '');
       return LocalIntent('request_route', {'destination': raw});
     }
 
@@ -1576,8 +2389,11 @@ class LocalIntentMatcher {
       // destination. Reading only the first two silently dropped the
       // "amake X niye chalo" shape, which is the commonest of the three.
       final destination = _tidyDestination(
-          blMatch.group(1) ?? blMatch.group(2) ?? blMatch.group(3) ?? '');
-      if (destination.isNotEmpty && destination.length <= 40 && !_isVagueDestination(destination)) {
+        blMatch.group(1) ?? blMatch.group(2) ?? blMatch.group(3) ?? '',
+      );
+      if (destination.isNotEmpty &&
+          destination.length <= 40 &&
+          !_isVagueDestination(destination)) {
         return LocalIntent('request_route', {'destination': destination});
       }
     }
@@ -1609,7 +2425,14 @@ class LocalIntentMatcher {
   /// this, telling the app you are *not* going somewhere starts walking you
   /// there.
   static bool _isNegatedBanglish(String lower) {
-    const negations = ['jabo na', 'jabona', 'jete chai na', 'jabo nah', 'lagbe na', 'dorkar nei'];
+    const negations = [
+      'jabo na',
+      'jabona',
+      'jete chai na',
+      'jabo nah',
+      'lagbe na',
+      'dorkar nei',
+    ];
     return negations.any(lower.contains);
   }
 }

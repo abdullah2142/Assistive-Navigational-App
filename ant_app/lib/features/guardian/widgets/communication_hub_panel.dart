@@ -16,13 +16,18 @@ import 'voice_memo_recorder_dialog.dart';
 /// (see the "No Live Video Feeds" architectural rule) — a Voice Memo is a
 /// short bounded recording sent once, not a call.
 class CommunicationHubPanel extends ConsumerStatefulWidget {
-  const CommunicationHubPanel({super.key, required this.disabledUserUid, required this.caretakerUid});
+  const CommunicationHubPanel({
+    super.key,
+    required this.disabledUserUid,
+    required this.caretakerUid,
+  });
 
   final String disabledUserUid;
   final String caretakerUid;
 
   @override
-  ConsumerState<CommunicationHubPanel> createState() => _CommunicationHubPanelState();
+  ConsumerState<CommunicationHubPanel> createState() =>
+      _CommunicationHubPanelState();
 }
 
 class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
@@ -50,7 +55,9 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
     final text = _composer.text.trim();
     if (text.isEmpty) return;
     _composer.clear();
-    await ref.read(communicationServiceProvider).sendMemo(
+    await ref
+        .read(communicationServiceProvider)
+        .sendMemo(
           disabledUserUid: disabledUserUid,
           fromUid: caretakerUid,
           toUid: disabledUserUid,
@@ -61,7 +68,9 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
   Future<void> _sendVoiceMemo(BuildContext context, WidgetRef ref) async {
     final result = await VoiceMemoRecorderDialog.show(context);
     if (result == null || result.durationSeconds < 1) return;
-    await ref.read(communicationServiceProvider).sendVoiceMemo(
+    await ref
+        .read(communicationServiceProvider)
+        .sendVoiceMemo(
           disabledUserUid: disabledUserUid,
           fromUid: caretakerUid,
           toUid: disabledUserUid,
@@ -77,7 +86,11 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
   /// This is the caretaker showing them something: which bus, which door,
   /// what a letter says. It is read aloud on arrival, because a photo on a
   /// screen the user cannot see is not a delivered message.
-  Future<void> _sendPhoto(BuildContext context, WidgetRef ref, ImageSource source) async {
+  Future<void> _sendPhoto(
+    BuildContext context,
+    WidgetRef ref,
+    ImageSource source,
+  ) async {
     final XFile? picked;
     try {
       picked = await ImagePicker().pickImage(
@@ -92,8 +105,9 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
       );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Could not open the picker: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not open the picker: $e')));
       return;
     }
     if (picked == null) return;
@@ -107,12 +121,38 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
       return;
     }
 
-    await ref.read(communicationServiceProvider).sendPhoto(
+    await ref
+        .read(communicationServiceProvider)
+        .sendPhoto(
           disabledUserUid: disabledUserUid,
           fromUid: caretakerUid,
           toUid: disabledUserUid,
           imageBase64: base64Encode(bytes),
         );
+  }
+
+  Future<void> _choosePhoto(BuildContext context, WidgetRef ref) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source != null && context.mounted)
+      await _sendPhoto(context, ref, source);
   }
 
   /// Firestore's document limit is 1MiB and base64 costs a third on top, so
@@ -121,25 +161,34 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
   static const int _maxPhotoBytes = 700 * 1024;
 
   Future<void> _requestSnapshot(BuildContext context, WidgetRef ref) async {
-    await ref.read(communicationServiceProvider).requestSnapshot(
+    await ref
+        .read(communicationServiceProvider)
+        .requestSnapshot(
           disabledUserUid: disabledUserUid,
           fromUid: caretakerUid,
           toUid: disabledUserUid,
         );
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Snapshot requested — their phone will answer with a photo.')),
+      const SnackBar(
+        content: Text(
+          'Snapshot requested — their phone will answer with a photo.',
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final messagesAsync = ref.watch(communicationsStreamProvider(disabledUserUid));
+    final messagesAsync = ref.watch(
+      communicationsStreamProvider(disabledUserUid),
+    );
     // Whether Snapshot Requests are allowed at all is the Disabled User's
     // own onboarding choice (SnapshotConsentPreference) — never the
     // Caretaker's to override.
-    final snapshotConsent = ref
+    final snapshotConsent =
+        ref
             .watch(profileStreamProvider(disabledUserUid))
             .value
             ?.snapshotConsent ??
@@ -150,37 +199,32 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Wrap(
-          spacing: 12,
-          runSpacing: 12,
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            OutlinedButton.icon(
+            ActionChip(
+              avatar: const Icon(Icons.image_outlined, size: 18),
+              label: const Text('Send image'),
+              onPressed: () => _choosePhoto(context, ref),
+            ),
+            ActionChip(
+              avatar: const Icon(Icons.mic_none_rounded, size: 18),
+              label: const Text('Voice message'),
               onPressed: () => _sendVoiceMemo(context, ref),
-              icon: const Icon(Icons.mic_none_rounded),
-              label: const Text('Voice Memo'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => _sendPhoto(context, ref, ImageSource.gallery),
-              icon: const Icon(Icons.photo_library_outlined),
-              label: const Text('Send Photo'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => _sendPhoto(context, ref, ImageSource.camera),
-              icon: const Icon(Icons.photo_camera_outlined),
-              label: const Text('Take Photo'),
             ),
             if (snapshotAllowed)
-              OutlinedButton.icon(
+              ActionChip(
+                avatar: const Icon(Icons.camera_alt_outlined, size: 18),
+                label: const Text('Request snapshot'),
                 onPressed: () => _requestSnapshot(context, ref),
-                icon: const Icon(Icons.camera_alt_outlined),
-                label: const Text('Snapshot Request'),
               )
             else
               Tooltip(
                 message: 'Turned off in their Snapshot permission setting',
-                child: OutlinedButton.icon(
+                child: ActionChip(
                   onPressed: null,
-                  icon: const Icon(Icons.no_photography_outlined),
-                  label: const Text('Snapshot Request'),
+                  avatar: const Icon(Icons.no_photography_outlined, size: 18),
+                  label: const Text('Request snapshot'),
                 ),
               ),
           ],
@@ -213,10 +257,14 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
             padding: EdgeInsets.symmetric(vertical: 8),
             child: LinearProgressIndicator(),
           ),
-          error: (e, st) => Text('Couldn\'t load messages: $e', style: theme.textTheme.bodySmall),
+          error: (e, st) => Text(
+            'Couldn\'t load messages: $e',
+            style: theme.textTheme.bodySmall,
+          ),
         ),
         const SizedBox(height: 8),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
               child: TextField(
@@ -235,6 +283,11 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
               ),
             ),
             const SizedBox(width: 8),
+            IconButton.filledTonal(
+              onPressed: () => _sendVoiceMemo(context, ref),
+              icon: const Icon(Icons.mic_rounded),
+              tooltip: 'Record voice message',
+            ),
             IconButton.filled(
               onPressed: _sendComposed,
               icon: const Icon(Icons.send_rounded),
@@ -276,10 +329,21 @@ class _MessageRowState extends State<_MessageRow> {
       return;
     }
     setState(() => _playing = true);
-    await _player.play(BytesSource(base64Decode(audioBase64), mimeType: 'audio/wav'));
     _player.onPlayerComplete.first.then((_) {
       if (mounted) setState(() => _playing = false);
     });
+    try {
+      await _player.play(
+        BytesSource(base64Decode(audioBase64), mimeType: 'audio/wav'),
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _playing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not play this voice message: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -294,18 +358,36 @@ class _MessageRowState extends State<_MessageRow> {
         children: [
           Semantics(
             button: true,
-            label: _playing ? 'Stop voice memo' : 'Play voice memo, ${message.durationSeconds ?? 0} seconds',
+            label: _playing
+                ? 'Stop voice memo'
+                : 'Play voice memo, ${message.durationSeconds ?? 0} seconds',
             child: InkWell(
+              borderRadius: BorderRadius.circular(24),
               onTap: _togglePlay,
-              child: Icon(
-                _playing ? Icons.stop_circle_rounded : Icons.play_circle_fill_rounded,
-                size: 20,
-                color: theme.colorScheme.primary,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _playing
+                          ? Icons.stop_circle_rounded
+                          : Icons.play_circle_fill_rounded,
+                      size: 28,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _playing
+                          ? 'Playing voice memo'
+                          : 'Play voice memo · ${message.durationSeconds ?? 0}s',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-          const SizedBox(width: 6),
-          Text('Voice memo · ${message.durationSeconds ?? 0}s', style: theme.textTheme.bodySmall),
         ],
       );
     } else if (message.type == CommunicationType.snapshotReply ||
@@ -328,8 +410,10 @@ class _MessageRowState extends State<_MessageRow> {
                   fit: BoxFit.contain,
                   // A corrupt or truncated frame must not take the whole hub
                   // down — the description below it is still useful.
-                  errorBuilder: (_, _, _) =>
-                      Text('(photo could not be shown)', style: theme.textTheme.bodySmall),
+                  errorBuilder: (_, _, _) => Text(
+                    '(photo could not be shown)',
+                    style: theme.textTheme.bodySmall,
+                  ),
                 ),
               ),
             ),
@@ -338,7 +422,9 @@ class _MessageRowState extends State<_MessageRow> {
         ],
       );
     } else {
-      final label = message.type == CommunicationType.snapshotRequest ? '📷 ${message.text}' : message.text;
+      final label = message.type == CommunicationType.snapshotRequest
+          ? '📷 ${message.text}'
+          : message.text;
       content = Text(label, style: theme.textTheme.bodySmall);
     }
 
@@ -353,9 +439,13 @@ class _MessageRowState extends State<_MessageRow> {
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.66),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.66,
+        ),
         decoration: BoxDecoration(
-          color: fromMe ? theme.colorScheme.primaryContainer : theme.colorScheme.surface,
+          color: fromMe
+              ? theme.colorScheme.primaryContainer
+              : theme.colorScheme.surface,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(14),
             topRight: const Radius.circular(14),

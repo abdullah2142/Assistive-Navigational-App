@@ -25,8 +25,15 @@ void main() {
 
   ChatHistoryStore store() => ChatHistoryStore(directory: dir);
 
-  ChatMessage msg(String text, {ChatSender sender = ChatSender.user, int minute = 0}) =>
-      ChatMessage(sender: sender, text: text, timestamp: DateTime.utc(2026, 9, 16, 10, minute));
+  ChatMessage msg(
+    String text, {
+    ChatSender sender = ChatSender.user,
+    int minute = 0,
+  }) => ChatMessage(
+    sender: sender,
+    text: text,
+    timestamp: DateTime.utc(2026, 9, 16, 10, minute),
+  );
 
   File file() => File('${dir.path}/${ChatHistoryStore.fileName}');
 
@@ -57,6 +64,38 @@ void main() {
     expect(restored.single.timestamp, DateTime.utc(2026, 9, 16, 10, 5));
   });
 
+  test(
+    'reply target ids and quoted text survive transcript restoration',
+    () async {
+      final s = store();
+      s.save('u1', [
+        ChatMessage(
+          sender: ChatSender.assistant,
+          text: 'You could go to City Hospital or Green Clinic.',
+          timestamp: DateTime.utc(2026, 9, 16, 10),
+          messageId: 'assistant-turn-17',
+        ),
+        ChatMessage(
+          sender: ChatSender.user,
+          text: 'The second one, please.',
+          timestamp: DateTime.utc(2026, 9, 16, 10, 1),
+          messageId: 'user-turn-18',
+          replyToMessageId: 'assistant-turn-17',
+          replyToText: 'You could go to City Hospital or Green Clinic.',
+        ),
+      ]);
+      await s.flush();
+
+      final restored = await store().load('u1');
+      expect(restored.first.id, 'assistant-turn-17');
+      expect(restored.last.replyToMessageId, 'assistant-turn-17');
+      expect(
+        restored.last.replyToText,
+        'You could go to City Hospital or Green Clinic.',
+      );
+    },
+  );
+
   test('another account cannot read it', () async {
     // A caretaker and the person they care for sharing a handset is ordinary
     // during testing, and a transcript surfacing under the wrong account
@@ -66,7 +105,11 @@ void main() {
     await s.flush();
 
     expect(await store().load('someone-else'), isEmpty);
-    expect(await store().load('u1'), hasLength(1), reason: 'still there for its owner');
+    expect(
+      await store().load('u1'),
+      hasLength(1),
+      reason: 'still there for its owner',
+    );
   });
 
   test('a burst in one turn is one write, and the last one wins', () async {
@@ -94,7 +137,8 @@ void main() {
     // The end is what somebody is going back to check.
     final s = store();
     s.save('u1', [
-      for (var i = 0; i < ChatHistoryStore.maxMessages + 50; i++) msg('line $i'),
+      for (var i = 0; i < ChatHistoryStore.maxMessages + 50; i++)
+        msg('line $i'),
     ]);
     await s.flush();
 
@@ -113,15 +157,25 @@ void main() {
   });
 
   test('entries that make no sense are skipped, not fatal', () async {
-    file().writeAsStringSync(jsonEncode({
-      'uid': 'u1',
-      'messages': [
-        {'sender': 'user', 'text': 'this one is fine', 'timestamp': '2026-09-16T10:00:00.000Z'},
-        {'sender': 'user'}, // no text, no timestamp
-        {'sender': 'user', 'text': '', 'timestamp': '2026-09-16T10:00:00.000Z'},
-        'not even an object',
-      ],
-    }));
+    file().writeAsStringSync(
+      jsonEncode({
+        'uid': 'u1',
+        'messages': [
+          {
+            'sender': 'user',
+            'text': 'this one is fine',
+            'timestamp': '2026-09-16T10:00:00.000Z',
+          },
+          {'sender': 'user'}, // no text, no timestamp
+          {
+            'sender': 'user',
+            'text': '',
+            'timestamp': '2026-09-16T10:00:00.000Z',
+          },
+          'not even an object',
+        ],
+      }),
+    );
     final restored = await store().load('u1');
     expect(restored, hasLength(1));
     expect(restored.single.text, 'this one is fine');

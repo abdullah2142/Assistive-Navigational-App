@@ -72,14 +72,18 @@ class SnapshotVisionService {
     DateTime Function()? now,
     // ignore_for_file: prefer_initializing_formals
     Future<void> Function(String text)? speak,
-  })  : _camera = camera ?? SnapshotCamera(),
-        _edge = edge ?? EdgeHazardDetector(),
-        _cloud = cloud ??
-            VisionRouter(groq: CloudVisionService(), gemini: GeminiVisionService()),
-        _haptics = haptics ?? HapticsService(),
-        _routes = routes ?? BusRouteDirectory(),
-        _now = now ?? DateTime.now,
-        _speak = speak;
+  }) : _camera = camera ?? SnapshotCamera(),
+       _edge = edge ?? EdgeHazardDetector(),
+       _cloud =
+           cloud ??
+           VisionRouter(
+             groq: CloudVisionService(),
+             gemini: GeminiVisionService(),
+           ),
+       _haptics = haptics ?? HapticsService(),
+       _routes = routes ?? BusRouteDirectory(),
+       _now = now ?? DateTime.now,
+       _speak = speak;
 
   final SnapshotCamera _camera;
   final EdgeHazardDetector _edge;
@@ -144,6 +148,7 @@ class SnapshotVisionService {
     required ScanFocus focus,
     required AppLanguage language,
     Future<void> Function(String text)? narrate,
+
     /// The user's own question, when more specific than [focus] can say. See
     /// `VisionPrompt.build`.
     String? question,
@@ -170,13 +175,17 @@ class SnapshotVisionService {
   /// is about the ground in front of *this* user rather than a picture of
   /// somewhere else, and a cooldown exists to stop repeated *scans* spending
   /// the token budget, not to throttle messages another person sent.
-  Future<String?> describeIncomingImage(Uint8List jpeg, AppLanguage language) async {
+  Future<String?> describeIncomingImage(
+    Uint8List jpeg,
+    AppLanguage language,
+  ) async {
     try {
       final scene = await _cloud.describe(
         jpegs: [jpeg],
         focus: ScanFocus.ahead,
         language: language,
-        question: 'Someone sent this picture to a blind person. Say what it '
+        question:
+            'Someone sent this picture to a blind person. Say what it '
             'shows, plainly, in two short sentences. Read any text in it.',
       );
       return scene?.spoken;
@@ -186,8 +195,13 @@ class SnapshotVisionService {
     }
   }
 
-  Future<ScanResult> _run(ScanFocus focus, AppLanguage language, Dashboard d,
-      Future<void> Function(String text)? narrate, String? question) async {
+  Future<ScanResult> _run(
+    ScanFocus focus,
+    AppLanguage language,
+    Dashboard d,
+    Future<void> Function(String text)? narrate,
+    String? question,
+  ) async {
     // Asked before the camera opens, because it decides what the capture
     // does. A three-frame sweep is only worth taking when a backend that can
     // read three is going to be tried — with Gemini unconfigured this
@@ -198,7 +212,12 @@ class SnapshotVisionService {
     );
     final frames = await _camera.capture(
       count: frameCount,
-      onBeforeFrame: frameCount > 1 ? (i) => _cueSweepPosition(i, d, narrate) : null,
+      // The dashboard's explicit viewfinder stays up through the vision
+      // request. Its owner closes the camera once the answer/send completes.
+      holdOpen: true,
+      onBeforeFrame: frameCount > 1
+          ? (i) => _cueSweepPosition(i, d, narrate)
+          : null,
     );
     if (frames.isEmpty) {
       return ScanResult(
@@ -235,8 +254,10 @@ class SnapshotVisionService {
       // already throttles this to one every five seconds.
       await _haptics.play(HapticCue.hazard);
       final label = worst.nearest?.label;
-      debugPrint('[Vision] sweep aborted — imminent $label '
-          'score=${worst.threatScore.toStringAsFixed(2)}');
+      debugPrint(
+        '[Vision] sweep aborted — imminent $label '
+        'score=${worst.threatScore.toStringAsFixed(2)}',
+      );
       return ScanResult(
         spoken: d.visionHazardAbort(d.visionObjectLabel(label)),
         verdict: worst,
@@ -267,7 +288,9 @@ class SnapshotVisionService {
     // three gets the whole sweep — one ordering serves both, and neither
     // needs to know which it is.
     final ordered = _sharpestFirst(decoded, verdicts);
-    final uploads = [for (final frame in ordered) _encodeForUpload(frame, focus)];
+    final uploads = [
+      for (final frame in ordered) _encodeForUpload(frame, focus),
+    ];
     // The sharpest frame, which `_sharpestFirst` has already put at the head.
     final bestFrame = uploads.isEmpty ? null : uploads.first;
 
@@ -287,10 +310,7 @@ class SnapshotVisionService {
         _lastScene = scene;
       }
     } on VisionBudgetExhausted {
-      return ScanResult(
-        spoken: d.visionBudgetSpent,
-        verdict: worst,
-      );
+      return ScanResult(spoken: d.visionBudgetSpent, verdict: worst);
     }
 
     if (scene == null) {
@@ -334,7 +354,10 @@ class SnapshotVisionService {
   /// measured turning `গুলশান` into `ঠানশান`. Waiting is cheaper than an
   /// unreadable frame.
   Future<void> _cueSweepPosition(
-      int index, Dashboard d, Future<void> Function(String text)? narrate) async {
+    int index,
+    Dashboard d,
+    Future<void> Function(String text)? narrate,
+  ) async {
     // The same buzz for all three positions said only "a frame is coming",
     // which is the half of the instruction the user already knew. One pulse
     // for left and two for right — the same vocabulary the turn cues use, so
@@ -397,9 +420,13 @@ class SnapshotVisionService {
   /// destination (`গুলশান` -> `ঠানশান`). Digits survive blur, conjunct Bangla
   /// letterforms do not — so the number is a usable key and the names are not
   /// usable output.
-  Future<VisionScene> _verifyRoutes(VisionScene scene, AppLanguage language) async {
+  Future<VisionScene> _verifyRoutes(
+    VisionScene scene,
+    AppLanguage language,
+  ) async {
     if (!VisionConfig.busRouteLookupWins) return scene;
-    final bus = scene.vehicles.where((v) => v.kind == 'bus').firstOrNull ??
+    final bus =
+        scene.vehicles.where((v) => v.kind == 'bus').firstOrNull ??
         scene.vehicles.firstOrNull;
     if (bus == null) return scene;
 
@@ -407,9 +434,11 @@ class SnapshotVisionService {
     // signboard into `raw_text`, `destination` and the scene's `text_found`
     // inconsistently, and the matcher wants the lot — it is looking for an
     // operator name *somewhere* in a noisy read.
-    final read = [bus.rawText, bus.destination ?? '', scene.textFound]
-        .where((e) => e.trim().isNotEmpty)
-        .join(' ');
+    final read = [
+      bus.rawText,
+      bus.destination ?? '',
+      scene.textFound,
+    ].where((e) => e.trim().isNotEmpty).join(' ');
 
     final match = await _routes.identify(
       routeNumber: bus.routeNumber,
@@ -430,8 +459,10 @@ class SnapshotVisionService {
       ...scene.vehicles.where((v) => v != bus),
     ];
 
-    debugPrint('[Vision] bus identified as ${route.nameEn} '
-        '(${match.why}, destination ${match.destinationCertain ? "certain" : "UNKNOWN"})');
+    debugPrint(
+      '[Vision] bus identified as ${route.nameEn} '
+      '(${match.why}, destination ${match.destinationCertain ? "certain" : "UNKNOWN"})',
+    );
 
     return VisionScene(
       focus: scene.focus,
@@ -458,7 +489,12 @@ class SnapshotVisionService {
   /// report about it would be noise on the map by the time anybody routed
   /// around it; a manhole or a dug-up footpath is there next week.
   static const _reportableKinds = {
-    'manhole', 'open_drain', 'construction', 'broken_pavement', 'flooding', 'step',
+    'manhole',
+    'open_drain',
+    'construction',
+    'broken_pavement',
+    'flooding',
+    'step',
   };
 
   String? _reportableKind(VisionScene scene) {
@@ -497,18 +533,28 @@ class SnapshotVisionService {
   /// Ties break toward the frame whose edge verdict saw the most — a sharp
   /// photograph of nothing is worse input than a slightly softer one with the
   /// bus in it.
-  List<img.Image> _sharpestFirst(List<img.Image> frames, List<HazardVerdict> verdicts) {
+  List<img.Image> _sharpestFirst(
+    List<img.Image> frames,
+    List<HazardVerdict> verdicts,
+  ) {
     if (frames.length == 1) return frames;
     final scored = [
       for (var i = 0; i < frames.length; i++)
         (
           frame: frames[i],
-          score: sharpness(frames[i]) *
-              (1 + 0.15 * (i < verdicts.length ? verdicts[i].detections.length : 0)),
+          score:
+              sharpness(frames[i]) *
+              (1 +
+                  0.15 *
+                      (i < verdicts.length
+                          ? verdicts[i].detections.length
+                          : 0)),
         ),
     ]..sort((a, b) => b.score.compareTo(a.score));
-    debugPrint('[Vision] frames ranked, sharpest '
-        'score=${scored.first.score.toStringAsFixed(1)}');
+    debugPrint(
+      '[Vision] frames ranked, sharpest '
+      'score=${scored.first.score.toStringAsFixed(1)}',
+    );
     return [for (final s in scored) s.frame];
   }
 
@@ -519,14 +565,19 @@ class SnapshotVisionService {
   /// that survives decimation at a fraction of the cost.
   @visibleForTesting
   static double sharpness(img.Image frame) {
-    final small = img.copyResize(frame, width: 160, interpolation: img.Interpolation.average);
+    final small = img.copyResize(
+      frame,
+      width: 160,
+      interpolation: img.Interpolation.average,
+    );
     final gray = img.grayscale(small);
     var sum = 0.0;
     var sumSq = 0.0;
     var n = 0;
     for (var y = 1; y < gray.height - 1; y++) {
       for (var x = 1; x < gray.width - 1; x++) {
-        final v = 4 * gray.getPixel(x, y).r -
+        final v =
+            4 * gray.getPixel(x, y).r -
             gray.getPixel(x - 1, y).r -
             gray.getPixel(x + 1, y).r -
             gray.getPixel(x, y - 1).r -
@@ -554,16 +605,25 @@ class SnapshotVisionService {
 
   Uint8List _encodeForUpload(img.Image frame, ScanFocus focus) {
     final detail = _wantsDetail(focus);
-    final width = detail ? VisionConfig.detailUploadWidth : VisionConfig.uploadWidth;
-    final height = detail ? VisionConfig.detailUploadHeight : VisionConfig.uploadHeight;
+    final width = detail
+        ? VisionConfig.detailUploadWidth
+        : VisionConfig.uploadWidth;
+    final height = detail
+        ? VisionConfig.detailUploadHeight
+        : VisionConfig.uploadHeight;
     final resized = img.copyResize(
       frame,
       width: width,
       height: height,
       interpolation: img.Interpolation.average,
     );
-    final bytes = img.encodeJpg(resized, quality: VisionConfig.uploadJpegQuality);
-    debugPrint('[Vision] upload frame ${bytes.length} bytes (${width}x$height)');
+    final bytes = img.encodeJpg(
+      resized,
+      quality: VisionConfig.uploadJpegQuality,
+    );
+    debugPrint(
+      '[Vision] upload frame ${bytes.length} bytes (${width}x$height)',
+    );
     return bytes;
   }
 
@@ -575,6 +635,9 @@ class SnapshotVisionService {
   /// put a second copy of the 4 MB model in memory on a phone that has
   /// little. One of each, used by whoever asks.
   SnapshotCamera get camera => _camera;
+
+  /// Ends an explicit aiming/scan session as soon as its work is complete.
+  void closeCamera() => _camera.releaseNow();
   EdgeHazardDetector get edge => _edge;
 
   /// Releases the camera. Call on app pause and on dashboard dispose.

@@ -8,7 +8,8 @@ import '../../features/dashboard/models/chat_message.dart';
 import '../../features/dashboard/models/hazard_report.dart';
 import '../../features/dashboard/models/suggested_chip.dart';
 import '../../features/onboarding/models/user_profile.dart';
-import '../../features/guardian/models/communication_message.dart' show ReplayDirection;
+import '../../features/guardian/models/communication_message.dart'
+    show ReplayDirection;
 import '../config/gemini_config.dart';
 import '../localization/app_language.dart';
 import 'destination_clarifier.dart';
@@ -167,19 +168,22 @@ class GeminiAssistantService implements AssistantService {
     required String apiKey,
     required FunctionCallExecutor executor,
     ApiBudget? budget,
-  })  : _budget = budget ?? defaultApiBudget,
-        _model = GenerativeModel(
-          model: GeminiConfig.modelName,
-          apiKey: apiKey,
-          tools: [Tool(functionDeclarations: _tools)],
-          // 400 was too tight and cut real replies short in testing — this
-          // model (`gemini-3.6-flash`, a "thinking" model per the doc
-          // comment on `converse`) spends part of its token budget on
-          // internal reasoning before the visible reply, so a low cap can
-          // exhaust itself before any answer text comes out at all.
-          generationConfig: GenerationConfig(temperature: 0.4, maxOutputTokens: 1024),
-        ),
-        _executor = executor;
+  }) : _budget = budget ?? defaultApiBudget,
+       _model = GenerativeModel(
+         model: GeminiConfig.modelName,
+         apiKey: apiKey,
+         tools: [Tool(functionDeclarations: _tools)],
+         // 400 was too tight and cut real replies short in testing — this
+         // model (`gemini-3.6-flash`, a "thinking" model per the doc
+         // comment on `converse`) spends part of its token budget on
+         // internal reasoning before the visible reply, so a low cap can
+         // exhaust itself before any answer text comes out at all.
+         generationConfig: GenerationConfig(
+           temperature: 0.4,
+           maxOutputTokens: 1024,
+         ),
+       ),
+       _executor = executor;
 
   final GenerativeModel _model;
   final FunctionCallExecutor _executor;
@@ -205,9 +209,11 @@ class GeminiAssistantService implements AssistantService {
     required List<ChatMessage> recentHistory,
     Position? location,
     void Function(String partialText)? onPartialText,
+
     /// The route the user is currently walking, if any — `resolve_hazard`
     /// is scoped to the hazards on it. See `FunctionCallExecutor`.
     RouteChoice? activeRoute,
+
     /// The unused alternatives to [activeRoute], which
     /// `request_alternative_route` switches between.
     List<RouteCandidate> routeAlternatives = const [],
@@ -229,7 +235,9 @@ class GeminiAssistantService implements AssistantService {
 
     final contents = <Content>[
       ..._historyToContents(recentHistory),
-      Content.text(buildPrompt(userText: userText, profile: profile, location: location)),
+      Content.text(
+        buildPrompt(userText: userText, profile: profile, location: location),
+      ),
     ];
 
     final calls = <FunctionCall>[];
@@ -243,7 +251,9 @@ class GeminiAssistantService implements AssistantService {
     }
 
     if (calls.isEmpty) {
-      return AssistantTurn(responseText: _textOrFallback(textBuffer.toString(), profile));
+      return AssistantTurn(
+        responseText: _textOrFallback(textBuffer.toString(), profile),
+      );
     }
 
     var workingProfile = profile;
@@ -273,7 +283,8 @@ class GeminiAssistantService implements AssistantService {
       workingProfile = applied.updatedProfile ?? workingProfile;
       overlay ??= applied.overlayAction;
       if (applied.route != null) route = applied.route;
-      if (applied.routeAlternatives != null) alternatives = applied.routeAlternatives;
+      if (applied.routeAlternatives != null)
+        alternatives = applied.routeAlternatives;
       hazardPrefill ??= applied.hazardPrefill;
       scanFocus ??= applied.scanFocus;
       scanQuestion ??= applied.scanQuestion;
@@ -299,7 +310,9 @@ class GeminiAssistantService implements AssistantService {
     // a side benefit halves per-turn latency (one call instead of two).
     return AssistantTurn(
       responseText: confirmations.join(' '),
-      updatedProfile: identical(workingProfile, profile) ? null : workingProfile,
+      updatedProfile: identical(workingProfile, profile)
+          ? null
+          : workingProfile,
       overlayAction: overlay,
       route: route,
       routeAlternatives: alternatives,
@@ -320,8 +333,24 @@ class GeminiAssistantService implements AssistantService {
   }
 
   List<Content> _historyToContents(List<ChatMessage> history) {
-    final recent = history.length > _historyTurns ? history.sublist(history.length - _historyTurns) : history;
-    return recent.map((m) => Content(m.sender == ChatSender.user ? 'user' : 'model', [TextPart(m.text)])).toList();
+    final recent = history.length > _historyTurns
+        ? history.sublist(history.length - _historyTurns)
+        : history;
+    return recent.map((m) {
+      final isUser = m.sender == ChatSender.user;
+      final isCaretaker = m.sender == ChatSender.caretaker;
+      final content = isCaretaker
+          ? 'Caretaker message: ${m.text}'
+          : isUser && m.replyToMessageId != null
+          ? 'Reply to assistant message id "${m.replyToMessageId}" (quoted text: '
+                '"${m.replyToText ?? ''}"):\n${m.text}'
+          : isUser
+          ? m.text
+          : 'Assistant message id "${m.id}": ${m.text}';
+      return Content(isUser || isCaretaker ? 'user' : 'model', [
+        TextPart(content),
+      ]);
+    }).toList();
   }
 
   /// Static because it is pure — it reads nothing but its own arguments.
@@ -414,45 +443,54 @@ User's message: "$userText"
       'pair_with_caretaker',
       'Link this user to a caretaker using the 6-digit pairing code the caretaker generated on their own '
           'device. Only relevant for a user who has no caretaker yet.',
-      Schema.object(properties: {
-        'code': Schema.string(description: 'The 6-digit pairing code the user read out or typed.'),
-      }, requiredProperties: const ['code']),
+      Schema.object(
+        properties: {
+          'code': Schema.string(
+            description: 'The 6-digit pairing code the user read out or typed.',
+          ),
+        },
+        requiredProperties: const ['code'],
+      ),
     ),
     FunctionDeclaration(
       'update_setting',
       'Change one accessibility/app setting for the current user. Use this for any single-value preference change.',
-      Schema.object(properties: {
-        'setting': Schema.enumString(
-          enumValues: const [
-            'text_size',
-            'theme',
-            'language',
-            'verbosity',
-            'voice',
-            'vision_level',
-            'mobility_aid',
-            'deaf_hearing_mode',
-            'snapshot_consent',
-            'crowded_places_anxious',
-            'complex_instructions_hard',
-            'home_address',
-            'safe_place_address',
-            'wake_word_enabled',
-            'voice_auto_listen',
-          ],
-          description: 'Which setting to change.',
-        ),
-        'value': Schema.string(
-          description: 'The new value. text_size: one of "0.8", "1.0", "1.25", "1.5", "2.0" '
-              '— for "bigger"/"smaller" move ONE step from the current size, never jump to an end. '
-              'theme: "light" or "dark". language: "english" or "bangla". verbosity: "minimalist" or '
-              '"descriptive". voice: a voice id such as "bn-BD-female-1". vision_level: "none", "low", or '
-              '"full". mobility_aid: "whiteCane", "wheelchair", or "unassisted". deaf_hearing_mode, '
-              'crowded_places_anxious, complex_instructions_hard, wake_word_enabled, voice_auto_listen: '
-              '"true" or "false". snapshot_consent: "always", "askEachTime", or "never". home_address / '
-              'safe_place_address: free-text address.',
-        ),
-      }, requiredProperties: const ['setting', 'value']),
+      Schema.object(
+        properties: {
+          'setting': Schema.enumString(
+            enumValues: const [
+              'text_size',
+              'theme',
+              'language',
+              'verbosity',
+              'voice',
+              'vision_level',
+              'mobility_aid',
+              'deaf_hearing_mode',
+              'snapshot_consent',
+              'crowded_places_anxious',
+              'complex_instructions_hard',
+              'home_address',
+              'safe_place_address',
+              'wake_word_enabled',
+              'voice_auto_listen',
+            ],
+            description: 'Which setting to change.',
+          ),
+          'value': Schema.string(
+            description:
+                'The new value. text_size: one of "0.8", "1.0", "1.25", "1.5", "2.0" '
+                '— for "bigger"/"smaller" move ONE step from the current size, never jump to an end. '
+                'theme: "light" or "dark". language: "english" or "bangla". verbosity: "minimalist" or '
+                '"descriptive". voice: a voice id such as "bn-BD-female-1". vision_level: "none", "low", or '
+                '"full". mobility_aid: "whiteCane", "wheelchair", or "unassisted". deaf_hearing_mode, '
+                'crowded_places_anxious, complex_instructions_hard, wake_word_enabled, voice_auto_listen: '
+                '"true" or "false". snapshot_consent: "always", "askEachTime", or "never". home_address / '
+                'safe_place_address: free-text address.',
+          ),
+        },
+        requiredProperties: const ['setting', 'value'],
+      ),
     ),
     FunctionDeclaration(
       'add_emergency_contact',
@@ -461,28 +499,39 @@ User's message: "$userText"
       // `phone` is deliberately optional — see the Groq declaration for the
       // 23 September case where a required slot got filled with a number the
       // user never gave.
-      Schema.object(properties: {
-        'name': Schema.string(description: "Contact's name."),
-        'phone': Schema.string(description: "Contact's phone number, only if they gave it."),
-      }, requiredProperties: const ['name']),
+      Schema.object(
+        properties: {
+          'name': Schema.string(description: "Contact's name."),
+          'phone': Schema.string(
+            description: "Contact's phone number, only if they gave it.",
+          ),
+        },
+        requiredProperties: const ['name'],
+      ),
     ),
     FunctionDeclaration(
       'remove_emergency_contact',
       'Remove an existing Magic Button emergency contact by name.',
-      Schema.object(properties: {
-        'name': Schema.string(description: 'Name of the contact to remove.'),
-      }, requiredProperties: const ['name']),
+      Schema.object(
+        properties: {
+          'name': Schema.string(description: 'Name of the contact to remove.'),
+        },
+        requiredProperties: const ['name'],
+      ),
     ),
     FunctionDeclaration(
       'passerby_message',
       'Add or remove a pre-written message to show a passerby.',
-      Schema.object(properties: {
-        'message': Schema.string(description: 'The message text.'),
-        'remove': Schema.enumString(
-          enumValues: const ['true', 'false'],
-          description: 'true removes a matching message instead of adding.',
-        ),
-      }, requiredProperties: const ['message']),
+      Schema.object(
+        properties: {
+          'message': Schema.string(description: 'The message text.'),
+          'remove': Schema.enumString(
+            enumValues: const ['true', 'false'],
+            description: 'true removes a matching message instead of adding.',
+          ),
+        },
+        requiredProperties: const ['message'],
+      ),
     ),
     FunctionDeclaration(
       'trigger_emergency',
@@ -516,14 +565,22 @@ User's message: "$userText"
       Schema.object(
         properties: {
           'focus': Schema.enumString(
-            enumValues: const ['vehicle', 'sign', 'ahead', 'surroundings', 'hazard'],
-            description: 'ahead = what is directly in front (one frame, instant) — use this for '
+            enumValues: const [
+              'vehicle',
+              'sign',
+              'ahead',
+              'surroundings',
+              'hazard',
+            ],
+            description:
+                'ahead = what is directly in front (one frame, instant) — use this for '
                 '"what is in front of me". surroundings = a wide left-ahead-right sweep, only for '
                 '"what is around me". vehicle = which bus/rickshaw/CNG. sign = read text. '
                 'hazard = is the path walkable.',
           ),
           'question': Schema.string(
-            description: "The user's own question, copied as they asked it, when it is more "
+            description:
+                "The user's own question, copied as they asked it, when it is more "
                 "specific than the focus — e.g. 'what colour is the rabbit', "
                 "'what is written on this page'. Omit for a general look.",
           ),
@@ -544,25 +601,46 @@ User's message: "$userText"
           '`subCategory` so the form opens straight to it instead of asking them to pick it again — omit '
           'both if they only said "report a hazard", and omit `subCategory` if you are not sure which one '
           'they meant. Never guess: a wrong value files a real report under the wrong hazard type.',
-      Schema.object(properties: {
-        'category': Schema.enumString(
-          enumValues: ['crime', 'roadHazard', 'accessibilityBlock'],
-          description: 'The broad kind of hazard, if the user said.',
-        ),
-        'subCategory': Schema.enumString(
-          enumValues: [
-            'mugging', 'harassment', 'suspiciousCrowd', 'theftPickpocketing', 'stalking',
-            'verbalAbuse', 'physicalAssault', 'poorLighting',
-            'pothole', 'flooding', 'construction', 'noSidewalk', 'openManhole',
-            'brokenStreetlight', 'recklessTraffic', 'illegalParking', 'debrisFallenTree',
-            'brokenRamp', 'blockedPath', 'noCurbCut', 'stairsOnly', 'narrowPassage',
-            'noTactilePaving', 'elevatorOutOfService', 'blockedByVendors',
-          ],
-          description: 'The exact hazard, if the user named it. Must belong to `category`.',
-        ),
-        // No `requiredProperties` — both are optional, so a bare "report a
-        // hazard" still opens the Hub at the top of its menu.
-      }),
+      Schema.object(
+        properties: {
+          'category': Schema.enumString(
+            enumValues: ['crime', 'roadHazard', 'accessibilityBlock'],
+            description: 'The broad kind of hazard, if the user said.',
+          ),
+          'subCategory': Schema.enumString(
+            enumValues: [
+              'mugging',
+              'harassment',
+              'suspiciousCrowd',
+              'theftPickpocketing',
+              'stalking',
+              'verbalAbuse',
+              'physicalAssault',
+              'poorLighting',
+              'pothole',
+              'flooding',
+              'construction',
+              'noSidewalk',
+              'openManhole',
+              'brokenStreetlight',
+              'recklessTraffic',
+              'illegalParking',
+              'debrisFallenTree',
+              'brokenRamp',
+              'blockedPath',
+              'noCurbCut',
+              'stairsOnly',
+              'narrowPassage',
+              'noTactilePaving',
+              'elevatorOutOfService',
+              'blockedByVendors',
+            ],
+            description: 'The exact hazard, if the user named it. Must belong to `category`.',
+          ),
+          // No `requiredProperties` — both are optional, so a bare "report a
+          // hazard" still opens the Hub at the top of its menu.
+        },
+      ),
     ),
     FunctionDeclaration(
       'save_place',
@@ -570,21 +648,44 @@ User's message: "$userText"
           'when they ask to remember or save somewhere. Omit `address` to save wherever they are '
           'standing right now — that is the better option whenever they say "here"/"this place", since '
           'many Dhaka locations have no address a map can look up.',
-      Schema.object(properties: {
-        'label': Schema.string(description: 'What the user calls it — "work", "Ma\'s house", "school".'),
-        'address': Schema.string(description: 'A written address, only if the user actually gave one.'),
-        'kind': Schema.enumString(
-          enumValues: ['home', 'work', 'school', 'family', 'medical', 'worship', 'other'],
-          description: 'Rough category, used only to understand synonyms later.',
-        ),
-      }, requiredProperties: const ['label']),
+      Schema.object(
+        properties: {
+          'label': Schema.string(
+            description:
+                'What the user calls it — "work", "Ma\'s house", "school".',
+          ),
+          'address': Schema.string(
+            description:
+                'A written address, only if the user actually gave one.',
+          ),
+          'kind': Schema.enumString(
+            enumValues: [
+              'home',
+              'work',
+              'school',
+              'family',
+              'medical',
+              'worship',
+              'other',
+            ],
+            description:
+                'Rough category, used only to understand synonyms later.',
+          ),
+        },
+        requiredProperties: const ['label'],
+      ),
     ),
     FunctionDeclaration(
       'remove_place',
       'Forget a saved place. Call this when the user asks to remove or delete one of their saved places.',
-      Schema.object(properties: {
-        'label': Schema.string(description: 'The place to remove, as the user referred to it.'),
-      }, requiredProperties: const ['label']),
+      Schema.object(
+        properties: {
+          'label': Schema.string(
+            description: 'The place to remove, as the user referred to it.',
+          ),
+        },
+        requiredProperties: const ['label'],
+      ),
     ),
     FunctionDeclaration(
       'resolve_hazard',
@@ -602,11 +703,14 @@ User's message: "$userText"
           'summary of it. If they have not said what to pass on yet, ask them first rather than '
           'inventing it. For a bare "let them know I need them" with nothing to say, use '
           'alert_caretaker instead; for danger or injury use trigger_emergency.',
-      Schema.object(properties: {
-        'message': Schema.string(
-          description: 'What the user wants said, in their own words.',
-        ),
-      }, requiredProperties: const ['message']),
+      Schema.object(
+        properties: {
+          'message': Schema.string(
+            description: 'What the user wants said, in their own words.',
+          ),
+        },
+        requiredProperties: const ['message'],
+      ),
     ),
     FunctionDeclaration(
       'send_photo_to_caretaker',
@@ -619,13 +723,17 @@ User's message: "$userText"
       'replay_voice_message',
       'Play a voice message the caretaker sent again. Use for "play that again", '
           '"what did they say", "the one before that", "the next one".',
-      Schema.object(properties: {
-        'which': Schema.enumString(
-          enumValues: const ['latest', 'repeat', 'previous', 'next'],
-          description: 'latest = the newest. repeat = the one just played. '
-              'previous/next = step back or forward through them.',
-        ),
-      }, requiredProperties: const ['which']),
+      Schema.object(
+        properties: {
+          'which': Schema.enumString(
+            enumValues: const ['latest', 'repeat', 'previous', 'next'],
+            description:
+                'latest = the newest. repeat = the one just played. '
+                'previous/next = step back or forward through them.',
+          ),
+        },
+        requiredProperties: const ['which'],
+      ),
     ),
     FunctionDeclaration(
       'record_caretaker_voice_memo',
@@ -659,11 +767,14 @@ User's message: "$userText"
           'on the dashboard map. Call this whenever the user asks to go somewhere, be taken somewhere, or asks '
           'for directions/a route — including a bare place name given right after you asked "where do you want '
           'to go?".',
-      Schema.object(properties: {
-        'destination': Schema.string(
-          description: 'The destination as the user described it (e.g. "Gulshan 2", "my office", "New Market").',
-        ),
-      }, requiredProperties: const ['destination']),
+      Schema.object(
+        properties: {
+          'destination': Schema.string(
+            description: 'The destination as the user described it (e.g. "Gulshan 2", "my office", "New Market").',
+          ),
+        },
+        requiredProperties: const ['destination'],
+      ),
     ),
     FunctionDeclaration(
       'request_alternative_route',
@@ -689,17 +800,20 @@ User's message: "$userText"
           '"I hate crowded markets", "my daughter picks me up on Fridays"), or when they ask you '
           'outright to remember something. Do NOT call it for one-off requests, for anything '
           'already in their profile above, or for where they want to go right now.',
-      Schema.object(properties: {
-        'note': Schema.string(
-          description: 'One short sentence, written from their point of view, e.g. '
-              '"Cannot manage stairs" or "Prefers quiet routes". To forget, words '
-              'identifying the note; omit entirely only to forget everything.',
-        ),
-        'forget': Schema.enumString(
-          enumValues: const ['true', 'false'],
-          description: 'true removes the note instead of saving it.',
-        ),
-      }),
+      Schema.object(
+        properties: {
+          'note': Schema.string(
+            description:
+                'One short sentence, written from their point of view, e.g. '
+                '"Cannot manage stairs" or "Prefers quiet routes". To forget, words '
+                'identifying the note; omit entirely only to forget everything.',
+          ),
+          'forget': Schema.enumString(
+            enumValues: const ['true', 'false'],
+            description: 'true removes the note instead of saving it.',
+          ),
+        },
+      ),
     ),
     // Merged pairs — see the Groq declarations for why. Only pairs where a
     // wrong action is recoverable are merged; contacts and saved places stay
@@ -707,12 +821,15 @@ User's message: "$userText"
     FunctionDeclaration(
       'set_map',
       'Show or hide the dashboard map. No route change. Hiding does not cancel the journey.',
-      Schema.object(properties: {
-        'visible': Schema.enumString(
-          enumValues: const ['true', 'false'],
-          description: 'true shows it, false hides it.',
-        ),
-      }, requiredProperties: const ['visible']),
+      Schema.object(
+        properties: {
+          'visible': Schema.enumString(
+            enumValues: const ['true', 'false'],
+            description: 'true shows it, false hides it.',
+          ),
+        },
+        requiredProperties: const ['visible'],
+      ),
     ),
     FunctionDeclaration(
       'replan_route',

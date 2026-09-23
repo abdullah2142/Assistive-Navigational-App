@@ -34,10 +34,12 @@ class SplitModeDashboardScreen extends ConsumerStatefulWidget {
   final UserProfile profile;
 
   @override
-  ConsumerState<SplitModeDashboardScreen> createState() => _SplitModeDashboardScreenState();
+  ConsumerState<SplitModeDashboardScreen> createState() =>
+      _SplitModeDashboardScreenState();
 }
 
-class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScreen> {
+class _SplitModeDashboardScreenState
+    extends ConsumerState<SplitModeDashboardScreen> {
   /// Share of the body height the chat panel takes when the map is not
   /// expanded — the "60% chat / 40% map" split from UI module plan Step 2.
   static const double _defaultChatFraction = 0.6;
@@ -56,17 +58,19 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
   void _dragSplit(double deltaPixels, double bodyHeight) {
     if (bodyHeight <= 0) return;
     setState(() {
-      _chatFraction = (_chatFraction + deltaPixels / bodyHeight)
-          .clamp(_minChatFraction, _maxChatFraction);
+      _chatFraction = (_chatFraction + deltaPixels / bodyHeight).clamp(
+        _minChatFraction,
+        _maxChatFraction,
+      );
     });
   }
 
   void _toggleMap() => setState(() {
-        _mapVisible = !_mapVisible;
-        // Leaving this set would bring the map back full-screen next time,
-        // with no chat and no obvious way out.
-        if (!_mapVisible) _mapFullScreen = false;
-      });
+    _mapVisible = !_mapVisible;
+    // Leaving this set would bring the map back full-screen next time,
+    // with no chat and no obvious way out.
+    if (!_mapVisible) _mapFullScreen = false;
+  });
 
   bool _mapFullScreen = false;
 
@@ -211,10 +215,8 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
       context: context,
       isScrollControlled: true,
       showDragHandle: false,
-      builder: (_) => DestinationSheet(
-        profile: profile,
-        onPickOnMap: _pickOnMap,
-      ),
+      builder: (_) =>
+          DestinationSheet(profile: profile, onPickOnMap: _pickOnMap),
     );
     if (choice == null || !mounted) return;
 
@@ -252,6 +254,7 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
         builder: (_) => MapPinPickerScreen(
           language: profile.language,
           initialCentre: centre,
+          savedPlaces: profile.savedPlaces,
         ),
       ),
     );
@@ -271,7 +274,10 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
     //
     // Must sit directly in build(): ref.listen asserts if called from inside
     // a LayoutBuilder's builder, which is where this started.
-    ref.listen(chatControllerProvider.select((s) => s.pendingRoute), (previous, next) {
+    ref.listen(chatControllerProvider.select((s) => s.pendingRoute), (
+      previous,
+      next,
+    ) {
       // The route going away closes the map again.
       //
       // It used to only ever open it, on the reasoning that somebody who
@@ -298,84 +304,90 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
     return CaretakerInboxListener(
       profile: widget.profile,
       child: Scaffold(
-      // Deliberately minimal — a single icon, not a menu bar. See
-      // MySettingsScreen's doc comment for why this exists at all.
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        automaticallyImplyLeading: false,
-        toolbarHeight: 48,
-        actions: [
-          Semantics(
-            button: true,
-            label: d.settingsEntrySemantics,
-            child: IconButton(
-              icon: const Icon(Icons.tune_rounded),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => MySettingsScreen(profile: profile)),
+        // Deliberately minimal — a single icon, not a menu bar. See
+        // MySettingsScreen's doc comment for why this exists at all.
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          automaticallyImplyLeading: false,
+          toolbarHeight: 48,
+          actions: [
+            Semantics(
+              button: true,
+              label: d.settingsEntrySemantics,
+              child: IconButton(
+                icon: const Icon(Icons.tune_rounded),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MySettingsScreen(profile: profile),
+                  ),
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final chatPanel = ChatStreamPanel(
-              key: _chatKey,
-              profile: profile,
-              onOverlayChip: (action, prefill) => _handleOverlayChip(context, action, prefill),
-              mapVisible: _mapVisible,
-              onToggleMap: _toggleMap,
-            );
-            return Column(
-              children: [
-                // NOT `Visibility(child: Expanded(...))`. `Expanded` is a
-                // ParentDataWidget and must be a *direct* child of the
-                // `Column` — wrapping it in anything else (Visibility
-                // inserts its own render object) throws "Incorrect use of
-                // ParentDataWidget", which takes the entire body subtree
-                // down with it and leaves a black dashboard under a
-                // perfectly working AppBar. That was a real, live bug.
-                //
-                // `Offstage` around an explicitly-sized box does the job
-                // the `Visibility(maintainState: true)` was there for,
-                // safely: the panel stays mounted and laid out (its
-                // wake-word/STT session keeps running and the chat scroll
-                // position survives) but is not painted, not hit-tested,
-                // and takes zero room in the Column — so the map's
-                // `Expanded` below is the only child claiming space and
-                // fills the whole body when expanded.
-                if (!_mapVisible)
-                  // Map off: the chat is the whole dashboard.
-                  Expanded(child: chatPanel)
-                else ...[
-                  Offstage(
-                    offstage: _mapFullScreen,
-                    child: SizedBox(
-                      height: constraints.maxHeight * _chatFraction,
-                      child: chatPanel,
-                    ),
-                  ),
-                  if (!_mapFullScreen)
-                    _SplitHandle(
-                      onDrag: (delta) => _dragSplit(delta, constraints.maxHeight),
-                      semanticsLabel: d.mapResizeSemantics,
-                      onNudge: (delta) => _dragSplit(delta, constraints.maxHeight),
-                    ),
-                  Expanded(
-                    child: DashboardMapPanel(
-                      language: profile.language,
-                      isFullScreen: _mapFullScreen,
-                      onToggleFullScreen: () => setState(() => _mapFullScreen = !_mapFullScreen),
-                    ),
-                  ),
-                ],
-              ],
-            );
-          },
+          ],
         ),
-      ),
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final chatPanel = ChatStreamPanel(
+                key: _chatKey,
+                profile: profile,
+                onOverlayChip: (action, prefill) =>
+                    _handleOverlayChip(context, action, prefill),
+                mapVisible: _mapVisible,
+                onToggleMap: _toggleMap,
+              );
+              return Column(
+                children: [
+                  // NOT `Visibility(child: Expanded(...))`. `Expanded` is a
+                  // ParentDataWidget and must be a *direct* child of the
+                  // `Column` — wrapping it in anything else (Visibility
+                  // inserts its own render object) throws "Incorrect use of
+                  // ParentDataWidget", which takes the entire body subtree
+                  // down with it and leaves a black dashboard under a
+                  // perfectly working AppBar. That was a real, live bug.
+                  //
+                  // `Offstage` around an explicitly-sized box does the job
+                  // the `Visibility(maintainState: true)` was there for,
+                  // safely: the panel stays mounted and laid out (its
+                  // wake-word/STT session keeps running and the chat scroll
+                  // position survives) but is not painted, not hit-tested,
+                  // and takes zero room in the Column — so the map's
+                  // `Expanded` below is the only child claiming space and
+                  // fills the whole body when expanded.
+                  if (!_mapVisible)
+                    // Map off: the chat is the whole dashboard.
+                    Expanded(child: chatPanel)
+                  else ...[
+                    Offstage(
+                      offstage: _mapFullScreen,
+                      child: SizedBox(
+                        height: constraints.maxHeight * _chatFraction,
+                        child: chatPanel,
+                      ),
+                    ),
+                    if (!_mapFullScreen)
+                      _SplitHandle(
+                        onDrag: (delta) =>
+                            _dragSplit(delta, constraints.maxHeight),
+                        semanticsLabel: d.mapResizeSemantics,
+                        onNudge: (delta) =>
+                            _dragSplit(delta, constraints.maxHeight),
+                      ),
+                    Expanded(
+                      child: DashboardMapPanel(
+                        language: profile.language,
+                        isFullScreen: _mapFullScreen,
+                        onToggleFullScreen: () =>
+                            setState(() => _mapFullScreen = !_mapFullScreen),
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -387,7 +399,11 @@ class _SplitModeDashboardScreenState extends ConsumerState<SplitModeDashboardScr
 /// decrease actions through the semantics layer, because a drag target is
 /// the one control shape a screen reader cannot work by itself.
 class _SplitHandle extends StatelessWidget {
-  const _SplitHandle({required this.onDrag, required this.onNudge, required this.semanticsLabel});
+  const _SplitHandle({
+    required this.onDrag,
+    required this.onNudge,
+    required this.semanticsLabel,
+  });
 
   final void Function(double deltaPixels) onDrag;
   final void Function(double deltaPixels) onNudge;

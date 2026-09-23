@@ -117,12 +117,35 @@ void main() {
   });
 
   group('a snapshot request', () {
-    test('is delivered, and says plainly that nothing was sent', () async {
-      // Module 6 is unbuilt — there is no camera dependency in this app at
-      // all. A request that arrives and then silently does nothing is exactly
-      // what item 28 felt like from both ends, so it is said out loud.
+    test('asks first, for a user whose consent is "ask me each time"', () async {
+      // This used to answer `caretakerSnapshotNotAvailable` — "that ability
+      // will be added later" — which was true when written, because Module 6
+      // was unbuilt, and stale from the day it shipped. A tester reported the
+      // request sending nothing back, and from the guardian's side a request
+      // that is recorded and never answered looks exactly like one that never
+      // arrived.
       final said = await deliver(msg(CommunicationType.snapshotRequest));
-      expect(said, [d.caretakerSnapshotRequested, d.caretakerSnapshotNotAvailable]);
+      expect(said, [d.caretakerSnapshotRequested, d.caretakerSnapshotAsk]);
+      expect(said, isNot(contains(d.caretakerSnapshotNotAvailable)),
+          reason: 'the camera exists now');
+    });
+
+    test('the question reopens the microphone, so a spoken yes is enough', () async {
+      // A blind user answering "shall I send a photo?" should not have to
+      // find a button to say yes.
+      final tts = _RecordingTts();
+      final container = ProviderContainer(
+        overrides: [ttsServiceProvider.overrideWithValue(tts)],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(chatControllerProvider.notifier);
+      await controller.receiveCaretakerMessage(
+        msg(CommunicationType.snapshotRequest),
+        // `user()` defaults to full vision, which turns auto-listen off — the
+        // profile this actually matters for is the one that has it on.
+        user().copyWith(voiceAutoListen: true),
+      );
+      expect(container.read(chatControllerProvider).answerInvitations, 1);
     });
 
     test('is refused outright for a user who switched photo sharing off', () async {

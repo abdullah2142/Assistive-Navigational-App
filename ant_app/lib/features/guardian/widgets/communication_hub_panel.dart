@@ -205,6 +205,34 @@ class _MessageRowState extends State<_MessageRow> {
           Text('Voice memo · ${message.durationSeconds ?? 0}s', style: theme.textTheme.bodySmall),
         ],
       );
+    } else if (message.type == CommunicationType.snapshotReply) {
+      // The picture and what the vision tier made of it, together. The text
+      // alone is what a guardian gets when the camera could not see, and it
+      // matters that the two look different — a description with no photo is
+      // an answer, not a failure to answer.
+      final jpeg = message.imageBase64;
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (jpeg != null && jpeg.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 240),
+                child: Image.memory(
+                  base64Decode(jpeg),
+                  fit: BoxFit.contain,
+                  // A corrupt or truncated frame must not take the whole hub
+                  // down — the description below it is still useful.
+                  errorBuilder: (_, _, _) =>
+                      Text('(photo could not be shown)', style: theme.textTheme.bodySmall),
+                ),
+              ),
+            ),
+          if (jpeg != null && jpeg.isNotEmpty) const SizedBox(height: 4),
+          Text(message.text, style: theme.textTheme.bodySmall),
+        ],
+      );
     } else {
       final label = message.type == CommunicationType.snapshotRequest ? '📷 ${message.text}' : message.text;
       content = Text(label, style: theme.textTheme.bodySmall);

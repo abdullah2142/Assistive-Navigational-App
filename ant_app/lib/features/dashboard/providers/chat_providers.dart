@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -16,6 +17,7 @@ import '../../../core/services/pending_place_save.dart';
 import '../../../core/services/route_planning_service.dart';
 import '../../../core/services/routing_service.dart' show RouteCandidate;
 import '../../guardian/models/communication_message.dart';
+import '../../guardian/providers/guardian_providers.dart';
 import '../../onboarding/models/disability_profile_enums.dart';
 import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
@@ -310,12 +312,125 @@ class ChatController extends Notifier<ChatState> {
           await _appendAssistantReply(d.caretakerSnapshotDeclined, profile);
           return;
         }
-        // Module 6 is unbuilt — there is no camera dependency in this app at
-        // all. Saying so is the whole point: a request that arrives and then
-        // silently does nothing is exactly what item 28 felt like from both
-        // ends.
-        await _appendAssistantReply(d.caretakerSnapshotNotAvailable, profile);
+        if (profile.snapshotConsent == SnapshotConsentPreference.askEachTime) {
+          // Asked, not assumed. `mayInviteAnswer` reopens the microphone, so
+          // the answer is one spoken word away — see `_pendingSnapshotFor`.
+          _pendingSnapshotFor = message.fromUid;
+          await _appendAssistantReply(d.caretakerSnapshotAsk, profile,
+              mayInviteAnswer: true);
+          return;
+        }
+        await _captureForCaretaker(profile, d, caretakerUid: message.fromUid);
+
+      // Sent by this device, never received by it — the guardian is the one
+      // who reads a reply. Present so the switch stays total.
+      case CommunicationType.snapshotReply:
+        return;
     }
+  }
+
+  /// Set while a Snapshot Request is waiting on a spoken yes or no, for a
+  /// profile whose consent is "ask me each time". Holds the guardian's uid
+  /// so the reply goes back to whoever asked.
+  String? _pendingSnapshotFor;
+
+  /// Consumes the next message as the answer to "shall I send a photo?".
+  ///
+  /// Returns true when it was an answer, so the caller stops — the words
+  /// "yes" or "না" must not also reach the intent matcher and be read as a
+  /// command. Anything that is neither a yes nor a no is *not* consumed: the
+  /// user changed the subject, and the request lapses rather than swallowing
+  /// an unrelated turn.
+  Future<bool> _continueSnapshotConsent(String text, UserProfile profile, Dashboard d) async {
+    final caretakerUid = _pendingSnapshotFor;
+    if (caretakerUid == null) return false;
+    final answer = _yesOrNo(text);
+    if (answer == null) {
+      _pendingSnapshotFor = null;
+      return false;
+    }
+    _pendingSnapshotFor = null;
+    if (!answer) {
+      await _appendAssistantReply(d.caretakerSnapshotDeclined, profile);
+      return true;
+    }
+    await _captureForCaretaker(profile, d, caretakerUid: caretakerUid);
+    return true;
+  }
+
+  /// A plain yes or no, in either language, or null for anything else.
+  ///
+  /// Negatives are tested first. Bangla negates *after* the verb — "পাঠাও না"
+  /// is "do not send" and contains "পাঠাও" — so a yes-first test reads a
+  /// refusal as consent, which for a camera pointed at somebody's home is
+  /// the expensive direction to get wrong.
+  static bool? _yesOrNo(String text) {
+    final lower = text.toLowerCase().trim();
+    if (lower.isEmpty) return null;
+    const no = ['no', 'nope', 'not now', "don't", 'do not', 'cancel', 'stop',
+      'na', 'naa', 'না', 'করো না', 'পাঠিও না', 'পাঠাবে না', 'লাগবে না', 'থাক'];
+    for (final n in no) {
+      if (lower.contains(n)) return false;
+    }
+    const yes = ['yes', 'yeah', 'yep', 'ok', 'okay', 'sure', 'go ahead', 'send it', 'send',
+      'ha', 'haa', 'hae', 'হ্যাঁ', 'হ্যা', 'হা', 'আচ্ছা', 'ঠিক আছে', 'পাঠাও', 'পাঠান'];
+    for (final y in yes) {
+      if (lower.contains(y)) return true;
+    }
+    return null;
+  }
+
+  /// Takes the frame a guardian asked for and sends it back.
+  ///
+  /// This used to answer "that ability will be added later", which was true
+  /// when written — Module 6 was unbuilt and the app had no camera
+  /// dependency at all — and has been stale since it shipped. A tester
+  /// reported the request sending nothing back, and from the guardian's side
+  /// a request that is recorded and never answered is indistinguishable from
+  /// one that never arrived.
+  ///
+  /// Sends the description even when there is no frame. A scan that could
+  /// not see still owes an answer, and "the camera could not see" is a
+  /// different thing from silence.
+  Future<void> _captureForCaretaker(
+    UserProfile profile,
+    Dashboard d, {
+    required String caretakerUid,
+  }) async {
+    await _appendAssistantReply(d.caretakerSnapshotTaking, profile);
+    ScanResult result;
+    try {
+      // One frame, straight ahead — a guardian checking on somebody wants
+      // what is in front of them now, not a three-frame sweep that takes
+      // seventeen seconds and asks them to stand still.
+      result = await ref.read(snapshotVisionServiceProvider).scan(
+            focus: ScanFocus.ahead,
+            language: profile.language,
+          );
+    } catch (e) {
+      debugPrint('[Chat] caretaker snapshot failed: $e');
+      await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
+      return;
+    }
+
+    try {
+      await ref.read(communicationServiceProvider).sendSnapshotReply(
+            disabledUserUid: profile.uid,
+            fromUid: profile.uid,
+            toUid: caretakerUid,
+            text: result.spoken,
+            imageBase64:
+                result.frameJpeg == null ? null : base64Encode(result.frameJpeg!),
+          );
+    } catch (e) {
+      debugPrint('[Chat] could not send the snapshot reply: $e');
+      await _appendAssistantReply(d.caretakerSnapshotFailed, profile);
+      return;
+    }
+    await _appendAssistantReply(
+      result.frameJpeg == null ? d.caretakerSnapshotFailed : d.caretakerSnapshotSent,
+      profile,
+    );
   }
 
   /// Runs the Magic Button and reports the outcome in the chat.
@@ -1067,6 +1182,10 @@ class ChatController extends Notifier<ChatState> {
     // pending destination question does: "the clinic" is an answer, and
     // letting the destination matcher see it first is exactly how the save
     // turned into a route on device.
+    // Before everything else, and before the intent matcher sees it: a bare
+    // "yes" answering a photo request must not be read as a command.
+    if (await _continueSnapshotConsent(trimmed, profile, d)) return;
+
     final pendingSave = state.pendingPlaceSave;
     if (pendingSave != null) {
       final handled = await _continuePlaceSave(pendingSave, trimmed, profile, location, d);

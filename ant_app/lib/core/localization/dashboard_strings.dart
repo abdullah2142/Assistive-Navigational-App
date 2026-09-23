@@ -1000,6 +1000,48 @@ class Dashboard {
   /// Module 6 is not built, so the request can be delivered and not answered.
   /// Saying so is the point: a request that silently does nothing is what the
   /// whole of item 28 felt like.
+  /// Said once, when ambient path-watching stops because the battery is low.
+  ///
+  /// The scanner has always stopped below `ambientMinBatteryPercent` and has
+  /// always done it silently, which is the worst way to withdraw a safety
+  /// feature from somebody who cannot see that it is gone: they keep walking
+  /// as though the phone is still watching the ground. Said once per
+  /// discharge, not per scan — a warning repeated every thirty seconds is
+  /// one the user turns the app off to escape.
+  String batteryLowScanningStopped(int percent) => _t(
+        'Battery is at $percent percent, so I have stopped watching the path to save power. '
+        'You can still ask me to look at any time.',
+        'ব্যাটারি $percent শতাংশ, তাই পথ দেখা বন্ধ করলাম যাতে চার্জ থাকে। '
+        'আপনি চাইলে যেকোনো সময় দেখতে বলতে পারেন।',
+      );
+
+  /// Said when it starts again, so the user knows the cover is back.
+  String get batteryRecoveredScanningResumed => _t(
+        'Charge is back up — I am watching the path again.',
+        'চার্জ ফিরে এসেছে — আবার পথ দেখছি।',
+      );
+
+  /// Said while the camera is actually taking the guardian's picture.
+  String get caretakerSnapshotTaking =>
+      _t('Taking a photo for them now.', 'এখনই তাদের জন্য ছবি তুলছি।');
+
+  /// Said once it has gone.
+  String get caretakerSnapshotSent =>
+      _t('Sent to your caretaker.', 'আপনার দেখাশোনাকারীকে পাঠিয়ে দিয়েছি।');
+
+  /// The camera ran and could not see. Distinct from not having a camera at
+  /// all, which is what this used to say.
+  String get caretakerSnapshotFailed => _t(
+        "I couldn't get a photo just now — I told them so.",
+        'এখন ছবি তুলতে পারিনি — তাদের জানিয়ে দিয়েছি।',
+      );
+
+  /// Asked when snapshot consent is "ask me each time".
+  String get caretakerSnapshotAsk => _t(
+        'Your caretaker asked for a photo of what is in front of you. Shall I send one?',
+        'আপনার দেখাশোনাকারী আপনার সামনের একটা ছবি চেয়েছেন। পাঠাব?',
+      );
+
   String get caretakerSnapshotNotAvailable => _t(
         'Sending photos is not available in this build yet, so nothing was sent.',
         'এই সংস্করণে ছবি পাঠানো এখনও চালু হয়নি, তাই কিছু পাঠানো হয়নি।',

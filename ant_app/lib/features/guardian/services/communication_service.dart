@@ -27,6 +27,7 @@ class CommunicationService {
     required CommunicationType type,
     required String text,
     String? audioBase64,
+    String? imageBase64,
     int? durationSeconds,
   }) {
     return _messages(disabledUserUid).add({
@@ -35,6 +36,7 @@ class CommunicationService {
       'type': type.name,
       'text': text,
       'audioBase64': ?audioBase64,
+      'imageBase64': ?imageBase64,
       'durationSeconds': ?durationSeconds,
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -88,6 +90,30 @@ class CommunicationService {
       toUid: toUid,
       type: CommunicationType.snapshotRequest,
       text: 'Snapshot requested.',
+    );
+  }
+
+  /// Answers a Snapshot Request with the frame and what the vision tier made
+  /// of it.
+  ///
+  /// [text] is sent even when [imageBase64] is null — a scan that could not
+  /// see still owes the guardian an answer, and "the camera could not see"
+  /// is a different thing from a request that vanished. The latter is what a
+  /// tester reported.
+  Future<void> sendSnapshotReply({
+    required String disabledUserUid,
+    required String fromUid,
+    required String toUid,
+    required String text,
+    String? imageBase64,
+  }) {
+    return _send(
+      disabledUserUid: disabledUserUid,
+      fromUid: fromUid,
+      toUid: toUid,
+      type: CommunicationType.snapshotReply,
+      text: text,
+      imageBase64: imageBase64,
     );
   }
 }

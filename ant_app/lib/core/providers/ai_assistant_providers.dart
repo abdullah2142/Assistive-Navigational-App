@@ -133,16 +133,36 @@ final geminiAssistantServiceProvider = Provider<AssistantService?>((ref) {
       ? GeminiAssistantService(apiKey: GeminiConfig.apiKey, executor: executor)
       : null;
 
-  // Groq leads on latency — measured sub-second against Gemini flash-lite's
-  // 1.2-6.9 s — and Gemini follows because its free tier is a *separate* pool
-  // that a Groq ITPM exhaustion cannot touch. See `FallbackAssistantService`
-  // for the twelve logged 429s this is built for.
+  // Gemini leads, Groq follows. This is the documented revert path in the
+  // comment above — "if Groq's free tier ever stops being viable" — and the
+  // 23 September session is what made that call.
   //
-  // With only Gemini configured it becomes the primary outright, which is
-  // also the documented revert path if Groq's free tier ever stops being
-  // viable. With neither, null, and every caller already checks for that.
-  if (groq == null) return gemini;
-  return FallbackAssistantService(primary: groq, secondary: gemini);
+  // Groq is still the faster model by a wide margin, ~600ms against Gemini's
+  // 2-3s, and on latency alone it would still lead. It does not lead because
+  // it runs out. That session logged **41 rate-limit failures**: first the
+  // per-minute ceiling, then the daily one, `TPD: Limit 200000, Used 199915`,
+  // after which the model was locked out for 25 minutes at a stretch. A turn
+  // costs ~3,300 input tokens — 76% of it the tool declarations, which are
+  // sent whole on every turn — so the free tier affords roughly sixty turns a
+  // day. A field test is longer than sixty turns.
+  //
+  // Prompt caching was supposed to rescue this and does not. Two sessions and
+  // 286 billed requests, with a byte-stable tool list and system prompt,
+  // report `cached=0` on every single line. Whatever the reason — the model,
+  // the tier, or the field simply not being populated — it cannot be planned
+  // around, and two rounds of work premised on it have now measured zero.
+  //
+  // Swapping the order costs latency on the common path and buys a provider
+  // that finishes the day. Groq keeps its value as the fallback: when it has
+  // budget it answers in under a second, and Gemini's occasional 503s under
+  // load (see `gemini_config.dart`) now have somewhere to go. It also stops
+  // chat competing with `VisionRouter` for the same Groq pool, which is what
+  // `rate limited (shared ITPM with chat)` in the 22 September log was.
+  //
+  // With only one configured it becomes the primary outright. With neither,
+  // null, and every caller already checks for that.
+  if (gemini == null) return groq;
+  return FallbackAssistantService(primary: gemini, secondary: groq);
 });
 
 

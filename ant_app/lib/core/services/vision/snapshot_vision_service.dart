@@ -24,6 +24,7 @@ class ScanResult {
     this.verdict = HazardVerdict.empty,
     this.abortedForHazard = false,
     this.hazardPrefillKind,
+    this.frameJpeg,
   });
 
   /// What to say. Never empty — every failure path here produces a sentence,
@@ -37,6 +38,14 @@ class ScanResult {
   /// True when the edge tier stopped the scan before any upload — plan Step
   /// 2.3. The caller has already been buzzed by the time it sees this.
   final bool abortedForHazard;
+
+  /// The frame that was actually uploaded — the sharpest of the sweep, at the
+  /// size the cloud tier received.
+  ///
+  /// Exposed so a Snapshot Request from a guardian can be answered with the
+  /// picture as well as the description, without capturing or encoding a
+  /// second time. Null when the scan never got as far as an upload.
+  final Uint8List? frameJpeg;
 
   /// A `SceneHazard.kind` worth offering to report to Module 5, or null.
   ///
@@ -231,6 +240,8 @@ class SnapshotVisionService {
     // needs to know which it is.
     final ordered = _sharpestFirst(decoded, verdicts);
     final uploads = [for (final frame in ordered) _encodeForUpload(frame, focus)];
+    // The sharpest frame, which `_sharpestFirst` has already put at the head.
+    final bestFrame = uploads.isEmpty ? null : uploads.first;
 
     VisionScene? scene;
     try {
@@ -261,6 +272,7 @@ class SnapshotVisionService {
       return ScanResult(
         spoken: _offlineSentence(worst, d),
         verdict: worst,
+        frameJpeg: bestFrame,
       );
     }
 
@@ -269,6 +281,7 @@ class SnapshotVisionService {
       scene: scene,
       verdict: worst,
       hazardPrefillKind: _reportableKind(scene),
+      frameJpeg: bestFrame,
     );
   }
 

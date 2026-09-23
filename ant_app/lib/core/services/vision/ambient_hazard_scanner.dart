@@ -191,12 +191,46 @@ class AmbientHazardScanner {
             here.longitude,
           );
 
+    final battery = await _cachedBatteryPercent();
     final decision = _policy.decide(
       enabled: true,
       now: _now(),
       metersMoved: moved,
-      batteryPercent: await _cachedBatteryPercent(),
+      batteryPercent: battery,
     );
+
+    // Say it, once, when the cover goes away.
+    //
+    // Path-watching has always stopped below `ambientMinBatteryPercent` and
+    // has always done it in silence, which is the worst way to withdraw a
+    // safety feature from somebody who cannot see that it is gone: they keep
+    // walking as though the ground is still being checked. Latched so it is
+    // said once per discharge rather than every thirty seconds — a warning
+    // on a timer is one the user turns the app off to escape — and re-armed
+    // only once the battery has genuinely recovered, not on a reading that
+    // jitters across the threshold.
+    if (decision == AmbientDecision.batteryLow) {
+      if (!_announcedBatteryLow) {
+        _announcedBatteryLow = true;
+        final d = Dashboard.of(profile.language);
+        debugPrint('[Ambient] stopping — battery ${battery ?? -1}%');
+        if (!_announcements.isClosed) {
+          _announcements.add(d.batteryLowScanningStopped(battery ?? 0));
+        }
+      }
+      return;
+    }
+    if (_announcedBatteryLow &&
+        battery != null &&
+        battery >= _policy.minBatteryPercent + _batteryRecoveryMargin) {
+      _announcedBatteryLow = false;
+      final d = Dashboard.of(profile.language);
+      debugPrint('[Ambient] resuming — battery $battery%');
+      if (!_announcements.isClosed) {
+        _announcements.add(d.batteryRecoveredScanningResumed);
+      }
+    }
+
     if (decision != AmbientDecision.scan) return;
 
     _scanning = true;
@@ -207,6 +241,14 @@ class AmbientHazardScanner {
       _scanning = false;
     }
   }
+
+  /// Latched so the low-battery warning is said once, not every scan.
+  bool _announcedBatteryLow = false;
+
+  /// How far above the cut-off the battery must climb before the warning
+  /// re-arms. Without it a reading hovering on the threshold announces
+  /// itself repeatedly, which is the noise the latch exists to prevent.
+  static const int _batteryRecoveryMargin = 5;
 
   Future<int?> _cachedBatteryPercent() async {
     final read = _batteryReadAt;
@@ -219,8 +261,19 @@ class AmbientHazardScanner {
   }
 
   Future<void> _scanOnce(UserProfile profile) async {
+    // Logged on every scan, not only when something is found.
+    //
+    // Nothing here said anything on the normal path, and the tier is
+    // deliberately silent below "stop walking" — so a working scanner and a
+    // dead one produced identical logs and identical silence. Asked directly
+    // on 23 September: "I don't know whether the depth model or the ambient
+    // scanner is working". It was working; there was simply no way to tell.
+    final scanClock = Stopwatch()..start();
     final frames = await _camera.capture(count: 1);
-    if (frames.isEmpty) return;
+    if (frames.isEmpty) {
+      debugPrint('[Ambient] scan aborted — no frame');
+      return;
+    }
     final frame = img.decodeJpg(frames.first);
     if (frame == null) return;
 
@@ -252,7 +305,12 @@ class AmbientHazardScanner {
       // Deliberately silent on `caution`. An ambient tier that narrates every
       // parked car becomes noise the user learns to ignore, and it is talking
       // over the traffic they are actually navigating by. Only a reason to
-      // stop walking earns an interruption.
+      // stop walking earns an interruption. Silent to the *user*; the log
+      // still records that the scan happened and what it saw.
+      debugPrint('[Ambient] scan ${scanClock.elapsedMilliseconds}ms '
+          'level=${verdict.level.name} '
+          'score=${verdict.threatScore.toStringAsFixed(2)} '
+          'nearest=${verdict.nearest?.label ?? '-'} (silent)');
       return;
     }
 

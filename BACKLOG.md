@@ -32,9 +32,8 @@ being written down and being built.
 
 - **Weather warnings.** Warn about rain or heat before setting out, and
   during a walk. Dhaka rain changes whether a route is walkable at all.
-- **Battery warnings.** Warn on low battery. The ambient scanner already
-  stops below 20% (`AmbientScanPolicy`) and says nothing about why, so the
-  feature silently disappears.
+- ~~**Battery warnings.**~~ **Done.** The ambient scanner announces once when
+  it stops below 20%, and again when charge recovers.
 - **Guardian communication as a chat.** Turn the caretaker channel into a
   real two-way chat rather than one-shot messages and alerts.
 - **Voluntary image sending, both directions.** Separate from the snapshot

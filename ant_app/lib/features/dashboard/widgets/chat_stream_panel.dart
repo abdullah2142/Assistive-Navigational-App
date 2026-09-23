@@ -297,8 +297,17 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel> with WidgetsB
   }
 
   Future<void> _handleChip(SuggestedChip chip, Dashboard d) async {
+    // Chips the *screen* owns, because they open something that needs a
+    // `BuildContext` this panel does not have a route from.
+    //
+    // `openPath` was missing from this list and that was the whole bug:
+    // tapping পথ appended a user bubble and then did nothing at all, because
+    // `ChatController.handleChip` has only a `break` for it and
+    // `_openPathSheet` is on the dashboard. Reported twice as the
+    // maps/location feature not existing — it existed and was unreachable.
     if (chip.action == SuggestedChipAction.showScreenToPasserby ||
-        chip.action == SuggestedChipAction.reportHazard) {
+        chip.action == SuggestedChipAction.reportHazard ||
+        chip.action == SuggestedChipAction.openPath) {
       widget.onOverlayChip(chip.action, null);
       return;
     }

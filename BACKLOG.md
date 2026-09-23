@@ -29,6 +29,26 @@ not the hopeful one.
    reopens that decision rather than just adding a widget. *Medium, and an
    architectural call first.*
 
+## Locations and maps
+
+Asked for twice. The first round of this shipped and was **unreachable** — the
+পথ chip appended a bubble and did nothing, because it fell through to a
+`break` while the sheet that answers it lives on the dashboard. That wiring
+is fixed; what follows is what is genuinely still missing.
+
+- **Search that actually searches.** The destination sheet's field submits
+  its text to the same path a spoken destination takes — a geocode, or a
+  category lookup for "nearest X". There is no *as-you-type* search, no list
+  of matching places to choose from, and no way to see what a query would
+  resolve to before committing to walking there. *Medium.*
+- **A map menu, not just a picker.** `MapPinPickerScreen` drops one pin and
+  returns. It cannot show saved places on the map, cannot show what is
+  nearby, and cannot be panned to explore an area before choosing. *Medium.*
+- **Confirm a pin before routing.** A pin is reverse-geocoded for the
+  *sentence* only; if that lookup fails the user is walked to "the place you
+  picked on the map" with no name. Reading back a candidate and waiting for
+  a yes would make a mis-aimed pin recoverable. *Small.*
+
 ## Commute planning
 
 Dropped from this file in error on 23 September while it was being

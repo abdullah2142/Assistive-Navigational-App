@@ -206,6 +206,7 @@ class GroqAssistantService implements AssistantService {
     String? scanQuestion;
     ReplayDirection? replayDirection;
     var sendsPhotoToCaretaker = false;
+    String? commuteDestination;
     DestinationClarification? clarification;
     PendingPlaceSave? placeSave;
     final confirmations = <String>[];
@@ -241,6 +242,7 @@ class GroqAssistantService implements AssistantService {
       scanQuestion ??= applied.scanQuestion;
       replayDirection ??= applied.replayDirection;
       sendsPhotoToCaretaker |= applied.sendsPhotoToCaretaker;
+      commuteDestination ??= applied.commuteDestination;
       clarification ??= applied.clarification;
       placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
@@ -259,6 +261,7 @@ class GroqAssistantService implements AssistantService {
       scanQuestion: scanQuestion,
       replayDirection: replayDirection,
       sendsPhotoToCaretaker: sendsPhotoToCaretaker,
+      commuteDestination: commuteDestination,
       clarification: clarification,
       placeSave: placeSave,
     );
@@ -775,6 +778,15 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     // Voicemail-style replay. A memo used to play exactly once, on arrival,
     // and then be unreachable — for a user who cannot scroll a transcript,
     // a message half-heard over traffic was a message gone.
+    // Planning a trip, as distinct from starting one. `request_route` walks
+    // them there now; this answers "how should I get there, and when do I
+    // need to leave" without committing to anything.
+    _tool('plan_commute',
+        'Say how the user could reach a place and how long each way would take, '
+            'with current traffic. For "how do I get to X", "how long to X", '
+            '"when should I leave for X". NOT for "take me to X" — that is request_route.',
+        properties: {'destination': _str('Where they want to get to.')},
+        required: ['destination']),
     // The user's own half of voluntary photo sharing. Camera only — a blind
     // user is not browsing a photo roll, and the gallery half belongs to the
     // caretaker's screen.

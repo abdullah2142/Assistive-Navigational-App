@@ -3,6 +3,7 @@ import '../config/diagnostics_config.dart';
 import '../services/routing_service.dart' show ManeuverKind;
 import '../../features/onboarding/models/disability_profile_enums.dart';
 import 'app_language.dart';
+import '../services/commute_planner.dart';
 
 /// All UI text for the Split-Mode Dashboard, My Settings, the Crowdsource
 /// Reporting Hub, and the Passerby Helper overlay/picker — everything the
@@ -226,6 +227,39 @@ class Dashboard {
   String get pathSpeak => _t('Say it out loud', 'বলে দিন');
   String get pathSpeakHint =>
       _t('Tap, then say the place name', 'চাপুন, তারপর জায়গার নাম বলুন');
+
+  /// How to get somewhere — see `CommutePlanner`.
+  String commuteModeName(CommuteMode mode) => switch (mode) {
+        CommuteMode.walk => _t('walking', 'হেঁটে'),
+        CommuteMode.rickshaw => _t('by rickshaw', 'রিকশায়'),
+        CommuteMode.cng => _t('by CNG', 'সিএনজিতে'),
+        CommuteMode.bus => _t('by bus', 'বাসে'),
+      };
+
+  /// One option, spoken. The hedge on an estimated figure is not politeness:
+  /// a user told "twenty minutes" who arrives in forty has been given a
+  /// reason to stop trusting every other number this app says.
+  String commuteOptionLine(CommuteMode mode, int minutes, {required bool trafficAware}) {
+    final how = commuteModeName(mode);
+    return trafficAware
+        ? _t('$how, $minutes minutes.', '$how, $minutes মিনিট।')
+        : _t('$how, roughly $minutes minutes.', '$how, আনুমানিক $minutes মিনিট।');
+  }
+
+  String get commuteIntro =>
+      _t('Here is how you could get there.', 'ওখানে যেভাবে যেতে পারেন।');
+
+  String get commuteNoOptions => _t(
+        "That's close enough to walk.",
+        'ওটা হেঁটে যাওয়ার মতোই কাছে।',
+      );
+
+  /// Said once when the figures came from a time-of-day average rather than
+  /// live traffic, so the user knows which kind of number they have.
+  String get commuteEstimated => _t(
+        "I couldn't check traffic just now, so these are averages.",
+        'এখন যানজট দেখতে পারিনি, তাই এগুলো গড় হিসাব।',
+      );
 
   /// The aiming viewfinder — see `CameraAimingScreen`.
   String get cameraAimingTitle => _t('Point the camera', 'ক্যামেরা তাক করুন');

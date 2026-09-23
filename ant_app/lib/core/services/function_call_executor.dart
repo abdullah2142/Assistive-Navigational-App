@@ -41,6 +41,7 @@ class _AppliedCall {
     this.scanQuestion,
     this.replayDirection,
     this.sendsPhotoToCaretaker = false,
+    this.commuteDestination,
     this.triggersEmergency = false,
     this.cancelsRoute = false,
   });
@@ -78,6 +79,9 @@ class _AppliedCall {
   /// same reason: this needs the camera and the communication service, and
   /// the caller owns both.
   final bool sendsPhotoToCaretaker;
+
+  /// Set when the model called `plan_commute` — the destination to plan for.
+  final String? commuteDestination;
 
   /// Set when the model called `trigger_emergency`.
   final bool triggersEmergency;
@@ -541,6 +545,10 @@ class FunctionCallExecutor {
       // anything worth sending.
       case 'send_photo_to_caretaker':
         return '';
+      // Spoken by the planner, which is the only thing that knows the
+      // options and whether they came from live traffic.
+      case 'plan_commute':
+        return '';
       case 'open_passerby_helper':
         return bn ? 'স্ক্রিন দেখাচ্ছি।' : 'Showing your screen now.';
       case 'open_hazard_report':
@@ -722,6 +730,13 @@ class FunctionCallExecutor {
           scanFocus: _scanFocusFrom(args),
           scanQuestion: (args['question'] as String?)?.trim(),
         );
+
+      case 'plan_commute':
+        final where = (args['destination'] as String?)?.trim() ?? '';
+        if (where.isEmpty) {
+          return _AppliedCall(profile, const {'ok': false, 'error': 'no_destination'}, null);
+        }
+        return _AppliedCall(profile, const {'ok': true}, null, commuteDestination: where);
 
       case 'send_photo_to_caretaker':
         if (profile.pairedUserId == null) {

@@ -9,9 +9,9 @@ not the hopeful one.
 
 ## Next up
 
-1. **Jam-based ETA.** See Commute planning below.
-2. **Transport suggestion.** See Commute planning below.
-3. **Phone contacts import.** See Later below.
+1. **Phone contacts import.** Pull emergency contacts from the phone's
+   address book instead of dictating name and number. Needs a new runtime
+   permission and a picker. *Medium.*
 
 
 ## Locations and maps
@@ -34,22 +34,6 @@ is fixed; what follows is what is genuinely still missing.
   picked on the map" with no name. Reading back a candidate and waiting for
   a yes would make a mis-aimed pin recoverable. *Small.*
 
-## Commute planning
-
-Dropped from this file in error on 23 September while it was being
-reordered — they were in the 22 September list and were never built.
-
-- **Jam-based ETA.** Live traffic in the commute estimate, so a trip can be
-  planned around Dhaka congestion rather than walking distance alone. Today
-  every estimate is walking speed over route length, which is honest for a
-  footpath and useless for deciding when to leave. *Medium.*
-- **Transport suggestion.** Narrate the sensible ways to reach a destination
-  — bus, rickshaw, CNG, walk — chosen by distance and time of day, for
-  planning rather than for setting off immediately. `busRoutes` already holds
-  156 Dhaka operators and `place_categories.dart` can find the nearest stop;
-  what is missing is the judgement about which mode suits a given trip.
-  *Medium.*
-
 ## Later, by instruction
 
 - **Guardian web interface.** Everything the phone can do, in a browser, for
@@ -70,6 +54,11 @@ reordered — they were in the 22 September list and were never built.
 - ~~**Weather warnings.**~~ Open-Meteo, keyless. Appended to a route only
   when it clears a high bar — rain now, rain likely within the hour, a
   thunderstorm, or an apparent temperature over 36°C.
+- ~~**Jam-based ETA** and **transport suggestion.**~~ One feature, because
+  the option and its cost are the same question. `CommutePlanner` offers
+  walk/rickshaw/CNG/bus with a time against each; the car time comes from a
+  traffic-aware Routes API call, and everything else is a ratio of it.
+  Falls back to a time-of-day model, and says which kind of number it gave.
 - ~~**Reply to a specific message.**~~ Long-press an assistant bubble to
   quote it; the quote is sent to the model as context and shown in the
   bubble. Carried as text rather than an id because the model reads a

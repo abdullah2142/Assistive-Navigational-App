@@ -15,6 +15,7 @@ import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/local_intent_matcher.dart';
 import '../../../core/services/offline_intent_matcher.dart';
 import '../../../core/services/pending_place_save.dart';
+import '../../../core/services/commute_planner.dart';
 import '../../../core/services/route_planning_service.dart';
 import '../../../core/services/routing_service.dart' show RouteCandidate;
 import '../../guardian/models/communication_message.dart';
@@ -563,6 +564,68 @@ class ChatController extends Notifier<ChatState> {
         ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       state = state.copyWith(messages: merged);
     }
+  }
+
+  /// Answers "how should I get to X, and how long will it take".
+  ///
+  /// Distinct from `request_route`, which starts walking them there now.
+  /// This is planning: the question behind it is when to leave, and the
+  /// answer is a list of ways with a time against each.
+  ///
+  /// Resolves the destination the same way a route does — saved places
+  /// first, then a category search, then a geocode — so "how long to work"
+  /// and "take me to work" cannot disagree about where work is.
+  Future<void> _planCommute(String destination, UserProfile profile, Dashboard d) async {
+    Position? here;
+    try {
+      here = await Geolocator.getLastKnownPosition().timeout(_lastFixBudget);
+    } catch (_) {
+      here = null;
+    }
+    if (here == null) {
+      await _appendAssistantReply(d.mapUnavailableSubtitle, profile);
+      return;
+    }
+
+    state = state.copyWith(isAssistantTyping: true);
+    final origin = LatLng(here.latitude, here.longitude);
+    final planner = ref.read(routePlanningServiceProvider);
+    final result = await planner.plan(destinationQuery: destination, origin: origin);
+    state = state.copyWith(isAssistantTyping: false);
+
+    if (result is! RoutePlanned) {
+      // Reuses the route failure vocabulary rather than inventing a second
+      // one: "I don't know where that is" means the same thing whichever
+      // question asked it.
+      await _appendAssistantReply(d.clarifyAskArea(destination), profile, mayInviteAnswer: true);
+      return;
+    }
+
+    final choice = result.choice;
+    // The one figure worth a network call. Everything else is a ratio of it.
+    final driving = await ref.read(routingServiceProvider).drivingMinutesInTraffic(
+          origin: origin,
+          destination: choice.points.isEmpty ? origin : choice.points.last,
+        );
+
+    final options = const CommutePlanner().optionsFor(
+      distanceMeters: choice.distanceMeters,
+      drivingMinutes: driving,
+    );
+    if (options.isEmpty) {
+      await _appendAssistantReply(d.commuteNoOptions, profile);
+      return;
+    }
+
+    final lines = <String>[
+      d.commuteIntro,
+      for (final o in options)
+        d.commuteOptionLine(o.mode, o.minutes, trafficAware: o.isTrafficAware),
+      // Said once, at the end, when the numbers are averages rather than
+      // live traffic — so the user knows which kind of figure they have.
+      if (driving == null) d.commuteEstimated,
+    ];
+    await _appendAssistantReply(lines.join(' '), profile);
   }
 
   /// Takes a photo and sends it to the paired caretaker, because the user
@@ -1384,6 +1447,21 @@ class ChatController extends Notifier<ChatState> {
   /// the map, a planned-but-silent route is not usable at all — the arrow
   /// and the polyline are the sighted half of this feature, and the spoken
   /// directions are the whole of the other half.
+  /// Speaks a weather warning, if there is one worth hearing.
+  ///
+  /// Fire-and-forget by design — see the call site. Swallows its own
+  /// failures: a route the user already has must not be followed by an
+  /// error about a forecast they never asked for.
+  Future<void> _announceWeather(UserProfile profile, Dashboard d) async {
+    try {
+      final note = await _weatherNoteFor(profile, d);
+      if (note.isEmpty) return;
+      await _appendAssistantReply(note, profile);
+    } catch (e) {
+      debugPrint('[Chat] weather note failed: $e');
+    }
+  }
+
   /// A one-line weather warning to append to a route, or empty.
   ///
   /// Appended rather than spoken on its own, and only when it clears
@@ -1957,6 +2035,9 @@ class ChatController extends Notifier<ChatState> {
       if (turn.sendsPhotoToCaretaker) {
         await _sendPhotoToCaretaker(profile, d);
       }
+      if (turn.commuteDestination != null) {
+        await _planCommute(turn.commuteDestination!, profile, d);
+      }
       if (turn.overlayAction != null) {
         state = state.copyWith(
           pendingOverlayAction: turn.overlayAction,
@@ -1969,11 +2050,19 @@ class ChatController extends Notifier<ChatState> {
           routeAlternatives: turn.routeAlternatives,
         );
         _startNavigation(turn.route!, profile);
-        // After the route, never instead of it. Setting off in a Dhaka
-        // downpour is a different decision from setting off, and the user
-        // cannot look out of a window to make it.
-        final weather = await _weatherNoteFor(profile, d);
-        if (weather.isNotEmpty) await _appendAssistantReply(weather, profile);
+        // After the route and **off its critical path**.
+        //
+        // Awaiting this put a GPS read and an Open-Meteo round trip between
+        // the user asking to go somewhere and being told the way — up to
+        // eight seconds of silence, for a sentence about the weather. It
+        // also showed up as the test suite going from one minute to twelve,
+        // which is the same defect measured from the other side.
+        //
+        // Setting off in a Dhaka downpour is still a different decision from
+        // setting off, and the user cannot look out of a window to make it —
+        // so the warning still comes, a moment later, once the route has
+        // already been spoken.
+        unawaited(_announceWeather(profile, d));
       }
       if (turn.clarification != null) {
         state = state.copyWith(pendingClarification: turn.clarification);
@@ -2234,17 +2323,28 @@ class ChatController extends Notifier<ChatState> {
       if (turn.sendsPhotoToCaretaker) {
         await _sendPhotoToCaretaker(profile, d);
       }
+      if (turn.commuteDestination != null) {
+        await _planCommute(turn.commuteDestination!, profile, d);
+      }
       if (turn.route != null) {
         state = state.copyWith(
           pendingRoute: turn.route,
           routeAlternatives: turn.routeAlternatives,
         );
         _startNavigation(turn.route!, profile);
-        // After the route, never instead of it. Setting off in a Dhaka
-        // downpour is a different decision from setting off, and the user
-        // cannot look out of a window to make it.
-        final weather = await _weatherNoteFor(profile, d);
-        if (weather.isNotEmpty) await _appendAssistantReply(weather, profile);
+        // After the route and **off its critical path**.
+        //
+        // Awaiting this put a GPS read and an Open-Meteo round trip between
+        // the user asking to go somewhere and being told the way — up to
+        // eight seconds of silence, for a sentence about the weather. It
+        // also showed up as the test suite going from one minute to twelve,
+        // which is the same defect measured from the other side.
+        //
+        // Setting off in a Dhaka downpour is still a different decision from
+        // setting off, and the user cannot look out of a window to make it —
+        // so the warning still comes, a moment later, once the route has
+        // already been spoken.
+        unawaited(_announceWeather(profile, d));
       }
       if (turn.placeSave != null) {
         state = state.copyWith(pendingPlaceSave: turn.placeSave);

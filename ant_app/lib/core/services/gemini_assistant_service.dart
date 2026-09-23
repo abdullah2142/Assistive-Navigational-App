@@ -56,6 +56,7 @@ class AssistantTurn {
     this.scanQuestion,
     this.replayDirection,
     this.sendsPhotoToCaretaker = false,
+    this.commuteDestination,
     this.triggersEmergency = false,
     this.cancelsRoute = false,
   });
@@ -84,6 +85,9 @@ class AssistantTurn {
 
   /// Set when the model called `send_photo_to_caretaker`.
   final bool sendsPhotoToCaretaker;
+
+  /// Set when the model called `plan_commute`.
+  final String? commuteDestination;
 
   final String responseText;
 
@@ -265,6 +269,7 @@ class GeminiAssistantService implements AssistantService {
     String? scanQuestion;
     ReplayDirection? replayDirection;
     var sendsPhotoToCaretaker = false;
+    String? commuteDestination;
     DestinationClarification? clarification;
     PendingPlaceSave? placeSave;
     final confirmations = <String>[];
@@ -290,6 +295,7 @@ class GeminiAssistantService implements AssistantService {
       scanQuestion ??= applied.scanQuestion;
       replayDirection ??= applied.replayDirection;
       sendsPhotoToCaretaker |= applied.sendsPhotoToCaretaker;
+      commuteDestination ??= applied.commuteDestination;
       clarification ??= applied.clarification;
       placeSave ??= applied.placeSave;
       confirmations.add(applied.responseText);
@@ -321,6 +327,7 @@ class GeminiAssistantService implements AssistantService {
       scanQuestion: scanQuestion,
       replayDirection: replayDirection,
       sendsPhotoToCaretaker: sendsPhotoToCaretaker,
+      commuteDestination: commuteDestination,
       clarification: clarification,
       placeSave: placeSave,
     );
@@ -711,6 +718,15 @@ User's message: "$userText"
         },
         requiredProperties: const ['message'],
       ),
+    ),
+    FunctionDeclaration(
+      'plan_commute',
+      'Say how the user could reach a place and how long each way would take, with '
+          'current traffic. For "how do I get to X", "how long to X", "when should I '
+          'leave for X". NOT for "take me to X" — that is request_route.',
+      Schema.object(properties: {
+        'destination': Schema.string(description: 'Where they want to get to.'),
+      }, requiredProperties: const ['destination']),
     ),
     FunctionDeclaration(
       'send_photo_to_caretaker',

@@ -676,6 +676,63 @@ class RoutingService {
     return 2 * earthRadius * math.asin(math.min(1, math.sqrt(h)));
   }
 
+  /// How long a car would take right now, traffic included.
+  ///
+  /// The one figure in commute planning worth a network call: everything
+  /// else `CommutePlanner` produces is a ratio applied to this, and a
+  /// 6km trip across Dhaka is twenty-five minutes at eleven in the morning
+  /// and an hour at six in the evening. A time-of-day average cannot tell
+  /// those apart, and that difference is the whole reason somebody asks.
+  ///
+  /// `TRAFFIC_AWARE` is only valid for DRIVE — sending it with WALK is a
+  /// 400 — and it leaves the Essentials SKU, so this is deliberately not on
+  /// the path of an ordinary walking route. It runs only when the user is
+  /// *planning* a commute, which is a question they ask rarely and
+  /// deliberately.
+  ///
+  /// Returns null on any failure, and the caller falls back to arithmetic.
+  Future<int?> drivingMinutesInTraffic({
+    required LatLng origin,
+    required LatLng destination,
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    if (!_preferGoogle) return null;
+    try {
+      final response = await _postJson(
+        Uri.https('routes.googleapis.com', '/directions/v2:computeRoutes'),
+        headers: {
+          'X-Goog-Api-Key': MapsConfig.apiKey,
+          // Just the duration. Every extra field is billing, and the shape
+          // of the road is irrelevant to somebody deciding when to leave.
+          'X-Goog-FieldMask': 'routes.duration',
+        },
+        body: {
+          'origin': _routesWaypoint(origin),
+          'destination': _routesWaypoint(destination),
+          'travelMode': 'DRIVE',
+          'routingPreference': 'TRAFFIC_AWARE',
+          'units': 'METRIC',
+          'languageCode': 'en-US',
+        },
+        failurePrefix: 'traffic-aware drive',
+        timeout: timeout,
+      );
+
+      final routes = response['routes'];
+      if (routes is! List || routes.isEmpty) return null;
+      final first = routes.first;
+      if (first is! Map) return null;
+      final seconds = _routesDurationSeconds(first['duration']);
+      if (seconds == null) return null;
+      final minutes = math.max(1, (seconds / 60).round());
+      debugPrint('[Routing] traffic-aware drive: ${minutes}min');
+      return minutes;
+    } catch (e) {
+      debugPrint('[Routing] traffic-aware drive failed: $e');
+      return null;
+    }
+  }
+
   /// Places API **Nearby Search (New)**.
   ///
   /// Worth the money here specifically because of where it runs. This is the

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:ant_app/core/config/maps_config.dart';
 import 'package:ant_app/core/config/routing_config.dart';
 import 'package:ant_app/core/services/routing_service.dart';
+import 'package:ant_app/core/services/api_budget.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 import 'package:http/http.dart' as http;
@@ -26,41 +27,41 @@ void main() {
 
   /// A minimal but structurally complete Routes API response.
   String routesBody({String duration = '1500s'}) => jsonEncode({
-        'routes': [
+    'routes': [
+      {
+        'distanceMeters': 1053,
+        'duration': duration,
+        // "Two points near Dhaka" — enough to decode and take a bearing.
+        'polyline': {'encodedPolyline': '_p~iF~ps|U_ulLnnqC'},
+        'legs': [
           {
-            'distanceMeters': 1053,
-            'duration': duration,
-            // "Two points near Dhaka" — enough to decode and take a bearing.
-            'polyline': {'encodedPolyline': '_p~iF~ps|U_ulLnnqC'},
-            'legs': [
+            'steps': [
               {
-                'steps': [
-                  {
-                    'distanceMeters': 120,
-                    'startLocation': {
-                      'latLng': {'latitude': 23.7509, 'longitude': 90.3891},
-                    },
-                    'navigationInstruction': {
-                      'maneuver': 'DEPART',
-                      'instructions': 'Head north',
-                    },
-                  },
-                  {
-                    'distanceMeters': 430,
-                    'startLocation': {
-                      'latLng': {'latitude': 23.7551, 'longitude': 90.3902},
-                    },
-                    'navigationInstruction': {
-                      'maneuver': 'TURN_LEFT',
-                      'instructions': 'Turn left onto Satmasjid Road',
-                    },
-                  },
-                ],
+                'distanceMeters': 120,
+                'startLocation': {
+                  'latLng': {'latitude': 23.7509, 'longitude': 90.3891},
+                },
+                'navigationInstruction': {
+                  'maneuver': 'DEPART',
+                  'instructions': 'Head north',
+                },
+              },
+              {
+                'distanceMeters': 430,
+                'startLocation': {
+                  'latLng': {'latitude': 23.7551, 'longitude': 90.3902},
+                },
+                'navigationInstruction': {
+                  'maneuver': 'TURN_LEFT',
+                  'instructions': 'Turn left onto Satmasjid Road',
+                },
               },
             ],
           },
         ],
-      });
+      },
+    ],
+  });
 
   group('Routes API request', () {
     test('posts to v2:computeRoutes with WALK mode', () async {
@@ -81,11 +82,18 @@ void main() {
       expect(captured.url.path, '/directions/v2:computeRoutes');
 
       final body = jsonDecode(captured.body) as Map<String, dynamic>;
-      expect(body['travelMode'], 'WALK',
-          reason: 'the entire point of migrating off OSRM is a real pedestrian profile');
-      expect(body['computeAlternativeRoutes'], isTrue,
-          reason: 'RoutePlanningService picks among alternatives for safety; '
-              'with one route there is nothing to pick');
+      expect(
+        body['travelMode'],
+        'WALK',
+        reason: 'the entire point of migrating off OSRM is a real pedestrian profile',
+      );
+      expect(
+        body['computeAlternativeRoutes'],
+        isTrue,
+        reason:
+            'RoutePlanningService picks among alternatives for safety; '
+            'with one route there is nothing to pick',
+      );
     });
 
     test('never sends routingPreference, which is invalid for WALK', () async {
@@ -106,28 +114,31 @@ void main() {
       expect(jsonDecode(captured.body), isNot(contains('routingPreference')));
     });
 
-    test('authenticates by header, and asks only for Essentials-tier fields', () async {
-      late http.Request captured;
-      final service = RoutingService(
-        backend: RoutingBackend.google,
-        allowFallback: false,
-        client: MockClient((request) async {
-          captured = request;
-          return http.Response(routesBody(), 200);
-        }),
-      );
+    test(
+      'authenticates by header, and asks only for Essentials-tier fields',
+      () async {
+        late http.Request captured;
+        final service = RoutingService(
+          backend: RoutingBackend.google,
+          allowFallback: false,
+          client: MockClient((request) async {
+            captured = request;
+            return http.Response(routesBody(), 200);
+          }),
+        );
 
-      await service.walkingRoutes(origin: dhaka, destination: gulshan);
+        await service.walkingRoutes(origin: dhaka, destination: gulshan);
 
-      expect(captured.headers['X-Goog-Api-Key'], isNotEmpty);
-      final mask = captured.headers['X-Goog-FieldMask']!;
-      expect(mask, contains('routes.polyline.encodedPolyline'));
-      expect(mask, contains('routes.legs.steps.navigationInstruction'));
-      // Requesting either of these re-prices the call on a dearer SKU, and
-      // neither means anything to somebody on foot.
-      expect(mask, isNot(contains('tollInfo')));
-      expect(mask, isNot(contains('travelAdvisory')));
-    });
+        expect(captured.headers['X-Goog-Api-Key'], isNotEmpty);
+        final mask = captured.headers['X-Goog-FieldMask']!;
+        expect(mask, contains('routes.polyline.encodedPolyline'));
+        expect(mask, contains('routes.legs.steps.navigationInstruction'));
+        // Requesting either of these re-prices the call on a dearer SKU, and
+        // neither means anything to somebody on foot.
+        expect(mask, isNot(contains('tollInfo')));
+        expect(mask, isNot(contains('travelAdvisory')));
+      },
+    );
   });
 
   group('Android key restriction', () {
@@ -136,22 +147,28 @@ void main() {
     // <empty> are blocked". Because RoutingService falls back to
     // OpenStreetMap on failure, losing them would not break the app — it
     // would silently stop using Google at all, which is far harder to notice.
-    test('Routes requests carry the Android package and cert headers', () async {
-      late http.Request captured;
-      final service = RoutingService(
-        backend: RoutingBackend.google,
-        allowFallback: false,
-        client: MockClient((request) async {
-          captured = request;
-          return http.Response(routesBody(), 200);
-        }),
-      );
+    test(
+      'Routes requests carry the Android package and cert headers',
+      () async {
+        late http.Request captured;
+        final service = RoutingService(
+          backend: RoutingBackend.google,
+          allowFallback: false,
+          client: MockClient((request) async {
+            captured = request;
+            return http.Response(routesBody(), 200);
+          }),
+        );
 
-      await service.walkingRoutes(origin: dhaka, destination: gulshan);
+        await service.walkingRoutes(origin: dhaka, destination: gulshan);
 
-      expect(captured.headers['x-android-package'], MapsConfig.androidPackageName);
-      expect(captured.headers['x-android-cert'], MapsConfig.androidCertSha1);
-    });
+        expect(
+          captured.headers['x-android-package'],
+          MapsConfig.androidPackageName,
+        );
+        expect(captured.headers['x-android-cert'], MapsConfig.androidCertSha1);
+      },
+    );
 
     test('the cert fingerprint is colon-free', () {
       // With colons Google returns REQUEST_DENIED. keytool prints it with
@@ -170,7 +187,10 @@ void main() {
         client: MockClient((_) async => http.Response(routesBody(), 200)),
       );
 
-      final routes = await service.walkingRoutes(origin: dhaka, destination: gulshan);
+      final routes = await service.walkingRoutes(
+        origin: dhaka,
+        destination: gulshan,
+      );
 
       expect(routes, hasLength(1));
       expect(routes.first.distanceMeters, 1053);
@@ -188,7 +208,11 @@ void main() {
       // Without this, every Google-planned turn was spoken as a bare "turn
       // left", on the backend this app is migrating *to*.
       expect(routes.first.steps[1].streetName, 'Satmasjid Road');
-      expect(routes.first.steps[0].streetName, '', reason: '"Head north" names no road');
+      expect(
+        routes.first.steps[0].streetName,
+        '',
+        reason: '"Head north" names no road',
+      );
       expect(routeViaSummary(routes.first.steps), 'Satmasjid Road');
     });
 
@@ -202,27 +226,40 @@ void main() {
         client: MockClient((_) async => http.Response(routesBody(), 200)),
       );
 
-      final routes = await service.walkingRoutes(origin: dhaka, destination: gulshan);
-
-      const walkingSpeedEstimate = 1053 / 1.25;
-      expect(routes.first.durationSeconds, isNot(closeTo(walkingSpeedEstimate, 1)));
-    });
-
-    test('substitutes a walking estimate for an unparseable duration', () async {
-      final service = RoutingService(
-        backend: RoutingBackend.google,
-        allowFallback: false,
-        client: MockClient(
-          (_) async => http.Response(routesBody(duration: 'not-a-duration'), 200),
-        ),
+      final routes = await service.walkingRoutes(
+        origin: dhaka,
+        destination: gulshan,
       );
 
-      final routes = await service.walkingRoutes(origin: dhaka, destination: gulshan);
-
-      // Not zero. A zero-second walk would be announced as an arrival.
-      expect(routes.first.durationSeconds, greaterThan(0));
-      expect(routes.first.durationSeconds, closeTo(1053 / 1.25, 1));
+      const walkingSpeedEstimate = 1053 / 1.25;
+      expect(
+        routes.first.durationSeconds,
+        isNot(closeTo(walkingSpeedEstimate, 1)),
+      );
     });
+
+    test(
+      'substitutes a walking estimate for an unparseable duration',
+      () async {
+        final service = RoutingService(
+          backend: RoutingBackend.google,
+          allowFallback: false,
+          client: MockClient(
+            (_) async =>
+                http.Response(routesBody(duration: 'not-a-duration'), 200),
+          ),
+        );
+
+        final routes = await service.walkingRoutes(
+          origin: dhaka,
+          destination: gulshan,
+        );
+
+        // Not zero. A zero-second walk would be announced as an arrival.
+        expect(routes.first.durationSeconds, greaterThan(0));
+        expect(routes.first.durationSeconds, closeTo(1053 / 1.25, 1));
+      },
+    );
 
     test('marks Google routes as real pedestrian routes', () async {
       final service = RoutingService(
@@ -231,7 +268,10 @@ void main() {
         client: MockClient((_) async => http.Response(routesBody(), 200)),
       );
 
-      final routes = await service.walkingRoutes(origin: dhaka, destination: gulshan);
+      final routes = await service.walkingRoutes(
+        origin: dhaka,
+        destination: gulshan,
+      );
 
       expect(routes.first.isPedestrianProfile, isTrue);
     });
@@ -267,7 +307,10 @@ void main() {
         client: MockClient((_) async => http.Response(body, 200)),
       );
 
-      final routes = await service.walkingRoutes(origin: dhaka, destination: gulshan);
+      final routes = await service.walkingRoutes(
+        origin: dhaka,
+        destination: gulshan,
+      );
 
       // Degrades to distance-and-bearing guidance rather than losing the route.
       expect(routes, hasLength(1));
@@ -276,33 +319,129 @@ void main() {
     });
   });
 
-  group('failure reporting', () {
-    test('carries Google\'s status so the three causes stay distinguishable', () async {
-      // PERMISSION_DENIED (key/restrictions wrong), RESOURCE_EXHAUSTED (quota
-      // cap worked), INVALID_ARGUMENT (this code sent something bad) look
-      // identical from outside unless the status survives.
-      for (final status in ['PERMISSION_DENIED', 'RESOURCE_EXHAUSTED', 'INVALID_ARGUMENT']) {
+  group('transit route', () {
+    test(
+      'requests bus transit details and parses line and stop names',
+      () async {
+        late http.Request captured;
         final service = RoutingService(
           backend: RoutingBackend.google,
           allowFallback: false,
-          client: MockClient(
-            (_) async => http.Response(
+          budget: const UnlimitedApiBudget(),
+          client: MockClient((request) async {
+            captured = request;
+            return http.Response(
               jsonEncode({
-                'error': {'code': 403, 'status': status, 'message': 'nope'},
+                'routes': [
+                  {
+                    'duration': '2100s',
+                    'legs': [
+                      {
+                        'steps': [
+                          {'travelMode': 'WALK'},
+                          {
+                            'travelMode': 'TRANSIT',
+                            'transitDetails': {
+                              'stopDetails': {
+                                'departureStop': {'name': 'Dhanmondi 27'},
+                                'arrivalStop': {'name': 'Farmgate'},
+                              },
+                              'headsign': 'Motijheel',
+                              'transitLine': {
+                                'name': 'Dhanmondi-Motijheel',
+                                'nameShort': 'BRTC 7',
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
               }),
-              403,
-            ),
-          ),
+              200,
+            );
+          }),
         );
 
-        await expectLater(
-          service.walkingRoutes(origin: dhaka, destination: gulshan),
-          throwsA(
-            isA<RoutingException>().having((e) => e.reason, 'reason', contains(status)),
-          ),
+        final result = await service.transitRoute(
+          origin: dhaka,
+          destination: gulshan,
         );
-      }
+
+        final body = jsonDecode(captured.body) as Map<String, dynamic>;
+        expect(body['travelMode'], 'TRANSIT');
+        expect(body['transitPreferences']['allowedTravelModes'], ['BUS']);
+        expect(
+          captured.headers['X-Goog-FieldMask'],
+          contains('transitDetails'),
+        );
+        expect(
+          captured.headers['X-Goog-FieldMask'],
+          isNot(contains('transitFare')),
+        );
+        expect(result?.durationMinutes, 35);
+        expect(result?.legs, hasLength(1));
+        expect(result?.legs.single.lineName, 'BRTC 7');
+        expect(result?.legs.single.fromStop, 'Dhanmondi 27');
+        expect(result?.legs.single.toStop, 'Farmgate');
+        expect(result?.legs.single.headsign, 'Motijheel');
+      },
+    );
+
+    test('returns null when no transit itinerary is available', () async {
+      final service = RoutingService(
+        backend: RoutingBackend.google,
+        allowFallback: false,
+        budget: const UnlimitedApiBudget(),
+        client: MockClient((_) async => http.Response('{"routes":[]}', 200)),
+      );
+
+      expect(
+        await service.transitRoute(origin: dhaka, destination: gulshan),
+        isNull,
+      );
     });
+  });
+
+  group('failure reporting', () {
+    test(
+      'carries Google\'s status so the three causes stay distinguishable',
+      () async {
+        // PERMISSION_DENIED (key/restrictions wrong), RESOURCE_EXHAUSTED (quota
+        // cap worked), INVALID_ARGUMENT (this code sent something bad) look
+        // identical from outside unless the status survives.
+        for (final status in [
+          'PERMISSION_DENIED',
+          'RESOURCE_EXHAUSTED',
+          'INVALID_ARGUMENT',
+        ]) {
+          final service = RoutingService(
+            backend: RoutingBackend.google,
+            allowFallback: false,
+            client: MockClient(
+              (_) async => http.Response(
+                jsonEncode({
+                  'error': {'code': 403, 'status': status, 'message': 'nope'},
+                }),
+                403,
+              ),
+            ),
+          );
+
+          await expectLater(
+            service.walkingRoutes(origin: dhaka, destination: gulshan),
+            throwsA(
+              isA<RoutingException>().having(
+                (e) => e.reason,
+                'reason',
+                contains(status),
+              ),
+            ),
+          );
+        }
+      },
+    );
 
     test('an HTML error page does not crash the parser', () async {
       final service = RoutingService(
@@ -324,20 +463,35 @@ void main() {
     test('maps every Routes API maneuver this app can act on', () {
       expect(maneuverFromGoogleRoutes('TURN_LEFT'), ManeuverKind.left);
       expect(maneuverFromGoogleRoutes('TURN_RIGHT'), ManeuverKind.right);
-      expect(maneuverFromGoogleRoutes('TURN_SLIGHT_LEFT'), ManeuverKind.slightLeft);
-      expect(maneuverFromGoogleRoutes('TURN_SHARP_RIGHT'), ManeuverKind.sharpRight);
+      expect(
+        maneuverFromGoogleRoutes('TURN_SLIGHT_LEFT'),
+        ManeuverKind.slightLeft,
+      );
+      expect(
+        maneuverFromGoogleRoutes('TURN_SHARP_RIGHT'),
+        ManeuverKind.sharpRight,
+      );
       expect(maneuverFromGoogleRoutes('TURN_U_TURN_LEFT'), ManeuverKind.uTurn);
-      expect(maneuverFromGoogleRoutes('ROUNDABOUT_RIGHT'), ManeuverKind.roundabout);
+      expect(
+        maneuverFromGoogleRoutes('ROUNDABOUT_RIGHT'),
+        ManeuverKind.roundabout,
+      );
       expect(maneuverFromGoogleRoutes('DEPART'), ManeuverKind.depart);
       expect(maneuverFromGoogleRoutes('DESTINATION'), ManeuverKind.arrive);
     });
 
-    test('is total — an unknown maneuver becomes a step, not a dropped one', () {
-      // A dropped step makes the narrator think the next turn is further
-      // away than it is, i.e. tells a blind user to walk through the turn.
-      expect(maneuverFromGoogleRoutes('SOMETHING_NEW_IN_2027'), ManeuverKind.straight);
-      expect(maneuverFromGoogleRoutes(null), ManeuverKind.straight);
-    });
+    test(
+      'is total — an unknown maneuver becomes a step, not a dropped one',
+      () {
+        // A dropped step makes the narrator think the next turn is further
+        // away than it is, i.e. tells a blind user to walk through the turn.
+        expect(
+          maneuverFromGoogleRoutes('SOMETHING_NEW_IN_2027'),
+          ManeuverKind.straight,
+        );
+        expect(maneuverFromGoogleRoutes(null), ManeuverKind.straight);
+      },
+    );
 
     test('agrees with the OSRM vocabulary, so narration is backend-blind', () {
       expect(

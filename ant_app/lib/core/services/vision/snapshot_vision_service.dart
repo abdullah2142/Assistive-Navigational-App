@@ -147,6 +147,8 @@ class SnapshotVisionService {
   Future<ScanResult> scan({
     required ScanFocus focus,
     required AppLanguage language,
+    bool sweep = false,
+    Uint8List? capturedJpeg,
     Future<void> Function(String text)? narrate,
 
     /// The user's own question, when more specific than [focus] can say. See
@@ -157,7 +159,15 @@ class SnapshotVisionService {
     if (isScanning.value) return ScanResult(spoken: d.visionAlreadyLooking);
     isScanning.value = true;
     try {
-      return await _run(focus, language, d, narrate ?? _speak, question);
+      return await _run(
+        focus,
+        language,
+        d,
+        narrate ?? _speak,
+        question,
+        sweep,
+        capturedJpeg,
+      );
     } finally {
       isScanning.value = false;
     }
@@ -195,12 +205,34 @@ class SnapshotVisionService {
     }
   }
 
+  /// Answers a follow-up against the exact frame already shown in the chat.
+  /// The JPEG is sent again because vision models are stateless and may differ
+  /// from the model that produced the first description.
+  Future<VisionScene?> answerPictureFollowUp({
+    required Uint8List jpeg,
+    required String initialDescription,
+    required String question,
+    required AppLanguage language,
+  }) => _cloud.describe(
+    jpegs: [jpeg],
+    focus: ScanFocus.ahead,
+    language: language,
+    question:
+        'The user is asking a follow-up about this same photograph. '
+        'The first description was: "$initialDescription". '
+        'Answer this question using the image itself as the source of truth. '
+        'If the requested detail is not visible, say so plainly. '
+        'Follow-up question: $question',
+  );
+
   Future<ScanResult> _run(
     ScanFocus focus,
     AppLanguage language,
     Dashboard d,
     Future<void> Function(String text)? narrate,
     String? question,
+    bool sweep,
+    Uint8List? capturedJpeg,
   ) async {
     // Asked before the camera opens, because it decides what the capture
     // does. A three-frame sweep is only worth taking when a backend that can
@@ -209,16 +241,19 @@ class SnapshotVisionService {
     final frameCount = _cloud.framesNeededFor(
       focus,
       sweepFrames: VisionConfig.sweepFrameCount,
+      sweep: sweep,
     );
-    final frames = await _camera.capture(
-      count: frameCount,
-      // The dashboard's explicit viewfinder stays up through the vision
-      // request. Its owner closes the camera once the answer/send completes.
-      holdOpen: true,
-      onBeforeFrame: frameCount > 1
-          ? (i) => _cueSweepPosition(i, d, narrate)
-          : null,
-    );
+    final frames = capturedJpeg == null
+        ? await _camera.capture(
+            count: frameCount,
+            // The dashboard's explicit viewfinder stays up through the vision
+            // request. Its owner closes the camera once the answer/send completes.
+            holdOpen: true,
+            onBeforeFrame: frameCount > 1
+                ? (i) => _cueSweepPosition(i, d, narrate)
+                : null,
+          )
+        : [capturedJpeg];
     if (frames.isEmpty) {
       return ScanResult(
         spoken: _camera.isAvailable ? d.visionCaptureFailed : d.visionNoCamera,
@@ -283,16 +318,15 @@ class SnapshotVisionService {
       );
     }
 
-    // Sharpest first, then the rest in capture order. A backend that takes
-    // only one frame therefore gets the best one, and a backend that takes
-    // three gets the whole sweep — one ordering serves both, and neither
-    // needs to know which it is.
-    final ordered = _sharpestFirst(decoded, verdicts);
+    // Preserve left/centre/right order for Gemini's full sweep. If that call
+    // fails, the router gives Qwen only the sharpest frame; a single-frame
+    // question also uses that frame directly.
+    final bestDecoded = _sharpestFirst(decoded, verdicts).first;
+    final ordered = sweep ? decoded : [bestDecoded];
     final uploads = [
       for (final frame in ordered) _encodeForUpload(frame, focus),
     ];
-    // The sharpest frame, which `_sharpestFirst` has already put at the head.
-    final bestFrame = uploads.isEmpty ? null : uploads.first;
+    final bestFrame = _encodeForUpload(bestDecoded, focus);
 
     VisionScene? scene;
     try {
@@ -300,6 +334,8 @@ class SnapshotVisionService {
         jpegs: uploads,
         focus: focus,
         language: language,
+        sweep: sweep,
+        singleFrameFallback: bestFrame,
         edgeLabels: worst.detections.map((e) => e.label).toSet().toList(),
         question: question,
       );
@@ -521,14 +557,12 @@ class SnapshotVisionService {
     return d.visionOfflineSaw(parts.join(d.visionListSeparator));
   }
 
-  /// Picks the frame to upload.
+  /// Orders frames by focus quality so a one-frame backend gets the clearest.
   ///
   /// Sharpness by variance of the Laplacian, the standard cheap focus
-  /// measure: a blurred frame has little high-frequency energy. This matters
-  /// more here than it would elsewhere because only one frame is ever sent
-  /// (see `VisionConfig.framesUploadedPerScan`), and the measured OCR
-  /// degradation on a blurred sign was the difference between reading a
-  /// destination correctly and inventing one.
+  /// measure: a blurred frame has little high-frequency energy. The order is
+  /// used to select a Qwen fallback frame; Gemini's multi-frame sweep keeps
+  /// its original left/centre/right capture order instead.
   ///
   /// Ties break toward the frame whose edge verdict saw the most — a sharp
   /// photograph of nothing is worse input than a slightly softer one with the
@@ -594,12 +628,8 @@ class SnapshotVisionService {
 
   /// Downscales and re-encodes for upload.
   ///
-  /// 320x240 buys nothing in accuracy and everything in radio time — token
-  /// cost is flat across resolution (measured), so this is purely about how
-  /// long the cellular radio is transmitting, which is the part of a snapshot
-  /// the battery actually notices.
-  /// Whether [focus] is a question about fine detail — see
-  /// [VisionConfig.detailUploadWidth].
+  /// Uses a larger bounded image for [focus] questions about fine detail —
+  /// see [VisionConfig.detailUploadWidth] — and preserves aspect ratio.
   static bool _wantsDetail(ScanFocus focus) =>
       focus == ScanFocus.sign || focus == ScanFocus.ahead;
 
@@ -611,10 +641,15 @@ class SnapshotVisionService {
     final height = detail
         ? VisionConfig.detailUploadHeight
         : VisionConfig.uploadHeight;
+    final scale = <double>[
+      width / frame.width,
+      height / frame.height,
+      1,
+    ].reduce((a, b) => a < b ? a : b);
     final resized = img.copyResize(
       frame,
-      width: width,
-      height: height,
+      width: (frame.width * scale).round().clamp(1, width),
+      height: (frame.height * scale).round().clamp(1, height),
       interpolation: img.Interpolation.average,
     );
     final bytes = img.encodeJpg(
@@ -622,7 +657,8 @@ class SnapshotVisionService {
       quality: VisionConfig.uploadJpegQuality,
     );
     debugPrint(
-      '[Vision] upload frame ${bytes.length} bytes (${width}x$height)',
+      '[Vision] upload frame ${bytes.length} bytes '
+      '(${resized.width}x${resized.height})',
     );
     return bytes;
   }

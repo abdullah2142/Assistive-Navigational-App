@@ -79,14 +79,19 @@ void main() {
     test('destination before the verb', () {
       // Bangla puts the verb last, so the English prefix regex ("take me
       // to X") cannot reach these no matter how many phrasings it lists.
-      final intent = LocalIntentMatcher.match('hospital e jabo', AppLanguage.bangla);
+      final intent = LocalIntentMatcher.match(
+        'hospital e jabo',
+        AppLanguage.bangla,
+      );
       expect(intent?.name, 'request_route');
       expect(intent?.args['destination'], 'hospital');
     });
 
     test('the carry-me form', () {
-      final intent =
-          LocalIntentMatcher.match('amake Gulshan niye chalo', AppLanguage.bangla);
+      final intent = LocalIntentMatcher.match(
+        'amake Gulshan niye chalo',
+        AppLanguage.bangla,
+      );
       expect(intent?.name, 'request_route');
       expect(intent?.args['destination'], 'gulshan');
     });
@@ -95,8 +100,10 @@ void main() {
       // Banglish is Latin script, so it reaches the matcher from an English
       // recognizer session as readily as a Bangla one, and somebody with the
       // app in English still says "hospital e jabo".
-      expect(LocalIntentMatcher.match('hospital e jabo', AppLanguage.english)?.name,
-          'request_route');
+      expect(
+        LocalIntentMatcher.match('hospital e jabo', AppLanguage.english)?.name,
+        'request_route',
+      );
     });
 
     test('"I am NOT going there" does not start a journey', () {
@@ -111,7 +118,11 @@ void main() {
       // cancelled whatever route was running. Its English twin "i am not
       // going" has always been weak, and bounded by sentence length.
       expect(intentOf('office e jabo na'), isNull);
-      expect(intentOf('jabo na'), 'cancel_route', reason: 'said bare, it is a cancellation');
+      expect(
+        intentOf('jabo na'),
+        'cancel_route',
+        reason: 'said bare, it is a cancellation',
+      );
     });
   });
 
@@ -123,7 +134,10 @@ void main() {
       'sahajjo koro',
       'bipode porechi',
     ]) {
-      test('"$cry" raises an SOS', () => expect(intentOf(cry), 'trigger_emergency'));
+      test(
+        '"$cry" raises an SOS',
+        () => expect(intentOf(cry), 'trigger_emergency'),
+      );
     }
 
     for (final refusal in ['sahajjo lagbe na', 'ami thik achi', 'bipod nei']) {
@@ -138,16 +152,29 @@ void main() {
     test('it also works with no connection at all', () {
       // The offline matcher is the last thing standing when there is no
       // signal, so a word missing there is missing with no Gemini behind it.
-      expect(OfflineIntentMatcher.match('bachao', AppLanguage.bangla), isNotNull);
-      expect(OfflineIntentMatcher.match('sahajjo', AppLanguage.bangla), isNotNull);
-      expect(OfflineIntentMatcher.match('ami kothay achi', AppLanguage.bangla), isNotNull);
+      expect(
+        OfflineIntentMatcher.match('bachao', AppLanguage.bangla),
+        isNotNull,
+      );
+      expect(
+        OfflineIntentMatcher.match('sahajjo', AppLanguage.bangla),
+        isNotNull,
+      );
+      expect(
+        OfflineIntentMatcher.match('ami kothay achi', AppLanguage.bangla),
+        isNotNull,
+      );
     });
   });
 
-  group('and none of it fires on ordinary sentences', () {
-    // The whole risk of loosening a matcher that triggers real actions.
+  group('only actionable everyday requests fire', () {
+    // Weather questions now have a direct local answer; the remaining
+    // ordinary statements must not accidentally trigger actions.
+    test('a weather question requests current conditions', () {
+      expect(intentOf('what is the weather like'), 'current_weather');
+    });
+
     for (final said in [
-      'what is the weather like',
       "it's getting dark outside",
       'the bus number was 123456',
       'korea te jabo na',

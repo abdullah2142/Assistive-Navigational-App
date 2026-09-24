@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// The Dart end of Module 6's physical trigger — plan Step 1.1, "presses a
-/// physical volume button mapped to the Sweep action".
+/// The Dart end of Module 6's physical Volume-Up trigger. It requests a
+/// single frame, not a multi-frame sweep.
 ///
 /// Listen-only. Nothing here ever calls into the platform; `MainActivity`
 /// pushes `sweepHeld` when Volume Up has been held for two seconds, and that
@@ -17,19 +17,20 @@ import 'package:flutter/services.dart';
 /// take the other's events. That is a failure mode worth a second channel.
 class VisionChannel {
   VisionChannel({MethodChannel? channel})
-      : _channel = channel ?? const MethodChannel('com.ant.assistive.ant_app/vision');
+    : _channel =
+          channel ?? const MethodChannel('com.ant.assistive.ant_app/vision');
 
   final MethodChannel _channel;
 
   /// Registers [handler], called when Volume Up has been held long enough.
   ///
-  /// The handler is deliberately not awaited by the platform: a sweep takes
+  /// The handler is deliberately not awaited by the platform: a scan takes
   /// seconds and blocking the platform channel for that long would stall the
   /// key events the same activity is still delivering.
-  void onSweepTrigger(Future<void> Function() handler) {
+  void onSnapshotTrigger(Future<void> Function() handler) {
     _channel.setMethodCallHandler((call) async {
       if (call.method != 'sweepHeld') return;
-      debugPrint('[Vision] sweep triggered by volume-up hold');
+      debugPrint('[Vision] one-frame snapshot triggered by volume-up hold');
       try {
         await handler();
       } catch (e) {

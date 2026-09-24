@@ -1,8 +1,7 @@
 /// What a scan was asked to look for.
 ///
-/// One enum rather than four separate assistant tools, because every tool
-/// declaration is input tokens on a budget measured at 7,000 per minute and
-/// shared with the conversation itself — see `VisionConfig.framesUploadedPerScan`.
+/// One enum rather than separate assistant tools: the focus changes the
+/// prompt and spoken framing, while [VisionRouter] chooses the cloud backend.
 /// The focus changes the prompt and the spoken framing, not the plumbing.
 enum ScanFocus {
   /// "What bus is this?" — one frame, immediately, no stand-still prompt.

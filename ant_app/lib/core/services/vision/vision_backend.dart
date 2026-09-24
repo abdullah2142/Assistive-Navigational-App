@@ -3,23 +3,9 @@ import 'dart:typed_data';
 import '../../localization/app_language.dart';
 import 'vision_scene.dart';
 
-/// One cloud vision engine.
-///
-/// Two exist because they fail in opposite directions, and the module uses
-/// both on purpose rather than picking a winner. Measured 21 September on the
-/// same rendered Dhaka signboard:
-///
-/// |                          | Groq Qwen 3.8-27B | Gemini 3.5 Flash-Lite |
-/// |--------------------------|-------------------|-----------------------|
-/// | latency, one image       | 0.57-0.89 s       | 1.2-6.9 s             |
-/// | three images, one call   | not supported     | 2.4 s                 |
-/// | degraded Bangla sign     | `গুলশান`->`ঠানশান` | exact, 3/3            |
-/// | input tokens, one image  | 2,142             | 1,082                 |
-/// | token pool               | shared with chat  | separate              |
-///
-/// So Groq owns the question with a deadline — a bus is gone in five seconds
-/// — and Gemini owns the questions that reward accuracy and a wider view.
-/// See [maxFrames] for the part that changes what the module can do at all.
+/// One cloud vision engine. Qwen handles ordinary one-frame captures first;
+/// Gemini handles complete guided sweeps first and backs up Qwen when needed.
+/// See [maxFrames] for the number of images an engine can use in one request.
 abstract class VisionBackend {
   /// Short name for logs, so a diagnostics file says which engine answered.
   String get name;
@@ -33,12 +19,9 @@ abstract class VisionBackend {
   /// frames means three calls — ~6,400 input tokens against a 7,000/minute
   /// ceiling *shared with the user's conversation*, which would cost them
   /// the ability to speak to the app for the following minute. That is why
-  /// `VisionConfig.framesUploadedPerScan` is 1.
-  ///
-  /// Gemini accepts several `inline_data` parts in one request: three frames
-  /// measured at 3,229 tokens and 2.4 s in a single round trip, on a pool
-  /// that is not the conversation's. With that backend the sweep is
-  /// affordable exactly as `06_module_plan_snapshot_vision.md` specified it.
+  /// Gemini accepts several `inline_data` parts in one request. For an
+  /// explicit sweep it receives the complete left/centre/right sequence;
+  /// Qwen receives one selected frame if it is used as the fallback.
   int get maxFrames;
 
   /// Describes [jpegs], already downscaled by the caller.
@@ -56,6 +39,7 @@ abstract class VisionBackend {
     required ScanFocus focus,
     required AppLanguage language,
     List<String> edgeLabels = const [],
+
     /// The user's own question, when more specific than [focus]. See
     /// `VisionPrompt.build`.
     String? question,

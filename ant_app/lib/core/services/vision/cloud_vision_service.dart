@@ -8,6 +8,7 @@ import '../../config/groq_config.dart';
 import '../../config/vision_config.dart';
 import '../../localization/app_language.dart';
 import '../api_budget.dart';
+import '../gemini_model_cooldowns.dart';
 import 'vision_backend.dart';
 import 'vision_prompt.dart';
 import 'vision_scene.dart';
@@ -45,23 +46,24 @@ class VisionBudgetExhausted implements Exception {
 /// same 7,000-token-per-minute input allowance this call already costs 2,142
 /// of. Keeping the vision call bare is what makes it affordable at all.
 class CloudVisionService implements VisionBackend {
-  CloudVisionService({
-    String? apiKey,
-    ApiBudget? budget,
-    http.Client? client,
-  })  : _apiKey = apiKey ?? GroqConfig.apiKey,
-        _budget = budget ?? defaultApiBudget,
-        _client = client ?? http.Client();
+  CloudVisionService({String? apiKey, ApiBudget? budget, http.Client? client})
+    : _apiKey = apiKey ?? GroqConfig.apiKey,
+      _budget = budget ?? defaultApiBudget,
+      _cooldowns = GeminiModelCooldowns.shared,
+      _client = client ?? http.Client();
 
   final String _apiKey;
   final ApiBudget _budget;
+  final GeminiModelCooldowns _cooldowns;
   final http.Client _client;
 
   @override
   String get name => 'groq:${VisionConfig.visionModel}';
 
   @override
-  bool get isConfigured => _apiKey.isNotEmpty;
+  bool get isConfigured =>
+      _apiKey.isNotEmpty &&
+      !_cooldowns.isCooling('groq:${VisionConfig.visionModel}');
 
   /// **One.** Groq's chat-completions endpoint takes a single image per
   /// request, so a three-frame sweep here would be three calls and ~6,400
@@ -76,6 +78,7 @@ class CloudVisionService implements VisionBackend {
     required ScanFocus focus,
     required AppLanguage language,
     List<String> edgeLabels = const [],
+
     /// The user's own question, when more specific than [focus]. See
     /// `VisionPrompt.build`.
     String? question,
@@ -116,7 +119,9 @@ class CloudVisionService implements VisionBackend {
             },
             {
               'type': 'image_url',
-              'image_url': {'url': 'data:image/jpeg;base64,${base64Encode(jpeg)}'},
+              'image_url': {
+                'url': 'data:image/jpeg;base64,${base64Encode(jpeg)}',
+              },
             },
           ],
         },
@@ -143,27 +148,53 @@ class CloudVisionService implements VisionBackend {
         // because "the app stopped answering" and "the app is rate limited
         // for the next twenty seconds" look identical from outside and only
         // one of them is worth investigating.
-        debugPrint(response.statusCode == 429
-            ? '[Vision] $name rate limited (shared ITPM with chat) after ${elapsed}ms'
-            : '[Vision] $name HTTP ${response.statusCode} after ${elapsed}ms');
+        debugPrint(
+          response.statusCode == 429
+              ? '[Vision] $name rate limited (shared ITPM with chat) after ${elapsed}ms'
+              : '[Vision] $name HTTP ${response.statusCode} after ${elapsed}ms',
+        );
+        if (response.statusCode == 429) {
+          final modelKey = 'groq:${VisionConfig.visionModel}';
+          final retry = GeminiModelCooldowns.parseRetryHeader(
+            response.headers['retry-after'] ??
+                response.headers['x-ratelimit-reset-requests'] ??
+                response.headers['x-ratelimit-reset-tokens'],
+          );
+          final resetAt = retry == null
+              ? _cooldowns.recordFailure(modelKey, 'HTTP 429 ${response.body}')
+              : _cooldowns.recordReset(modelKey, retry);
+          debugPrint(
+            '[Vision] ${VisionConfig.visionModel} cooldown until $resetAt',
+          );
+        }
         return null;
       }
 
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final decoded =
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       final usage = decoded['usage'] as Map<String, dynamic>?;
-      debugPrint('[Vision] $name ok in ${elapsed}ms, '
-          'prompt_tokens=${usage?['prompt_tokens']} '
-          'completion=${usage?['completion_tokens']} focus=${focus.name}');
+      debugPrint(
+        '[Vision] $name ok in ${elapsed}ms, '
+        'prompt_tokens=${usage?['prompt_tokens']} '
+        'completion=${usage?['completion_tokens']} focus=${focus.name}',
+      );
 
       final choices = decoded['choices'] as List<dynamic>?;
       if (choices == null || choices.isEmpty) return null;
       final content =
-          (choices.first as Map<String, dynamic>)['message']?['content'] as String?;
+          (choices.first as Map<String, dynamic>)['message']?['content']
+              as String?;
       if (content == null || content.trim().isEmpty) return null;
 
       return VisionPrompt.parse(content, focus);
     } on TimeoutException {
-      debugPrint('[Vision] $name timed out after ${VisionConfig.cloudTimeout.inSeconds}s');
+      debugPrint(
+        '[Vision] $name timed out after ${VisionConfig.cloudTimeout.inSeconds}s',
+      );
+      _cooldowns.recordReset(
+        'groq:${VisionConfig.visionModel}',
+        const Duration(seconds: 30),
+      );
       return null;
     } catch (e) {
       debugPrint('[Vision] $name call failed: $e');

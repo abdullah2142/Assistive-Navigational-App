@@ -30,15 +30,14 @@ class GroqConfig {
 
   static const String baseUrl = 'https://api.groq.com/openai/v1';
 
-  /// The conversational model — chosen over `openai/gpt-oss-120b` (Groq's
-  /// other free-tier chat option) specifically for its much stronger
-  /// multi-turn context retention and Bengali-language handling, the two
-  /// complaints the prior `gemini-3.6-flash` deployment could not clear.
-  /// Same free-tier rate limits either way (30 RPM / 1,000 RPD / 8K TPM), so
-  /// this is a pure quality choice, not a cost one. If per-turn latency
-  /// becomes a problem in practice, `openai/gpt-oss-120b` is the documented
-  /// fallback — noticeably faster, weaker at reasoning/context.
-  static const String chatModel = 'qwen/qwen3.8-27b';
+  /// Reversible GPT-OSS 120B trial for conversational Bangla and tool use.
+  /// Set `--dart-define=GROQ_CHAT_MODEL=qwen/qwen3.8-27b` to restore the
+  /// previous model for a build. Qwen remains the independently configured
+  /// vision model.
+  static const String chatModel = String.fromEnvironment(
+    'GROQ_CHAT_MODEL',
+    defaultValue: 'openai/gpt-oss-120b',
+  );
 
   /// Batch transcription model for `CloudSttService` — see its doc comment
   /// for why this is a single-shot upload-then-transcribe call rather than

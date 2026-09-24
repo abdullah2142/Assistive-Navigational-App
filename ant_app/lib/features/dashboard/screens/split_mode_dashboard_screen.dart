@@ -295,7 +295,7 @@ class _SplitModeDashboardScreenState
         }
         return;
       }
-      if (_mapVisible) return;
+      if (_mapVisible || !profile.autoOpenMapOnRoute) return;
       setState(() => _mapVisible = true);
     });
     // Wraps the whole dashboard so the caretaker's messages keep arriving

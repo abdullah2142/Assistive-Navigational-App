@@ -19,6 +19,8 @@ import '../../onboarding/models/trusted_contact.dart';
 import '../../onboarding/models/user_profile.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../../onboarding/services/pairing_service.dart';
+import '../../onboarding/widgets/trusted_contact_search_sheet.dart';
+
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 
 import '../widgets/diagnostics_report_tile.dart';
@@ -34,8 +36,16 @@ import '../widgets/wake_word_sensitivity_tile.dart';
 List<(String, String, String)> _voiceOptionsFor(AppLanguage language) {
   final english = language == AppLanguage.bangla ? 'বাংলা' : 'English';
   return [
-    (voiceIdFor(language, female: true), '$english — Female voice', '$english — নারী কণ্ঠ'),
-    (voiceIdFor(language, female: false), '$english — Male voice', '$english — পুরুষ কণ্ঠ'),
+    (
+      voiceIdFor(language, female: true),
+      '$english — Female voice',
+      '$english — নারী কণ্ঠ',
+    ),
+    (
+      voiceIdFor(language, female: false),
+      '$english — Male voice',
+      '$english — পুরুষ কণ্ঠ',
+    ),
   ];
 }
 
@@ -109,18 +119,24 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
       return;
     }
     final point = _newPlacePoint;
-    await _save(profile.copyWith(savedPlaces: [
-      // Replaces a place of the same name rather than adding a second — two
-      // places both called "work" is a clarification the user has to resolve
-      // every time they ask for one.
-      ...profile.savedPlaces.where((p) => p.label.toLowerCase() != label.toLowerCase()),
-      SavedPlace(
-        label: label,
-        address: address,
-        lat: point?.latitude,
-        lng: point?.longitude,
+    await _save(
+      profile.copyWith(
+        savedPlaces: [
+          // Replaces a place of the same name rather than adding a second — two
+          // places both called "work" is a clarification the user has to resolve
+          // every time they ask for one.
+          ...profile.savedPlaces.where(
+            (p) => p.label.toLowerCase() != label.toLowerCase(),
+          ),
+          SavedPlace(
+            label: label,
+            address: address,
+            lat: point?.latitude,
+            lng: point?.longitude,
+          ),
+        ],
       ),
-    ]));
+    );
     if (!mounted) return;
     _newPlaceLabelController.clear();
     _newPlaceAddressController.clear();
@@ -130,8 +146,6 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
   late final _safePlaceController = TextEditingController(
     text: widget.profile.safePlaceAddress ?? '',
   );
-  final _contactNameController = TextEditingController();
-  final _contactPhoneController = TextEditingController();
   final _messageController = TextEditingController();
   final _pairingCodeController = TextEditingController();
   bool _pairingBusy = false;
@@ -167,8 +181,6 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
     _safePlaceController.dispose();
     _newPlaceLabelController.dispose();
     _newPlaceAddressController.dispose();
-    _contactNameController.dispose();
-    _contactPhoneController.dispose();
     _messageController.dispose();
     _pairingCodeController.dispose();
     super.dispose();
@@ -205,6 +217,19 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
 
   Future<void> _save(UserProfile updated) {
     return ref.read(profileServiceProvider).saveProfile(updated);
+  }
+
+  Future<void> _importEmergencyContact(UserProfile profile) async {
+    final contact = await TrustedContactSearchSheet.show(
+      context,
+      language: profile.language,
+    );
+    if (!mounted || contact == null) return;
+    await _save(
+      profile.copyWith(
+        magicButtonContacts: [...profile.magicButtonContacts, contact],
+      ),
+    );
   }
 
   Future<void> _submitPairingCode(UserProfile profile, Dashboard d) async {
@@ -301,8 +326,11 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
     // `_fontScale`, and only deviates from 1.0 during an active, unsaved
     // drag.
     return MediaQuery(
-      data: MediaQuery.of(context)
-          .copyWith(textScaler: TextScaler.linear(_fontScale.clamp(0.8, 2.0) / profile.fontScale)),
+      data: MediaQuery.of(context).copyWith(
+        textScaler: TextScaler.linear(
+          _fontScale.clamp(0.8, 2.0) / profile.fontScale,
+        ),
+      ),
       child: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -325,6 +353,23 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                     ),
                   )
                   .toList(),
+            ),
+          ),
+          _SectionCard(
+            title: d.settingsDepthSection,
+            child: _SwitchRow(
+              label: d.settingsDepthScanning,
+              value: profile.depthScanningEnabled,
+              onChanged: (v) =>
+                  _save(profile.copyWith(depthScanningEnabled: v)),
+            ),
+          ),
+          _SectionCard(
+            title: d.settingsMapsSection,
+            child: _SwitchRow(
+              label: d.settingsAutoOpenMap,
+              value: profile.autoOpenMapOnRoute,
+              onChanged: (v) => _save(profile.copyWith(autoOpenMapOnRoute: v)),
             ),
           ),
           // Independent of Vision — a Low Vision user still picks Light/Dark
@@ -451,10 +496,12 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                       max: (textScaleLevels.length - 1).toDouble(),
                       divisions: textScaleLevels.length - 1,
                       label: '${textScaleLevels[levelIndexFor(_fontScale)]}x',
-                      onChanged: (v) =>
-                          setState(() => _fontScale = textScaleLevels[v.round()]),
+                      onChanged: (v) => setState(
+                        () => _fontScale = textScaleLevels[v.round()],
+                      ),
                       onChangeEnd: (v) => _save(
-                          profile.copyWith(fontScale: textScaleLevels[v.round()])),
+                        profile.copyWith(fontScale: textScaleLevels[v.round()]),
+                      ),
                     ),
                   ),
                 ),
@@ -549,12 +596,14 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                             place.address.isNotEmpty
                                 ? place.address
                                 : place.hasCoordinates
-                                    ? '${place.lat!.toStringAsFixed(4)}, ${place.lng!.toStringAsFixed(4)}'
-                                    : d.settingsSavedPlaceNoAddress,
+                                ? '${place.lat!.toStringAsFixed(4)}, ${place.lng!.toStringAsFixed(4)}'
+                                : d.settingsSavedPlaceNoAddress,
                           ),
                           trailing: Semantics(
                             button: true,
-                            label: d.settingsSavedPlaceRemoveSemantics(place.label),
+                            label: d.settingsSavedPlaceRemoveSemantics(
+                              place.label,
+                            ),
                             child: IconButton(
                               icon: const Icon(Icons.delete_outline_rounded),
                               onPressed: () => _save(
@@ -662,7 +711,10 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(d.settingsHapticsHint, style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  d.settingsHapticsHint,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 const SizedBox(height: 10),
                 // Segmented rather than a slider: three named levels the plan
                 // specifies, and a blind user can be told "Strong, Medium,
@@ -670,7 +722,10 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                 SegmentedButton<HapticIntensity>(
                   segments: [
                     for (final level in HapticIntensity.values)
-                      ButtonSegment(value: level, label: Text(d.hapticIntensityLabel(level))),
+                      ButtonSegment(
+                        value: level,
+                        label: Text(d.hapticIntensityLabel(level)),
+                      ),
                   ],
                   selected: {profile.hapticIntensity},
                   showSelectedIcon: false,
@@ -680,7 +735,8 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                     // straight back: choosing a strength you cannot feel is
                     // the thing this setting exists to prevent, so it has to
                     // answer immediately rather than after a round trip.
-                    final haptics = ref.read(hapticsServiceProvider)..intensity = level;
+                    final haptics = ref.read(hapticsServiceProvider)
+                      ..intensity = level;
                     unawaited(haptics.play(HapticCue.confirmation));
                     _save(profile.copyWith(hapticIntensity: level));
                   },
@@ -751,48 +807,10 @@ class _MySettingsFormState extends ConsumerState<_MySettingsForm> {
                       ),
                     ),
                   ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _contactNameController,
-                        decoration: InputDecoration(
-                          hintText: d.settingsNamePlaceholder,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: _contactPhoneController,
-                        keyboardType: TextInputType.phone,
-                        decoration: InputDecoration(
-                          hintText: d.settingsPhonePlaceholder,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
                 OutlinedButton.icon(
-                  onPressed: () {
-                    if (_contactNameController.text.trim().isEmpty ||
-                        _contactPhoneController.text.trim().isEmpty) {
-                      return;
-                    }
-                    final updated = [
-                      ...profile.magicButtonContacts,
-                      TrustedContact(
-                        name: _contactNameController.text.trim(),
-                        phoneNumber: _contactPhoneController.text.trim(),
-                      ),
-                    ];
-                    _save(profile.copyWith(magicButtonContacts: updated));
-                    _contactNameController.clear();
-                    _contactPhoneController.clear();
-                  },
-                  icon: const Icon(Icons.add_rounded),
-                  label: Text(d.settingsAddContactButton),
+                  onPressed: () => _importEmergencyContact(profile),
+                  icon: const Icon(Icons.contacts_outlined),
+                  label: Text(d.settingsImportContactButton),
                 ),
               ],
             ),

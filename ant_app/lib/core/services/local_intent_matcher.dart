@@ -150,6 +150,8 @@ class LocalIntentMatcher {
     return _matchPairing(text) ??
         _matchResolveHazard(lower, text) ??
         _matchCaretakerMode(lower, text) ??
+        _matchOpenCamera(lower, text) ??
+        _matchWeather(lower, text) ??
         // Before `_matchOverlay`: "what's blocking the road" contains the
         // hazard-report vocabulary, and a user asking what is in front of
         // them wants to be told, not handed a reporting form.
@@ -171,6 +173,7 @@ class LocalIntentMatcher {
         // first — a user who says they are lost and frightened wants help,
         // not a street name.
         _matchWhereAmI(lower, text) ??
+        _matchCancelAndClose(lower, text) ??
         // After emergency, deliberately. "Tell my caretaker I've fallen" is
         // an emergency that happens to name a caretaker, and it must not be
         // downgraded into a notification because of the word "tell".
@@ -185,6 +188,7 @@ class LocalIntentMatcher {
         _matchAlertCaretaker(lower, text) ??
         _matchCancelRoute(lower, text) ??
         _matchRouteChange(lower, text) ??
+        _matchNeedCategory(lower, text) ??
         _matchRoute(lower, text, bn) ??
         // Last, and only when every exact matcher has declined: this pass
         // trades precision for recall, so it must never pre-empt one that is
@@ -984,6 +988,80 @@ class LocalIntentMatcher {
       if (group.en.any(lower.contains) || group.bn.any(text.contains)) {
         return LocalIntent('look_around', {'focus': group.focus});
       }
+    }
+    return null;
+  }
+
+  static LocalIntent? _matchOpenCamera(String lower, String text) {
+    const phrases = [
+      'open camera',
+      'open the camera',
+      'turn on camera',
+      'launch camera',
+      'ক্যামেরা খোলো',
+      'ক্যামেরা চালু করো',
+    ];
+    if (phrases.any((p) => lower.contains(p) || text.contains(p))) {
+      return const LocalIntent('open_camera', {});
+    }
+    return null;
+  }
+
+  static LocalIntent? _matchWeather(String lower, String text) {
+    const phrases = [
+      "what's the weather",
+      'what is the weather',
+      'weather like',
+      'weather today',
+      'how is the weather',
+      'how\'s the weather',
+      'is it raining',
+      'will it rain',
+      'temperature outside',
+      'আবহাওয়া কেমন',
+      'আবহাওয়া কেমন',
+      'বৃষ্টি হবে কি',
+      'বৃষ্টি হচ্ছে কি',
+    ];
+    if (phrases.any((p) => lower.contains(p) || text.contains(p)) ||
+        RegExp(r'\b(weather|forecast|temperature)\b').hasMatch(lower)) {
+      return const LocalIntent('current_weather', {});
+    }
+    return null;
+  }
+
+  static LocalIntent? _matchNeedCategory(String lower, String text) {
+    final toiletNeed = RegExp(
+      r'\b(?:i need|need|gotta|have to|i want|want)\s+(?:to\s+)?(?:(?:go|use)(?:\s+to)?\s+)?(?:(?:the|a)\s+)?(?:bathroom|toilet|restroom|washroom|poop|pee|loo)\b',
+    ).hasMatch(lower);
+    if (toiletNeed ||
+        [
+          'আমার টয়লেট লাগবে',
+          'বাথরুমে যেতে হবে',
+          'প্রস্রাব করতে হবে',
+        ].any(text.contains)) {
+      return const LocalIntent('request_route', {
+        'destination': 'nearest toilet',
+      });
+    }
+    final foodNeed = RegExp(
+      r'\b(?:i need|need|gotta|have to|i want|want)\s+(?:(?:to|for)\s+)?(?:(?:go|find|get)\s+)?(?:to\s+)?(?:eat(?:\s+something)?|food|a meal|something to eat|a restaurant)\b',
+    ).hasMatch(lower);
+    if (foodNeed ||
+        lower.contains('i am hungry') ||
+        lower.contains("i'm hungry") ||
+        lower.contains('im hungry') ||
+        [
+          'খেতে চাই',
+          'খাবার চাই',
+          'আমার খিদে পেয়েছে',
+          'আমার ক্ষুধা লেগেছে',
+        ].any(text.contains)) {
+      // Routing resolves this category to the nearest nearby restaurant.
+      // Cost/budget is not available in the current Google Places response.
+      return const LocalIntent('request_route', {
+        'destination': 'nearest restaurant',
+      });
     }
     return null;
   }
@@ -2104,7 +2182,8 @@ class LocalIntentMatcher {
   /// Named a cancellation outright — these mean it wherever they appear.
   static const _cancelRouteStrong = [
     'cancel the trip', 'cancel trip', 'cancel the route', 'cancel the journey',
-    'cancel my trip', 'stop the trip', 'stop the route', 'stop navigation',
+    'cancel my trip', 'cancel that trip', 'cancel that route',
+    'stop the trip', 'stop the route', 'stop navigation',
     'stop navigating', 'end the trip', 'end navigation', 'forget the route',
     'never mind the route',
     // Romanised Bangla — item 54, and the sentence that was actually
@@ -2121,6 +2200,26 @@ class LocalIntentMatcher {
     'নেভিগেশন বন্ধ',
     'ট্রিপ বন্ধ করো', 'বাতিল করো',
   ];
+
+  static LocalIntent? _matchCancelAndClose(String lower, String text) {
+    const phrases = [
+      'cancel and close',
+      'cancel that and close',
+      'cancel trip and close',
+      'cancel the trip and close',
+      'cancel and close the map',
+      'cancel route and close map',
+      'cancel trip close map',
+    ];
+    final cancellationAndClose = RegExp(
+      r'\b(?:cancel|stop|end)\b.*\b(?:trip|route|journey|navigation)\b.*\bclose\b.*\b(?:map|it)\b',
+    ).hasMatch(lower);
+    if (phrases.any((p) => lower.contains(p) || text.contains(p)) ||
+        cancellationAndClose) {
+      return const LocalIntent('cancel_route_and_close_map', {});
+    }
+    return null;
+  }
 
   /// Bare negations — "I'm not going". A cancellation only when that is
   /// what the sentence is *about*, which is why they cannot be matched as

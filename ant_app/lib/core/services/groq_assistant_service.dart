@@ -18,6 +18,7 @@ import '../localization/app_language.dart';
 import 'destination_clarifier.dart';
 import 'function_call_executor.dart';
 import 'gemini_assistant_service.dart' show AssistantTurn;
+import 'gemini_model_cooldowns.dart';
 import 'vision/vision_scene.dart' show ScanFocus;
 import 'pending_place_save.dart';
 import 'route_planning_service.dart';
@@ -63,21 +64,26 @@ class AssistantBudgetExhausted implements Exception {
 /// share a builder without obscuring both.
 class GroqAssistantService implements AssistantService {
   @override
-  String get backendName => 'groq:${GroqConfig.chatModel}';
+  String get backendName => 'groq:$_modelName';
 
   GroqAssistantService({
     required String apiKey,
     required FunctionCallExecutor executor,
+    String? modelName,
     ApiBudget? budget,
     http.Client? client,
   }) : _apiKey = apiKey,
        _executor = executor,
+       _modelName = modelName ?? GroqConfig.chatModel,
        _budget = budget ?? defaultApiBudget,
+       _cooldowns = GeminiModelCooldowns.shared,
        _client = client ?? http.Client();
 
   final String _apiKey;
   final FunctionCallExecutor _executor;
+  final String _modelName;
   final ApiBudget _budget;
+  final GeminiModelCooldowns _cooldowns;
   final http.Client _client;
 
   // Trimmed from 8 (Gemini's figure) — every point here comes straight off
@@ -96,6 +102,11 @@ class GroqAssistantService implements AssistantService {
     RouteChoice? activeRoute,
     List<RouteCandidate> routeAlternatives = const [],
   }) async {
+    final cooldownKey = backendName;
+    final resetAt = _cooldowns.resetAt(cooldownKey);
+    if (resetAt != null) {
+      throw StateError('Groq model cooling until $resetAt');
+    }
     if (!await _budget.tryConsume(BillableApi.gemini)) {
       throw const AssistantBudgetExhausted();
     }
@@ -267,7 +278,10 @@ class GroqAssistantService implements AssistantService {
     );
   }
 
-  /// Sends the chat-completion request, retrying once on a 429.
+  /// Sends the chat-completion request. A 429 triggers immediate model
+  /// handover; waiting for Groq's retry interval before trying a backup made
+  /// the model cascade feel broken. A timer keeps later turns off this model
+  /// until its reported reset time.
   ///
   /// Confirmed live (2026-09-17 tester log, `qwen/qwen3.8-27b`): Groq's free
   /// tier caps this model at 7,000 input tokens/minute, and a single turn
@@ -278,17 +292,12 @@ class GroqAssistantService implements AssistantService {
   /// simply went silent, repeatedly, mid-conversation.
   ///
   /// Groq's error body names the exact wait (`"Please try again in
-  /// 14.9s"`), so rather than a blind exponential backoff this parses that
-  /// and waits almost exactly that long once, then retries — turning a dead
-  /// turn into a slow one. Capped at 20s so a worst-case rate-limit window
-  /// doesn't hang the whole chat UI indefinitely; past that, this throws and
-  /// the caller falls back to the offline matcher exactly as it does for
-  /// [AssistantBudgetExhausted].
+  /// 14.9s"`). That duration is used to schedule the model's cooldown; the
+  /// current turn immediately tries Gemini instead.
   Future<http.StreamedResponse> _sendWithRetry(
     List<Map<String, dynamic>> messages,
-    List<Map<String, dynamic>> selectedTools, {
-    bool isRetry = false,
-  }) async {
+    List<Map<String, dynamic>> selectedTools,
+  ) async {
     final request =
         http.Request(
             'POST',
@@ -299,11 +308,15 @@ class GroqAssistantService implements AssistantService {
             'Content-Type': 'application/json',
           })
           ..body = jsonEncode({
-            'model': GroqConfig.chatModel,
+            'model': _modelName,
             'messages': messages,
             'tools': selectedTools,
             'temperature': 0.4,
-            'max_completion_tokens': 1024,
+            'reasoning_effort': 'low',
+            // The tester org's OTPM ceiling is 1,000. Asking for 1,024 is
+            // rejected before generation starts, even when the answer would
+            // have been much shorter.
+            'max_completion_tokens': 1000,
             'stream': true,
             // Makes Groq append a final chunk carrying `usage` — without this a
             // streamed response reports nothing, and the only figure anyone has
@@ -320,13 +333,21 @@ class GroqAssistantService implements AssistantService {
           });
 
     final streamed = await _client.send(request);
-    if (streamed.statusCode == 429 && !isRetry) {
+    if (streamed.statusCode == 429) {
       final body = await streamed.stream.bytesToString();
-      final wait = _parseRetryAfter(body);
-      if (wait != null && wait <= const Duration(seconds: 20)) {
-        await Future<void>.delayed(wait);
-        return _sendWithRetry(messages, selectedTools, isRetry: true);
-      }
+      final wait =
+          _parseRetryAfter(body) ??
+          GeminiModelCooldowns.parseRetryHeader(
+            streamed.headers['retry-after'] ??
+                streamed.headers['x-ratelimit-reset-requests'] ??
+                streamed.headers['x-ratelimit-reset-tokens'],
+          );
+      final resetAt = _cooldowns.recordReset(
+        backendName,
+        (wait ?? const Duration(minutes: 1)) +
+            const Duration(milliseconds: 250),
+      );
+      debugPrint('[Assistant] Groq model cooldown until $resetAt');
       throw Exception('Groq chat completion failed (429): $body');
     }
     if (streamed.statusCode >= 400) {
@@ -343,13 +364,15 @@ class GroqAssistantService implements AssistantService {
   /// if the body doesn't have the expected shape, so the caller can fail
   /// straight to the fallback rather than waiting on a guess.
   static Duration? _parseRetryAfter(String errorBody) {
-    final match = RegExp(r'try again in ([\d.]+)s').firstMatch(errorBody);
+    final match = RegExp(
+      r'try again in ((?:\d+(?:\.\d+)?m)?\s*(?:\d+(?:\.\d+)?s)?)',
+    ).firstMatch(errorBody);
     if (match == null) return null;
-    final seconds = double.tryParse(match.group(1)!);
-    if (seconds == null) return null;
-    // A small buffer over the server's own figure — retrying at exactly the
-    // quoted instant landed on the boundary and failed again live.
-    return Duration(milliseconds: (seconds * 1000).round() + 250);
+    final delay = GeminiModelCooldowns.parseRetryHeader(match.group(1));
+    if (delay == null) return null;
+    // The parser adds a one-second safety margin. Groq's retry wording has
+    // already been observed landing successfully at +250ms.
+    return delay - const Duration(milliseconds: 750);
   }
 
   String _textOrFallback(String? text, UserProfile profile) {
@@ -411,8 +434,11 @@ You are ANT, a navigational assistant for a disabled person in Dhaka. Be brief.
 Rules:
 - ALWAYS reply in ${bn ? 'Bangla' : 'English'}. Be very concise.
 - Unsure/half-heard input -> clarify, NEVER guess status.
-- Want to go somewhere/directions -> request_route immediately, no double checking.
+- "Take me to X" / walking directions -> request_route immediately, no double checking.
+- "How do I get there", a bus line/name question, transport options, or travel time -> plan_commute.
 - Need toilet/medicine/rest -> request_route to nearest appropriate place.
+- Need food or a toilet urgently -> route immediately to the nearest restaurant or toilet; keep any budget the user gives.
+- Current weather -> use the app's live local-weather handling; never guess from general knowledge or say weather is unavailable without a failed live lookup.
 - Emergency/fear/danger -> trigger_emergency.
 - Caretaker memo -> send_caretaker_message. General check -> alert_caretaker.
 - Where am I -> describe_current_location. Do not guess street names from coords.
@@ -781,12 +807,16 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     // Planning a trip, as distinct from starting one. `request_route` walks
     // them there now; this answers "how should I get there, and when do I
     // need to leave" without committing to anything.
-    _tool('plan_commute',
-        'Say how the user could reach a place and how long each way would take, '
-            'with current traffic. For "how do I get to X", "how long to X", '
-            '"when should I leave for X". NOT for "take me to X" — that is request_route.',
-        properties: {'destination': _str('Where they want to get to.')},
-        required: ['destination']),
+    _tool(
+      'plan_commute',
+      'Say how the user could reach a place and how long each way would take, '
+          'with current traffic and Google public-transit line/stop details when available. '
+          'For "how do I get to X", bus line/name questions, transport options, '
+          '"how long to X", or "when should I leave for X". NOT for "take me to X" — '
+          'that is request_route.',
+      properties: {'destination': _str('Where they want to get to.')},
+      required: ['destination'],
+    ),
     // The user's own half of voluntary photo sharing. Camera only — a blind
     // user is not browsing a photo roll, and the gallery half belongs to the
     // caretaker's screen.

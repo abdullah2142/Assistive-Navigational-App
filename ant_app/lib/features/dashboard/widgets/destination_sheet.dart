@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 
 import '../../../core/config/routing_config.dart';
 import '../../../core/localization/dashboard_strings.dart';
@@ -10,6 +12,7 @@ import '../../../core/services/dhaka_places.dart';
 import '../../../core/services/earcon_service.dart';
 import '../../../core/services/place_categories.dart';
 import '../../../core/services/routing_service.dart';
+import '../../../core/widgets/google_places_attribution.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../onboarding/models/user_profile.dart';
@@ -82,12 +85,13 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
   Timer? _searchDebounce;
   int _searchGeneration = 0;
   bool _searching = false;
-  List<GeocodeCandidate> _results = const [];
+  List<PlacePrediction> _results = const [];
+  List<GeocodeCandidate> _legacyResults = const [];
+  late final String _placesSessionToken = newPlacesSessionToken();
 
   late final SttService _stt = ref.read(sttServiceProvider);
-  // Use Google's configured Geocoding API for autocomplete. The debounce,
-  // three-character minimum and four-result cap bound lookups as the user
-  // types; OSM remains a fallback if Google is unavailable.
+  // Use Places Autocomplete (New), biased to the user's current area. Resolve
+  // only a selected prediction to coordinates, using its session token.
   late final RoutingService _routing =
       widget.routing ??
       RoutingService(
@@ -113,20 +117,37 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
     _searchDebounce?.cancel();
     final query = value.trim();
     final generation = ++_searchGeneration;
-    if (query.length < 3 || categoryFor(query) != null) {
+    if (query.length < 2 || categoryFor(query) != null) {
       setState(() {
         _results = const [];
+        _legacyResults = const [];
         _searching = false;
       });
       return;
     }
     setState(() => _searching = true);
-    _searchDebounce = Timer(const Duration(milliseconds: 1200), () async {
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
       try {
-        final results = await _routing.geocodeCandidates(query, limit: 4);
+        Position? fix;
+        try {
+          fix = await Geolocator.getLastKnownPosition().timeout(
+            const Duration(milliseconds: 500),
+          );
+        } catch (_) {}
+        final results = await _routing.autocompletePlaces(
+          query,
+          sessionToken: _placesSessionToken,
+          origin: fix == null ? null : LatLng(fix.latitude, fix.longitude),
+          languageCode: widget.profile.language.name == 'bangla' ? 'bn' : 'en',
+          limit: 5,
+        );
+        final legacyResults = results.isEmpty
+            ? await _routing.geocodeCandidates(query, limit: 5)
+            : const <GeocodeCandidate>[];
         if (!mounted || generation != _searchGeneration) return;
         setState(() {
           _results = results;
+          _legacyResults = legacyResults;
           _searching = false;
         });
       } catch (e) {
@@ -134,14 +155,48 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
         if (!mounted || generation != _searchGeneration) return;
         setState(() {
           _results = const [];
+          _legacyResults = const [];
           _searching = false;
         });
       }
     });
   }
 
-  void _chooseCandidate(GeocodeCandidate candidate) {
+  Future<void> _chooseCandidate(PlacePrediction prediction) async {
     _searchDebounce?.cancel();
+    final generation = ++_searchGeneration;
+    setState(() => _searching = true);
+    GeocodeCandidate? candidate;
+    try {
+      candidate = await _routing.resolvePlacePrediction(
+        prediction,
+        sessionToken: _placesSessionToken,
+      );
+    } catch (e) {
+      debugPrint('[DestinationSheet] selected place unavailable: $e');
+    }
+    if (!mounted || generation != _searchGeneration) return;
+    if (candidate == null) {
+      setState(() => _searching = false);
+      Navigator.of(context).pop(
+        DestinationChoice(
+          method: DestinationMethod.typed,
+          text: prediction.label,
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).pop(
+      DestinationChoice(
+        method: DestinationMethod.typed,
+        text: candidate.spokenLabel,
+        latitude: candidate.location.latitude,
+        longitude: candidate.location.longitude,
+      ),
+    );
+  }
+
+  void _chooseLegacyCandidate(GeocodeCandidate candidate) {
     Navigator.of(context).pop(
       DestinationChoice(
         method: DestinationMethod.typed,
@@ -313,7 +368,7 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
                   padding: EdgeInsets.symmetric(vertical: 8),
                   child: Center(child: CircularProgressIndicator()),
                 ),
-              if (_results.isNotEmpty)
+              if (_results.isNotEmpty || _legacyResults.isNotEmpty)
                 Card(
                   margin: const EdgeInsets.fromLTRB(20, 8, 20, 4),
                   child: ConstrainedBox(
@@ -321,18 +376,32 @@ class _DestinationSheetState extends ConsumerState<DestinationSheet> {
                     child: ListView(
                       shrinkWrap: true,
                       children: [
+                        if (_results.isNotEmpty)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(0, 8, 12, 4),
+                              child: const GooglePlacesAttribution(),
+                            ),
+                          ),
                         for (final result in _results)
                           ListTile(
                             leading: const Icon(Icons.place_outlined),
-                            title: Text(result.spokenLabel),
-                            subtitle: result.label == result.spokenLabel
+                            title: Text(result.mainText),
+                            subtitle: result.secondaryText.isEmpty
                                 ? null
                                 : Text(
-                                    result.label,
+                                    result.secondaryText,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                             onTap: () => _chooseCandidate(result),
+                          ),
+                        for (final result in _legacyResults)
+                          ListTile(
+                            leading: const Icon(Icons.place_outlined),
+                            title: Text(result.spokenLabel),
+                            onTap: () => _chooseLegacyCandidate(result),
                           ),
                       ],
                     ),

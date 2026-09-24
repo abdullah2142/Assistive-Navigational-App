@@ -41,33 +41,45 @@ import 'vision_scene.dart';
 /// A scan that falls back is slower. A scan that does not happen is a blind
 /// user standing at a kerb with no answer.
 class VisionRouter {
-  VisionRouter({required this.groq, required this.gemini});
+  VisionRouter({
+    required this.groq,
+    VisionBackend? gemini,
+    VisionBackend? frontSnapGemini,
+    VisionBackend? sweepGemini,
+  }) : frontSnapGemini = frontSnapGemini ?? gemini,
+       sweepGemini = sweepGemini ?? gemini;
 
   /// The fast backend. Null when no Groq key is configured.
   final VisionBackend? groq;
 
-  /// The accurate, multi-frame backend. Null when no Gemini key is configured.
-  final VisionBackend? gemini;
+  /// Shared Gemini cascade for older call sites.
+  final VisionBackend? frontSnapGemini;
+  final VisionBackend? sweepGemini;
 
   /// Whether any cloud tier exists at all. False means the app is edge-only
   /// and must say so rather than implying it looked.
-  bool get hasAnyBackend => _usable(groq) != null || _usable(gemini) != null;
+  bool get hasAnyBackend =>
+      _usable(groq) != null ||
+      _usable(frontSnapGemini) != null ||
+      _usable(sweepGemini) != null;
 
   static VisionBackend? _usable(VisionBackend? b) =>
       (b != null && b.isConfigured) ? b : null;
 
-  /// The backends to try for [focus], best first.
+  /// The backends to try for [focus], best first. Multi-frame requests are
+  /// explicit sweeps and use Gemini first; single-frame requests use Qwen.
   ///
   /// Public so the caller can ask how many frames to capture before it takes
   /// any — see [framesNeededFor].
-  List<VisionBackend> orderFor(ScanFocus focus) {
+  List<VisionBackend> orderFor(ScanFocus focus, {bool sweep = false}) {
     final fast = _usable(groq);
-    final accurate = _usable(gemini);
+    final accurate = _usable(sweep ? sweepGemini : frontSnapGemini);
     // Only the bus question races a deadline. Terrain in particular wants the
     // accurate backend: `stairs going down` and `a ramp` are a one-word
     // difference with opposite consequences.
-    final preferFast = focus == ScanFocus.vehicle;
-    final ordered = preferFast ? [fast, accurate] : [accurate, fast];
+    final ordered = sweep || accurate == null
+        ? [accurate, fast]
+        : [fast, accurate];
     return [for (final b in ordered) ?b];
   }
 
@@ -82,9 +94,16 @@ class VisionRouter {
   ///
   /// Always at least one, so a caller with no backend at all still captures
   /// and can run the offline edge pass.
-  int framesNeededFor(ScanFocus focus, {required int sweepFrames}) {
-    if (focus != ScanFocus.surroundings) return 1;
-    final best = orderFor(focus).fold<int>(1, (m, b) => b.maxFrames > m ? b.maxFrames : m);
+  int framesNeededFor(
+    ScanFocus focus, {
+    required int sweepFrames,
+    bool sweep = false,
+  }) {
+    if (!sweep) return 1;
+    final best = orderFor(
+      focus,
+      sweep: true,
+    ).fold<int>(1, (m, b) => b.maxFrames > m ? b.maxFrames : m);
     return best.clamp(1, sweepFrames);
   }
 
@@ -98,12 +117,15 @@ class VisionRouter {
     required List<Uint8List> jpegs,
     required ScanFocus focus,
     required AppLanguage language,
+    bool sweep = false,
+    Uint8List? singleFrameFallback,
     List<String> edgeLabels = const [],
+
     /// The user's own question, when more specific than [focus]. See
     /// `VisionPrompt.build`.
     String? question,
   }) async {
-    final backends = orderFor(focus);
+    final backends = orderFor(focus, sweep: sweep || jpegs.length > 1);
     if (backends.isEmpty) {
       debugPrint('[Vision] no cloud backend configured');
       return null;
@@ -118,8 +140,15 @@ class VisionRouter {
     for (var i = 0; i < backends.length; i++) {
       final backend = backends[i];
       try {
+        // Gemini needs the left/centre/right capture order to understand a
+        // sweep. Qwen accepts only one image, so when Gemini fails it gets the
+        // best-focused frame selected by SnapshotVisionService.
+        final backendJpegs =
+            backend.maxFrames == 1 && singleFrameFallback != null
+            ? [singleFrameFallback]
+            : jpegs.take(backend.maxFrames).toList();
         final scene = await backend.describe(
-          jpegs: jpegs,
+          jpegs: backendJpegs,
           focus: focus,
           language: language,
           edgeLabels: edgeLabels,
@@ -127,17 +156,23 @@ class VisionRouter {
         );
         if (scene != null) {
           if (i > 0) {
-            debugPrint('[Vision] ${backend.name} answered after '
-                '${backends.first.name} failed');
+            debugPrint(
+              '[Vision] ${backend.name} answered after '
+              '${backends.first.name} failed',
+            );
           }
           return scene;
         }
         allExhausted = false;
-        debugPrint('[Vision] ${backend.name} gave no answer'
-            '${i + 1 < backends.length ? ' — trying ${backends[i + 1].name}' : ''}');
+        debugPrint(
+          '[Vision] ${backend.name} gave no answer'
+          '${i + 1 < backends.length ? ' — trying ${backends[i + 1].name}' : ''}',
+        );
       } on VisionBudgetExhausted {
-        debugPrint('[Vision] ${backend.name} budget spent'
-            '${i + 1 < backends.length ? ' — trying ${backends[i + 1].name}' : ''}');
+        debugPrint(
+          '[Vision] ${backend.name} budget spent'
+          '${i + 1 < backends.length ? ' — trying ${backends[i + 1].name}' : ''}',
+        );
       } catch (e) {
         allExhausted = false;
         debugPrint('[Vision] ${backend.name} threw: $e');

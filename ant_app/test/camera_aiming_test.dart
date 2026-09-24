@@ -5,19 +5,16 @@ import 'package:flutter_test/flutter_test.dart';
 /// The viewfinder is a deliberate, bounded exception to the Snapshot
 /// Architecture's ban on a live camera. These pin the bounds.
 void main() {
-  group('who gets a viewfinder', () {
-    test('a user with no vision does not — they get the sweep', () {
-      // A preview they cannot see is a screen standing between them and the
-      // answer, and the spoken Left / Straight ahead / Right cues are their
-      // aiming interface.
-      expect(shouldOfferAiming(VisionLevel.none), isFalse);
+  group('an explicit camera request always offers a viewfinder', () {
+    test('including for a user with no vision', () {
+      expect(shouldOfferAiming(VisionLevel.none), isTrue);
     });
 
-    test('low and partial vision do', () {
+    test('low vision does', () {
       expect(shouldOfferAiming(VisionLevel.low), isTrue);
     });
 
-    test('full vision does — this is what a sighted helper uses', () {
+    test('full vision does', () {
       expect(shouldOfferAiming(VisionLevel.full), isTrue);
     });
   });

@@ -9,8 +9,10 @@ import 'package:ant_app/core/localization/app_language.dart';
 import 'package:ant_app/core/services/local_intent_matcher.dart';
 
 void main() {
-  LocalIntent? matchEn(String text) => LocalIntentMatcher.match(text, AppLanguage.english);
-  LocalIntent? matchBn(String text) => LocalIntentMatcher.match(text, AppLanguage.bangla);
+  LocalIntent? matchEn(String text) =>
+      LocalIntentMatcher.match(text, AppLanguage.english);
+  LocalIntent? matchBn(String text) =>
+      LocalIntentMatcher.match(text, AppLanguage.bangla);
 
   group('happy paths still work', () {
     test('theme', () {
@@ -31,8 +33,60 @@ void main() {
       expect(matchEn('the bus number was 123456'), isNull);
     });
     test('unrelated chat is left for Gemini', () {
-      expect(matchEn('what is the weather like'), isNull);
+      expect(matchEn('what is the weather like')?.name, 'current_weather');
       expect(matchEn("it's getting dark outside"), isNull);
+    });
+  });
+
+  group('direct actions from the diagnostic sessions', () {
+    test('weather phrases use the live local handler', () {
+      for (final phrase in [
+        "what's weather like",
+        'what is the weather today',
+        'what is the temperature outside',
+        'is it raining',
+      ]) {
+        expect(matchEn(phrase)?.name, 'current_weather', reason: phrase);
+      }
+    });
+
+    test(
+      'camera opens locally and scene questions choose one-frame or sweep',
+      () {
+        expect(matchEn('open camera')?.name, 'open_camera');
+        expect(matchEn("what's in front of me")?.args['focus'], 'ahead');
+        expect(matchEn('what is around me')?.args['focus'], 'surroundings');
+      },
+    );
+
+    test('urgent toilet and food needs become nearby category routes', () {
+      for (final phrase in ['I need to poop', 'need to use the bathroom']) {
+        expect(
+          matchEn(phrase)?.args['destination'],
+          'nearest toilet',
+          reason: phrase,
+        );
+      }
+      for (final phrase in [
+        'I need to eat',
+        'I need to eat something',
+        "I'm hungry",
+      ]) {
+        expect(
+          matchEn(phrase)?.args['destination'],
+          'nearest restaurant',
+          reason: phrase,
+        );
+      }
+    });
+
+    test('cancellation variants also close the map when asked', () {
+      expect(matchEn('cancel that trip')?.name, 'cancel_route');
+      expect(matchEn('cancel and close')?.name, 'cancel_route_and_close_map');
+      expect(
+        matchEn('cancel that trip and close the map')?.name,
+        'cancel_route_and_close_map',
+      );
     });
   });
 
@@ -44,7 +98,8 @@ void main() {
       expect(
         intent?.args['value'],
         isNot('false'),
-        reason: 'a Deaf user saying they cannot hear had text mode switched OFF',
+        reason:
+            'a Deaf user saying they cannot hear had text mode switched OFF',
       );
     });
 
@@ -82,27 +137,33 @@ void main() {
     });
   });
 
-  group('a message naming both options is handed to Gemini, not guessed at', () {
-    // Local pattern matching has no way to tell which of two mentioned
-    // modes is the one being asked for. It used to answer "whichever list
-    // I check first", which picked `dark` for a sentence asking to leave
-    // dark mode. Returning null falls through to Gemini — the documented
-    // contract for anything this matcher isn't confident about — so the
-    // user still gets the right result, just not from a coin flip.
-    test('theme', () {
-      expect(matchEn('switch from dark mode to light mode'), isNull);
-      expect(matchEn('switch to light mode')?.args['value'], 'light');
-    });
-    test('text size', () {
-      expect(matchEn('should i make the text bigger or make the text smaller'), isNull);
-      expect(matchEn('make the text bigger')?.args['value'], '_bigger');
-    });
-    test('language', () {
-      expect(matchEn('do you speak bangla or speak english'), isNull);
-      expect(matchEn('speak in bangla')?.args['value'], 'bangla');
-    });
-    test('a boolean setting stated both ways', () {
-      expect(matchEn("i am deaf, well actually i can hear fine"), isNull);
-    });
-  });
+  group(
+    'a message naming both options is handed to Gemini, not guessed at',
+    () {
+      // Local pattern matching has no way to tell which of two mentioned
+      // modes is the one being asked for. It used to answer "whichever list
+      // I check first", which picked `dark` for a sentence asking to leave
+      // dark mode. Returning null falls through to Gemini — the documented
+      // contract for anything this matcher isn't confident about — so the
+      // user still gets the right result, just not from a coin flip.
+      test('theme', () {
+        expect(matchEn('switch from dark mode to light mode'), isNull);
+        expect(matchEn('switch to light mode')?.args['value'], 'light');
+      });
+      test('text size', () {
+        expect(
+          matchEn('should i make the text bigger or make the text smaller'),
+          isNull,
+        );
+        expect(matchEn('make the text bigger')?.args['value'], '_bigger');
+      });
+      test('language', () {
+        expect(matchEn('do you speak bangla or speak english'), isNull);
+        expect(matchEn('speak in bangla')?.args['value'], 'bangla');
+      });
+      test('a boolean setting stated both ways', () {
+        expect(matchEn("i am deaf, well actually i can hear fine"), isNull);
+      });
+    },
+  );
 }

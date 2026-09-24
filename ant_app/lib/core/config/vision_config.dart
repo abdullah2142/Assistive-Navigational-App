@@ -7,43 +7,18 @@
 class VisionConfig {
   VisionConfig._();
 
-  /// What the cloud tier is sent.
-  ///
-  /// **320x240, and the resolution is not about accuracy.** Measured against
-  /// Groq's vision endpoint on 21 September: a 320x240, 448x336, 640x480 and
-  /// 800x600 JPEG of the same Bangla signboard all cost **1,821 prompt
-  /// tokens** and all produced byte-identical transcriptions. The model bills
-  /// a flat tile cost, so resolution buys nothing and costs upload bytes.
-  ///
-  /// 8 KB instead of 28 KB is ~3.5x less radio-on time per scan, which on a
-  /// phone is the difference the battery actually notices — the cellular
-  /// radio, not the camera, is the expensive part of a snapshot.
-  ///
-  /// Raise it only with a measurement showing the model reads something at
-  /// 640 that it cannot read at 320. It did not in the one test that exists.
-  static const int uploadWidth = 320;
-  static const int uploadHeight = 240;
-  static const int uploadJpegQuality = 72;
+  /// Upload cap for broad scene descriptions and explicit camera sweeps.
+  /// The encoder preserves the captured frame's aspect ratio within this
+  /// bound and uses [uploadJpegQuality].
+  static const int uploadWidth = 640;
+  static const int uploadHeight = 480;
+  static const int uploadJpegQuality = 86;
 
-  /// The size used when the answer depends on **fine detail**: reading text,
-  /// or naming something small directly in front of the user.
-  ///
-  /// The measurement above still stands for what it tested — the same Bangla
-  /// signboard at four resolutions cost an identical 1,821 prompt tokens and
-  /// came back byte-identical — but it was taken against **Groq**, and every
-  /// scan that succeeded in the 23 September session was answered by Gemini.
-  /// Against that backend the field result is the opposite of the bench one:
-  /// the camera "can give me basic scene description but cant read anything,
-  /// and cant catch finer details like a rabbit just a couple feet away", and
-  /// it identified a litter tray as an animal's without identifying the
-  /// animal.
-  ///
-  /// Applied only to [ScanFocus.sign] and [ScanFocus.ahead] — the two where
-  /// detail is the question. The wide sweep and the hazard check are about
-  /// shape and position, which 320x240 already carries, and they are the
-  /// scans that run most often and cost the most radio time.
-  static const int detailUploadWidth = 640;
-  static const int detailUploadHeight = 480;
+  /// Higher upload cap for sign reading and one-frame scene identification.
+  /// It is still bounded to avoid needlessly uploading the camera's full
+  /// sensor resolution.
+  static const int detailUploadWidth = 1280;
+  static const int detailUploadHeight = 960;
 
   /// The input the TFLite detector wants: `[1, 300, 300, 3]`, uint8.
   /// Fixed by `assets/vision/ssd_mobilenet_v1.tflite`; changing the model
@@ -66,10 +41,8 @@ class VisionConfig {
   /// regardless of this timer. See `SnapshotCamera`.
   static const Duration cameraWarmWindow = Duration(seconds: 20);
 
-  /// Frames captured by a sweep, and the gap between them.
-  ///
-  /// Three over roughly three seconds, per the plan's Stationary Sweep. Only
-  /// the sharpest of them is ever uploaded — see [framesUploadedPerScan].
+  /// Frames captured by a guided sweep, and the gap between them. All three
+  /// ordered frames go to Gemini; a Qwen fallback receives only the sharpest.
   static const int sweepFrameCount = 3;
   static const Duration sweepFrameGap = Duration(milliseconds: 900);
 
@@ -85,27 +58,6 @@ class VisionConfig {
   /// Total sweep is therefore about 3 x (cue + 700ms + shutter) ≈ 4 s. Longer
   /// than the old burst, and the frames are usable.
   static const Duration sweepSettleDelay = Duration(milliseconds: 700);
-
-  /// **One.** Never the whole sweep.
-  ///
-  /// This is the hard constraint the module is built around. Groq's free tier
-  /// meters *input tokens per minute*, measured at **7,000 ITPM**, and one
-  /// scan costs **2,142** of them — measured against the live endpoint with
-  /// this module's actual prompt, not estimated. (The image alone is ~1,821;
-  /// the schema and the Dhaka-vehicle instructions are the rest.) Three
-  /// uploaded frames is ~6,400 — most of a minute's entire allowance for a
-  /// single question, and only about three scans fit in a minute at all.
-  ///
-  /// That allowance is **shared with the conversational assistant**. So a
-  /// three-frame sweep does not merely cost more; it takes away the user's
-  /// ability to *talk to the app* for the following minute. For somebody who
-  /// cannot see the screen, the voice channel is the only interface there is,
-  /// and spending it on redundant views of the same bus stop is the worst
-  /// trade available.
-  ///
-  /// The edge model still looks at all [sweepFrameCount] frames — that is
-  /// free and local — and picks the sharpest to send.
-  static const int framesUploadedPerScan = 1;
 
   /// Minimum gap between two cloud vision calls.
   ///
@@ -130,7 +82,7 @@ class VisionConfig {
   /// sentence that is not coming.
   static const Duration cloudTimeout = Duration(seconds: 12);
 
-  // ---- Ambient scanning (periodic, edge-only) ------------------------------
+  // ---- Ambient scanning (periodic, online-first with offline fallback) ----
 
   /// How often to look around unprompted while the user is walking.
   ///
@@ -144,16 +96,19 @@ class VisionConfig {
   /// CPU per scan, with the sensor reused inside [cameraWarmWindow] so most
   /// scans skip the 300-600 ms cold open entirely.
   ///
-  /// What keeps it affordable is not the interval but the tier: an ambient
-  /// scan **never** reaches the cloud. No tokens, no data, no radio. It asks
-  /// the one question the local model can answer — is something large and
-  /// close — and stays silent otherwise.
+  /// Ambient scans use this interval to bound Gemini Flash-Lite requests.
+  /// They upload one frame at the sweep resolution cap; when the cloud call
+  /// is unavailable, the app falls back to its local detectors.
   static const Duration ambientInterval = Duration(seconds: 30);
 
+  /// Keep a failed cloud check bounded so the offline fallback still runs
+  /// quickly enough to be useful while the user is walking.
+  static const Duration ambientVisionTimeout = Duration(seconds: 4);
+
   /// Interval used when the user is near a reported hazard or an approaching
-  /// crossing. Still edge-only; just more attentive where the map already
-  /// says attention is warranted.
-  static const Duration ambientAlertInterval = Duration(seconds: 10);
+  /// crossing. More attentive where the map already says attention is
+  /// warranted.
+  static const Duration ambientAlertInterval = Duration(seconds: 15);
 
   /// Interval after several consecutive clear scans.
   ///

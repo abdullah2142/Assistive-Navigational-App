@@ -61,12 +61,14 @@ void main() {
 
   /// The tappable circle behind an icon, as the user sees it.
   Size buttonSize(WidgetTester tester, IconData icon) => tester.getSize(
-        find.ancestor(of: find.byIcon(icon), matching: find.byType(InkWell)).first,
-      );
+    find.ancestor(of: find.byIcon(icon), matching: find.byType(InkWell)).first,
+  );
 
   ShapeBorder? buttonShape(WidgetTester tester, IconData icon) => tester
       .widget<Material>(
-        find.ancestor(of: find.byIcon(icon), matching: find.byType(Material)).first,
+        find
+            .ancestor(of: find.byIcon(icon), matching: find.byType(Material))
+            .first,
       )
       .shape;
 
@@ -80,7 +82,10 @@ void main() {
 
     testWidgets('it is the same size as the send button', (tester) async {
       await pumpPanel(tester);
-      expect(buttonSize(tester, Icons.map_outlined), buttonSize(tester, Icons.send_rounded));
+      expect(
+        buttonSize(tester, Icons.map_outlined),
+        buttonSize(tester, Icons.send_rounded),
+      );
     });
 
     testWidgets('and keeps a 48dp target', (tester) async {
@@ -90,7 +95,9 @@ void main() {
       expect(size.height, greaterThanOrEqualTo(48));
     });
 
-    testWidgets('on and off are told apart by more than colour', (tester) async {
+    testWidgets('on and off are told apart by more than colour', (
+      tester,
+    ) async {
       // Colour alone is not a state indicator. The icon changes too, and so
       // does the semantics label.
       await pumpPanel(tester, mapVisible: false);
@@ -119,7 +126,9 @@ void main() {
       expect(find.text(strings.chipVoiceMemo), findsOneWidget);
     });
 
-    testWidgets('and the other four are still there either way', (tester) async {
+    testWidgets('and the other four are still there either way', (
+      tester,
+    ) async {
       for (final paired in [null, 'caretaker-1']) {
         await pumpPanel(tester, pairedUserId: paired);
         for (final label in [
@@ -132,6 +141,24 @@ void main() {
         }
       }
     });
+  });
+
+  testWidgets('typing hides side controls so the composer grows sideways', (
+    tester,
+  ) async {
+    await pumpPanel(tester, pairedUserId: 'caretaker-1');
+    final field = find.byType(TextField);
+    final compactWidth = tester.getSize(field).width;
+
+    await tester.enterText(field, 'A message for my caretaker');
+    await tester.pump();
+
+    expect(find.byIcon(Icons.map_outlined), findsNothing);
+    expect(find.byIcon(Icons.mic_rounded), findsNothing);
+    expect(find.text('Send image'), findsNothing);
+    expect(find.text(strings.chipVoiceMemo), findsNothing);
+    expect(tester.getSize(field).width, greaterThan(compactWidth));
+    expect(find.byIcon(Icons.send_rounded), findsOneWidget);
   });
 }
 

@@ -38,7 +38,7 @@ HazardVerdict _sawSomething() => const HazardVerdict(
 
 AmbientScanPolicy _policy() => AmbientScanPolicy(
       interval: const Duration(seconds: 30),
-      alertInterval: const Duration(seconds: 10),
+      alertInterval: const Duration(seconds: 15),
       calmInterval: const Duration(seconds: 60),
       calmAfter: 4,
       minMovementMeters: 8,
@@ -114,7 +114,7 @@ void main() {
       }
       expect(p.currentInterval, const Duration(seconds: 60));
       p.alert = true;
-      expect(p.currentInterval, const Duration(seconds: 10));
+      expect(p.currentInterval, const Duration(seconds: 15));
     });
   });
 

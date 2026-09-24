@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -14,20 +16,25 @@ import '../widgets/onboarding_scaffold.dart';
 import '../widgets/onboarding_voice.dart';
 import '../widgets/spoken_digits.dart';
 import '../widgets/spoken_name.dart';
+import '../widgets/trusted_contact_search_sheet.dart';
 import '../widgets/voice_dictate_button.dart';
 
 class MagicButtonContactsScreen extends ConsumerStatefulWidget {
   const MagicButtonContactsScreen({super.key});
 
   @override
-  ConsumerState<MagicButtonContactsScreen> createState() => _MagicButtonContactsScreenState();
+  ConsumerState<MagicButtonContactsScreen> createState() =>
+      _MagicButtonContactsScreenState();
 }
 
-class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsScreen> {
+class _MagicButtonContactsScreenState
+    extends ConsumerState<MagicButtonContactsScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   bool _disposed = false;
   bool _voiceStarted = false;
+  bool _contactDialogOpen = false;
+  int _voiceGeneration = 0;
 
   // See `LanguageSelectionScreen`'s identical fields for why this is a
   // `late final` capture rather than `ref.read` inside `dispose()` — the
@@ -55,24 +62,55 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
   }
 
   void _addContact(OnboardingController controller) {
-    if (_nameController.text.trim().isEmpty || _phoneController.text.trim().isEmpty) return;
-    controller.addContact(TrustedContact(
-      name: _nameController.text.trim(),
-      phoneNumber: _phoneController.text.trim(),
-    ));
+    if (_nameController.text.trim().isEmpty ||
+        _phoneController.text.trim().isEmpty)
+      return;
+    controller.addContact(
+      TrustedContact(
+        name: _nameController.text.trim(),
+        phoneNumber: _phoneController.text.trim(),
+      ),
+    );
     _nameController.clear();
     _phoneController.clear();
     setState(() {});
   }
 
+  Future<void> _importContact(OnboardingController controller) async {
+    _contactDialogOpen = true;
+    _voiceGeneration++;
+    await _stt.stop();
+    await _tts.stop();
+    if (!mounted) return;
+    final contact = await TrustedContactSearchSheet.show(
+      context,
+      language: ref.read(onboardingControllerProvider).profile!.language,
+    );
+    if (!mounted) return;
+    _contactDialogOpen = false;
+    if (contact != null) await controller.addContact(contact);
+    if (!mounted) return;
+    _voiceStarted = false;
+    unawaited(_introAndListen());
+  }
+
   Future<void> _introAndListen() async {
-    if (_disposed || !ref.read(ttsEnabledProvider)) return;
+    if (_disposed || _contactDialogOpen || !ref.read(ttsEnabledProvider))
+      return;
     final language = ref.read(onboardingControllerProvider).profile!.language;
     final s = Onboarding.of(language);
-    await _tts.speak('${s.contactsTitle}. ${s.contactsSpokenHint}', language: language);
-    if (_disposed || !ref.read(ttsEnabledProvider) || _voiceStarted) return;
+    await _tts.speak(
+      '${s.contactsTitle}. ${s.contactsSpokenHint}',
+      language: language,
+    );
+    if (_disposed ||
+        _contactDialogOpen ||
+        !ref.read(ttsEnabledProvider) ||
+        _voiceStarted) {
+      return;
+    }
     _voiceStarted = true;
-    await _voiceContactLoop(s, language);
+    await _voiceContactLoop(s, language, ++_voiceGeneration);
   }
 
   /// Repeats name -> phone -> save -> "add another, or continue?" for as
@@ -90,10 +128,17 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
   /// for that. Splitting "save" (automatic, no voice command needed) from
   /// "add another vs. continue" (one clear, separate question afterward)
   /// removes that double meaning entirely.
-  Future<void> _voiceContactLoop(Onboarding s, AppLanguage language) async {
+  Future<void> _voiceContactLoop(
+    Onboarding s,
+    AppLanguage language,
+    int voiceGeneration,
+  ) async {
     final myGeneration = ref.read(onboardingControllerProvider).stepGeneration;
     bool cancelled() =>
-        _disposed || ref.read(onboardingControllerProvider).stepGeneration != myGeneration;
+        _disposed ||
+        _contactDialogOpen ||
+        _voiceGeneration != voiceGeneration ||
+        ref.read(onboardingControllerProvider).stepGeneration != myGeneration;
     final stt = _stt;
     final tts = _tts;
     final controller = ref.read(onboardingControllerProvider.notifier);
@@ -102,7 +147,9 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
       await tts.speak(s.contactsNamePromptSpoken, language: language);
       if (cancelled()) return;
       if (!await stt.ensureAvailable()) {
-        debugPrint('[ContactsVoice] stt.ensureAvailable() returned false — giving up silently');
+        debugPrint(
+          '[ContactsVoice] stt.ensureAvailable() returned false — giving up silently',
+        );
         return;
       }
       String? name;
@@ -118,7 +165,9 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
       await tts.speak(s.contactsPhonePromptSpoken, language: language);
       if (cancelled()) return;
       if (!await stt.ensureAvailable()) {
-        debugPrint('[ContactsVoice] stt.ensureAvailable() returned false — giving up silently');
+        debugPrint(
+          '[ContactsVoice] stt.ensureAvailable() returned false — giving up silently',
+        );
         return;
       }
       String? phone;
@@ -137,7 +186,8 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
       if (cancelled()) return;
       if (phone != null) setState(() => _phoneController.text = phone!);
 
-      if (_nameController.text.trim().isEmpty || _phoneController.text.trim().isEmpty) {
+      if (_nameController.text.trim().isEmpty ||
+          _phoneController.text.trim().isEmpty) {
         // Neither utterance was captured (silence/mismatch both times) —
         // don't silently save an empty contact, just loop back and ask again.
         continue;
@@ -169,7 +219,11 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
             synonyms: s.contactsAddAnotherSynonyms,
             onSelect: () => action = 'another',
           ),
-          OnboardingVoiceChoice(label: s.continueLabel, synonyms: s.continueSynonyms, onSelect: () => action = 'continue'),
+          OnboardingVoiceChoice(
+            label: s.continueLabel,
+            synonyms: s.continueSynonyms,
+            onSelect: () => action = 'continue',
+          ),
         ],
         retryHint: s.contactsAddedThenAddAnotherOrContinueSpoken,
         unavailableMessage: s.voiceUnavailableSpoken,
@@ -215,8 +269,23 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
           if (trimmed.isEmpty) return;
           confirmed = classifyTraitYesNo(
             trimmed,
-            presentPhrases: const ['correct', 'that\'s right', 'thats right', 'right', 'save it', 'ঠিক আছে', 'ঠিক'],
-            absentPhrases: const ['wrong', 'incorrect', 'redo', 'try again', 'ভুল', 'আবার'],
+            presentPhrases: const [
+              'correct',
+              'that\'s right',
+              'thats right',
+              'right',
+              'save it',
+              'ঠিক আছে',
+              'ঠিক',
+            ],
+            absentPhrases: const [
+              'wrong',
+              'incorrect',
+              'redo',
+              'try again',
+              'ভুল',
+              'আবার',
+            ],
           );
         },
       );
@@ -328,9 +397,18 @@ class _MagicButtonContactsScreenState extends ConsumerState<MagicButtonContactsS
             icon: const Icon(Icons.add_rounded),
             label: Text(s.contactsAddButton),
           ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => _importContact(controller),
+            icon: const Icon(Icons.contacts_outlined),
+            label: Text(s.contactsImportButton),
+          ),
           if (state.errorMessage != null) ...[
             const SizedBox(height: 12),
-            Text(state.errorMessage!, style: const TextStyle(color: AppColors.danger)),
+            Text(
+              state.errorMessage!,
+              style: const TextStyle(color: AppColors.danger),
+            ),
           ],
         ],
       ),

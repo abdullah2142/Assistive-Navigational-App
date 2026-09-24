@@ -230,43 +230,73 @@ class Dashboard {
 
   /// How to get somewhere — see `CommutePlanner`.
   String commuteModeName(CommuteMode mode) => switch (mode) {
-        CommuteMode.walk => _t('walking', 'হেঁটে'),
-        CommuteMode.rickshaw => _t('by rickshaw', 'রিকশায়'),
-        CommuteMode.cng => _t('by CNG', 'সিএনজিতে'),
-        CommuteMode.bus => _t('by bus', 'বাসে'),
-      };
+    CommuteMode.walk => _t('walking', 'হেঁটে'),
+    CommuteMode.rickshaw => _t('by rickshaw', 'রিকশায়'),
+    CommuteMode.cng => _t('by CNG', 'সিএনজিতে'),
+    CommuteMode.bus => _t('by bus', 'বাসে'),
+  };
 
   /// One option, spoken. The hedge on an estimated figure is not politeness:
   /// a user told "twenty minutes" who arrives in forty has been given a
   /// reason to stop trusting every other number this app says.
-  String commuteOptionLine(CommuteMode mode, int minutes, {required bool trafficAware}) {
+  String commuteOptionLine(
+    CommuteMode mode,
+    int minutes, {
+    required bool trafficAware,
+  }) {
     final how = commuteModeName(mode);
     return trafficAware
         ? _t('$how, $minutes minutes.', '$how, $minutes মিনিট।')
-        : _t('$how, roughly $minutes minutes.', '$how, আনুমানিক $minutes মিনিট।');
+        : _t(
+            '$how, roughly $minutes minutes.',
+            '$how, আনুমানিক $minutes মিনিট।',
+          );
   }
 
   String get commuteIntro =>
       _t('Here is how you could get there.', 'ওখানে যেভাবে যেতে পারেন।');
 
-  String get commuteNoOptions => _t(
-        "That's close enough to walk.",
-        'ওটা হেঁটে যাওয়ার মতোই কাছে।',
-      );
+  String get commuteNoOptions =>
+      _t("That's close enough to walk.", 'ওটা হেঁটে যাওয়ার মতোই কাছে।');
 
   /// Said once when the figures came from a time-of-day average rather than
   /// live traffic, so the user knows which kind of number they have.
   String get commuteEstimated => _t(
-        "I couldn't check traffic just now, so these are averages.",
-        'এখন যানজট দেখতে পারিনি, তাই এগুলো গড় হিসাব।',
-      );
+    "I couldn't check traffic just now, so these are averages.",
+    'এখন যানজট দেখতে পারিনি, তাই এগুলো গড় হিসাব।',
+  );
+
+  String commuteTransitDuration(int minutes) => _t(
+    'Google Maps transit estimate: about $minutes minutes.',
+    'গুগল ম্যাপসের গণনায় গণপরিবহনে প্রায় $minutes মিনিট লাগবে।',
+  );
+
+  String commuteTransitLeg({
+    required String line,
+    required String fromStop,
+    required String toStop,
+    required String headsign,
+  }) {
+    final route = line.isNotEmpty ? line : _t('unnamed route', 'নামহীন রুট');
+    final stops = fromStop.isNotEmpty && toStop.isNotEmpty
+        ? _t('from $fromStop to $toStop', '$fromStop থেকে $toStop পর্যন্ত')
+        : '';
+    final direction = headsign.trim().isNotEmpty
+        ? _t('toward ${headsign.trim()}', '${headsign.trim()} অভিমুখে')
+        : '';
+    return [
+      route,
+      direction,
+      stops,
+    ].where((part) => part.isNotEmpty).join(', ');
+  }
 
   /// The aiming viewfinder — see `CameraAimingScreen`.
   String get cameraAimingTitle => _t('Point the camera', 'ক্যামেরা তাক করুন');
   String get cameraAimingHint => _t(
-        'Point it at what you want me to look at, then tap.',
-        'যেটা দেখাতে চান সেদিকে তাক করে চাপ দিন।',
-      );
+    'Point it at what you want me to look at, then tap.',
+    'যেটা দেখাতে চান সেদিকে তাক করে চাপ দিন।',
+  );
   String get cameraAimingShoot => _t('Look at this', 'এটা দেখো');
 
   /// The reply banner above the composer.
@@ -1180,6 +1210,25 @@ class Dashboard {
     'যুক্ত করা যায়নি — আবার চেষ্টা করুন।',
   );
   String get settingsVisionSection => _t('Vision', 'চোখের অবস্থা');
+  String get settingsDepthSection => _t('Depth scanner', 'গভীরতা স্ক্যানার');
+  String get settingsDepthScanning =>
+      _t('Check the ground for drop-offs', 'সামনের মাটি ও গর্ত পরীক্ষা করুন');
+  String get settingsAutoOpenMap =>
+      _t('Open the map when a route starts', 'পথ চালু হলে মানচিত্র খুলুন');
+  String get settingsMapsSection => _t('Maps', 'মানচিত্র');
+  String weatherCurrentSummary(
+    String condition,
+    int temperature,
+    int feelsLike,
+    int rainChance,
+  ) => _t(
+    'Currently $condition, $temperature°C (feels like $feelsLike°C). Rain chance this hour: $rainChance%.',
+    'এখন $condition, তাপমাত্রা $temperature° সেলসিয়াস (অনুভূত $feelsLike°)। এই ঘণ্টায় বৃষ্টির সম্ভাবনা $rainChance শতাংশ।',
+  );
+  String get weatherUnavailable => _t(
+    'I could not get a current weather reading for your location.',
+    'আপনার এলাকার বর্তমান আবহাওয়ার তথ্য আনতে পারিনি।',
+  );
   String get settingsThemeSection => _t('Theme', 'রং');
   String get settingsLanguageSection => _t('Language', 'ভাষা');
   String get settingsTextSizeSection => _t('Text size', 'লেখার আকার');
@@ -1435,6 +1484,14 @@ class Dashboard {
     'আপনার দেখাশোনাকারী আপনার সামনের একটা ছবি চেয়েছেন। পাঠাব?',
   );
 
+  String get caretakerSnapshotDeferred => _t(
+    'Okay, I will not send a photo now.',
+    'ঠিক আছে, এখন ছবি পাঠাব না।',
+  );
+  String get caretakerSnapshotSendButton => _t('Send photo', 'ছবি পাঠান');
+  String get caretakerSnapshotNoButton => _t('No', 'না');
+  String get caretakerSnapshotLaterButton => _t('Not now', 'এখন নয়');
+
   String get caretakerSnapshotNotAvailable => _t(
     'Sending photos is not available in this build yet, so nothing was sent.',
     'এই সংস্করণে ছবি পাঠানো এখনও চালু হয়নি, তাই কিছু পাঠানো হয়নি।',
@@ -1617,6 +1674,8 @@ class Dashboard {
   String get settingsNamePlaceholder => _t('Name', 'নাম');
   String get settingsPhonePlaceholder => _t('Phone', 'ফোন নম্বর');
   String get settingsAddContactButton => _t('Add contact', 'পরিচিতি যোগ করুন');
+  String get settingsImportContactButton =>
+      _t('Find contacts or add new', 'পরিচিতি খুঁজুন বা নতুন যোগ করুন');
   String settingsRemoveContactSemantics(String name) =>
       _t('Remove $name', '$name বাদ দিন');
   String get settingsRemoveMessageSemantics =>

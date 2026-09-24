@@ -9,9 +9,8 @@ not the hopeful one.
 
 ## Next up
 
-1. **Phone contacts import.** Pull emergency contacts from the phone's
-   address book instead of dictating name and number. Needs a new runtime
-   permission and a picker. *Medium.*
+1. **Map menu and nearby places.** Let users browse saved places and explore
+   nearby places from the map instead of only dropping a pin. *Medium.*
 
 
 ## Locations and maps
@@ -21,29 +20,32 @@ Asked for twice. The first round of this shipped and was **unreachable** — the
 `break` while the sheet that answers it lives on the dashboard. That wiring
 is fixed; what follows is what is genuinely still missing.
 
-- **Search that actually searches.** The destination sheet's field submits
-  its text to the same path a spoken destination takes — a geocode, or a
-  category lookup for "nearest X". There is no *as-you-type* search, no list
-  of matching places to choose from, and no way to see what a query would
-  resolve to before committing to walking there. *Medium.*
 - **A map menu, not just a picker.** `MapPinPickerScreen` drops one pin and
   returns. It cannot show saved places on the map, cannot show what is
   nearby, and cannot be panned to explore an area before choosing. *Medium.*
-- **Confirm a pin before routing.** A pin is reverse-geocoded for the
-  *sentence* only; if that lookup fails the user is walked to "the place you
-  picked on the map" with no name. Reading back a candidate and waiting for
-  a yes would make a mis-aimed pin recoverable. *Small.*
+- ~~**Bus line names for transit routes.**~~ Commute planning now asks Google
+  Routes API for a bus itinerary and speaks its line name, boarding stop,
+  alighting stop, direction, and estimated duration when Google returns them.
+  It uses the shared Routes API monthly cap and falls back to the existing
+  approximate bus-time estimate when transit data is unavailable.
 
 ## Later, by instruction
 
-- **Guardian web interface.** Everything the phone can do, in a browser, for
-  a caretaker who is not holding the user's device. No Firebase Hosting is
-  configured yet; this is greenfield. *Large.*
-- **Phone contacts import.** Pull emergency contacts from the phone's address
-  book instead of dictating name and number. Needs a new permission and a
-  picker. *Medium.*
 
 ## Done
+
+- ~~**Caretaker web hub (local preview).**~~ A standalone browser client now
+  reuses the existing anonymous Firebase sign-in and one-time pairing flow.
+  It provides paired-user location, alerts, and a caretaker chat with text,
+  snapshot requests, compressed image sharing, and replayable WAV voice
+  memos. Firebase Hosting is still not configured; the hub has been built and
+  previewed locally but has not been published.
+
+- ~~**Phone contacts search and import.**~~ Onboarding and Settings share an
+  in-app contact search that filters the phone's local address book by typed
+  or spoken name/number. The user can instead enter a new name and number;
+  both manual fields support voice dictation. Only the chosen contact is
+  saved to the emergency profile.
 
 - ~~**Battery warnings.**~~ The ambient scanner announces once when it stops
   below 20%, and again when charge recovers.
@@ -63,22 +65,38 @@ is fixed; what follows is what is genuinely still missing.
   quote it; the quote is sent to the model as context and shown in the
   bubble. Carried as text rather than an id because the model reads a
   transcript, not a database.
-- ~~**Camera aiming preview.**~~ A bounded exception to the no-live-video
-  rule: the preview lives only while the aiming screen is on top, is capped
-  at 45s, and is released on dispose however the screen is left. Offered
-  only to users with some usable vision — for a blind user a preview is a
-  screen between them and the answer, and the spoken sweep cues are their
-  aiming interface.
+- ~~**Camera aiming preview.**~~ An explicit camera action opens a bounded
+  viewfinder. Its shutter frame is the frame analyzed or sent to the caretaker;
+  one-shot capture stays separate from spoken multi-frame sweeps. The camera
+  closes after analysis or dismissal.
+- ~~**"What's in front of me?" snapshot.**~~ The ahead-scene intent now takes
+  one high-quality frame and sends it for analysis. Explicit sweeps still use
+  multiple frames.
+- ~~**Search that actually searches.**~~ The destination sheet and map pin
+  picker now show debounced Google Places Autocomplete candidates, biased to
+  the user's location; selecting a candidate resolves its place details.
+  Legacy geocoding and OSM suggestions remain fallbacks when Places is
+  unavailable. Queries require three characters and return at most four
+  candidates.
+- ~~**Confirm a pin before routing.**~~ A selected map pin is shown for
+  confirmation before it is returned as the destination, so an accidental
+  tap can be corrected.
 - ~~**Search and pin wherever a place is added.**~~ `PlacePickerField` in
   settings, `MapPickButton` in onboarding, and the map picker now searches
   and offers candidates. Settings can also create a saved place, which it
   never could.
 - ~~**Voicemail-style replay.**~~ `replay_voice_message(which)` steps through
   the session's memos — latest, repeat, previous, next — announcing the
-  position before each. Ends clamp rather than wrap.
-- ~~**Guardian chat interface.**~~ Inline composer and sender-aligned
-  bubbles, replacing three buttons that each opened a modal and a read-only
-  list of the last five.
+  position before each. Ends clamp rather than wrap. Voice messages are also
+  tap-to-play in both the user and caretaker chat interfaces.
+- ~~**Guardian chat interface.**~~ A caretaker-side composer now mirrors the
+  user chat with request-snapshot and send-image actions, a text field, and a
+  speech-input mic plus a separate voice-message pill. Both chat composers
+  expand sideways and hide action pills while text is being composed. Caretaker
+  and AI messages have distinct colors, and voice messages are tap-to-play in
+  both chats. On the user chat, the caretaker pill manually toggles message
+  routing and stays selected until toggled off; voice-directed caretaker
+  sends route once and then turn the pill off again.
 - ~~**Voluntary image sending.**~~ Guardian sends from gallery or camera, the
   user from the camera only. An arriving photo is read aloud by the vision
   tier — a picture on a screen the user cannot see is not a delivered
@@ -88,3 +106,36 @@ is fixed; what follows is what is genuinely still missing.
   landmarks and announces each once within 40m. Crossings come from the route
   geometry; bus stops are an Overpass lookup fired after setting off, so a
   slow volunteer API never delays the start of a journey.
+- ~~**One-frame capture for direct scene requests.**~~ “What's in front of
+  me?” and explicit camera shutter actions analyze one high-quality frame;
+  “what's around me?” remains the guided multi-frame sweep. Volume Up also
+  takes an immediate single frame.
+- ~~**Accessibility preferences for scanning and maps.**~~ Depth scanning is
+  configurable and defaults on for blind profiles. Opening the map after a
+  route is configurable and defaults off for blind profiles.
+- ~~**Direct voice actions for common requests.**~~ Current-weather questions
+  fetch live weather; food and toilet needs route to the nearest matching
+  place; open-camera and cancel/close-trip phrasings now dispatch locally.
+- ~~**Voice-memo recording controls.**~~ The user-side recorder listens to
+  streaming speech recognition for send, stop, and cancel commands, and still
+  has a 20-second safety limit.
+- ~~**AI model cascades and timed recovery.**~~ Chat runs GPT-OSS 120B (Groq)
+  → Qwen 3.8 27B (Groq) → Gemma 4 31B (AI Studio) → Gemini 3.7 Flash →
+  3.6 Flash → 3.5 Flash → 3.5 Flash-Lite. Front Snap runs Qwen first, then
+  Gemini 3.7 → 3.6 → Gemma 4 → 3.5 → 3.5 Flash-Lite. Three-way sweep uses
+  Gemini 3.7 → 3.6 → Gemma 4 → 3.5, then Qwen with only the sharpest single
+  frame. Cooldowns are shared by provider/model across chat and vision, so
+  overlapping models share their provider quota; expired timers restore their
+  preferred position automatically. Picture follow-ups resend the captured
+  frame with the follow-up question.
+- ~~**Online ambient vision checks.**~~ Blind and low-vision profiles now use
+  Gemini 3.5 Flash-Lite for one bounded forward-facing frame on a 30-second
+  walking cadence, 15 seconds near mapped hazards/crossings, and 60 seconds
+  after four clear scans. Ambient images never enter chat. Foreground work,
+  movement, battery level, and app lifecycle gate the work; a failed/slow
+  online check falls back to local SSD and optional depth detection. This
+  remains advisory and does not claim a route is safe.
+- ~~**Vision and camera technical documentation.**~~ Added a module reference
+  covering camera ownership, aiming, one-frame scans, sweeps, ambient scans,
+  model routing, image caps, fallback behavior, token-cost limits, and known
+  safety constraints.

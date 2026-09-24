@@ -9,6 +9,7 @@ import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/routing_service.dart';
 import '../../../core/services/place_categories.dart';
+import '../../../core/widgets/google_places_attribution.dart';
 import '../../../core/widgets/map_unavailable_placeholder.dart';
 import '../../onboarding/models/saved_place.dart';
 import '../widgets/destination_sheet.dart';
@@ -69,7 +70,8 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
   late final RoutingService _routing = widget.routing ?? RoutingService();
 
   /// Candidates for the current query, and whether one is in flight.
-  List<GeocodeCandidate> _results = const [];
+  List<PlacePrediction> _results = const [];
+  String _placesSessionToken = newPlacesSessionToken();
   bool _searching = false;
   bool _resolving = false;
   bool _programmaticCameraMove = false;
@@ -97,20 +99,69 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
     if (query.isEmpty) return;
     setState(() => _searching = true);
     try {
-      final found = await _routing.geocodeCandidates(query);
-      if (!mounted) return;
-      setState(() => _results = found);
+      var found = await _routing.autocompletePlaces(
+        query,
+        sessionToken: _placesSessionToken,
+        origin: gmaps.LatLng(_centre.latitude, _centre.longitude),
+        languageCode: widget.language.name == 'bangla' ? 'bn' : 'en',
+        limit: 5,
+      );
       if (found.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(Dashboard.of(widget.language).pathSearchNoResults),
-          ),
-        );
+        // Address-only queries can still use Google's address geocoder (or
+        // the configured OSM fallback) when Places has no prediction.
+        final addresses = await _routing.geocodeCandidates(query, limit: 5);
+        if (!mounted) return;
+        setState(() {
+          _results = const [];
+          _legacyResults = addresses;
+        });
+        if (addresses.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(Dashboard.of(widget.language).pathSearchNoResults),
+            ),
+          );
+        }
+        return;
       }
+      if (!mounted) return;
+      setState(() {
+        _legacyResults = const [];
+        _results = found;
+      });
     } catch (e) {
       debugPrint('[MapPicker] search failed: $e');
     } finally {
       if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  List<GeocodeCandidate> _legacyResults = const [];
+
+  Future<void> _choosePrediction(PlacePrediction prediction) async {
+    setState(() => _resolving = true);
+    try {
+      final candidate = await _routing.resolvePlacePrediction(
+        prediction,
+        sessionToken: _placesSessionToken,
+      );
+      if (!mounted) return;
+      if (candidate != null) {
+        _goTo(candidate);
+        return;
+      }
+      final addresses = await _routing.geocodeCandidates(
+        prediction.label,
+        limit: 1,
+      );
+      if (addresses.isNotEmpty) _goTo(addresses.first);
+    } catch (e) {
+      debugPrint('[MapPicker] selected prediction failed: $e');
+    } finally {
+      // Place Details ends the current Autocomplete session. This screen stays
+      // open, so a later search needs its own fresh token.
+      _placesSessionToken = newPlacesSessionToken();
+      if (mounted) setState(() => _resolving = false);
     }
   }
 
@@ -120,6 +171,7 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
       _centre = candidate.location;
       _centreLabel = candidate.label;
       _results = const [];
+      _legacyResults = const [];
       _nearbyPlaces = const [];
       _search.text = candidate.spokenLabel;
     });
@@ -438,14 +490,39 @@ class _MapPinPickerScreenState extends State<MapPinPickerScreen> {
                       // four Lab Aids, and picking one silently is how
                       // somebody walks to the wrong building with no way to
                       // tell until they arrive.
-                      if (_results.isNotEmpty)
+                      if (_results.isNotEmpty || _legacyResults.isNotEmpty)
                         Card(
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(maxHeight: 220),
                             child: ListView(
                               shrinkWrap: true,
                               children: [
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      0,
+                                      8,
+                                      12,
+                                      4,
+                                    ),
+                                    child: const GooglePlacesAttribution(),
+                                  ),
+                                ),
                                 for (final r in _results)
+                                  ListTile(
+                                    dense: true,
+                                    title: Text(r.mainText),
+                                    subtitle: r.secondaryText.isEmpty
+                                        ? null
+                                        : Text(
+                                            r.secondaryText,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                    onTap: () => _choosePrediction(r),
+                                  ),
+                                for (final r in _legacyResults)
                                   ListTile(
                                     dense: true,
                                     title: Text(r.spokenLabel),

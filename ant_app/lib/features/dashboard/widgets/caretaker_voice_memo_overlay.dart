@@ -11,6 +11,8 @@ import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/providers/tts_providers.dart';
 import '../../../core/services/haptics_service.dart';
+import '../../../core/services/cloud_stt_service.dart';
+import '../../../core/services/voice_memo_command.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/wav_encoder.dart';
 import '../../guardian/providers/guardian_providers.dart';
@@ -73,7 +75,7 @@ class CaretakerVoiceMemoOverlay {
 /// Telephone-quality mono. Plenty for speech, and a quarter the bytes of
 /// anything higher — which matters, because the clip is base64'd into a
 /// Firestore document rather than uploaded to Storage.
-const int _sampleRate = 8000;
+const int _sampleRate = 16000;
 
 /// Hard cap. Keeps the encoded WAV well under Firestore's 1MiB document
 /// limit, and keeps a forgotten recorder from running until the battery goes.
@@ -105,6 +107,7 @@ class _MemoRecorderState extends ConsumerState<_MemoRecorder> {
   final _recorder = AudioRecorder();
   final _pcm = BytesBuilder();
   StreamSubscription<Uint8List>? _sub;
+  CloudSttService? _cloudStt;
   Timer? _ticker;
 
   _Phase _phase = _Phase.announcing;
@@ -125,6 +128,7 @@ class _MemoRecorderState extends ConsumerState<_MemoRecorder> {
   void dispose() {
     _ticker?.cancel();
     _sub?.cancel();
+    unawaited(_cloudStt?.stop());
     _recorder.dispose();
     super.dispose();
   }
@@ -134,7 +138,9 @@ class _MemoRecorderState extends ConsumerState<_MemoRecorder> {
     // Spoken first, and awaited. Opening the microphone underneath this would
     // record the app's own narration — the exact defect of item 23.
     try {
-      await ref.read(ttsServiceProvider).speak(d.voiceMemoIntro, language: widget.language);
+      await ref
+          .read(ttsServiceProvider)
+          .speak(d.voiceMemoIntro, language: widget.language);
     } catch (_) {
       // A silent device must not stop somebody sending a message.
     }
@@ -175,10 +181,29 @@ class _MemoRecorderState extends ConsumerState<_MemoRecorder> {
     unawaited(ref.read(hapticsServiceProvider).play(HapticCue.confirmation));
 
     setState(() => _phase = _Phase.recording);
-    _sub = stream.listen(
+    // The recorder stream is single-subscription. Share its PCM frames with
+    // the memo encoder and streaming recognizer so there is only one open mic.
+    final sharedStream = stream.asBroadcastStream();
+    _sub = sharedStream.listen(
       _pcm.add,
       onError: (Object e) => debugPrint('[VoiceMemo] recording stream: $e'),
     );
+    final cloudStt = ref.read(cloudSttServiceProvider);
+    final listening = await cloudStt.start(
+      language: widget.language,
+      audioSource: sharedStream,
+      onResult: (transcript, isFinal) {
+        if (!isFinal || !mounted || _finishing) return;
+        final command = voiceMemoCommand(transcript);
+        if (command == null) return;
+        debugPrint('[VoiceMemo] voice control recognized: ${command.name}');
+        unawaited(_finish(send: command == VoiceMemoCommand.send));
+      },
+      onStreamError: (error) =>
+          debugPrint('[VoiceMemo] voice control failed: $error'),
+      phraseHints: const ['send', 'stop', 'cancel'],
+    );
+    if (listening) _cloudStt = cloudStt;
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() => _elapsedSeconds++);
@@ -200,6 +225,8 @@ class _MemoRecorderState extends ConsumerState<_MemoRecorder> {
     if (_finishing) return;
     _finishing = true;
     _ticker?.cancel();
+    await _cloudStt?.stop();
+    _cloudStt = null;
     await _sub?.cancel();
     _sub = null;
     try {
@@ -216,8 +243,9 @@ class _MemoRecorderState extends ConsumerState<_MemoRecorder> {
       return;
     }
 
-    final seconds = _elapsedSeconds;
-    if (seconds < _minSeconds || _pcm.isEmpty) {
+    final audio = _pcm.toBytes();
+    final seconds = audio.length ~/ (_sampleRate * 2);
+    if (seconds < _minSeconds || audio.isEmpty) {
       // Nothing was captured. Saying so beats a caretaker receiving silence
       // and wondering what it meant.
       await _say(d.voiceMemoTooShort);
@@ -226,9 +254,11 @@ class _MemoRecorderState extends ConsumerState<_MemoRecorder> {
     }
 
     setState(() => _phase = _Phase.sending);
-    final wav = wrapPcm16AsWav(_pcm.toBytes(), sampleRate: _sampleRate, numChannels: 1);
+    final wav = wrapPcm16AsWav(audio, sampleRate: _sampleRate, numChannels: 1);
     try {
-      await ref.read(communicationServiceProvider).sendVoiceMemo(
+      await ref
+          .read(communicationServiceProvider)
+          .sendVoiceMemo(
             disabledUserUid: widget.disabledUserUid,
             fromUid: widget.disabledUserUid,
             toUid: widget.caretakerUid,
@@ -276,9 +306,13 @@ class _MemoRecorderState extends ConsumerState<_MemoRecorder> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
-                      recording ? Icons.mic_rounded : Icons.hourglass_empty_rounded,
+                      recording
+                          ? Icons.mic_rounded
+                          : Icons.hourglass_empty_rounded,
                       size: 92,
-                      color: recording ? AppColors.danger : theme.colorScheme.primary,
+                      color: recording
+                          ? AppColors.danger
+                          : theme.colorScheme.primary,
                     ),
                     const SizedBox(height: 20),
                     Text(
@@ -288,13 +322,16 @@ class _MemoRecorderState extends ConsumerState<_MemoRecorder> {
                     ),
                     if (recording) ...[
                       const SizedBox(height: 8),
-                      Text('$_elapsedSeconds / $_maxSeconds s',
-                          style: theme.textTheme.titleLarge),
+                      Text(
+                        '$_elapsedSeconds / $_maxSeconds s',
+                        style: theme.textTheme.titleLarge,
+                      ),
                       const SizedBox(height: 28),
                       Text(
                         d.voiceMemoSendButton,
-                        style: theme.textTheme.headlineMedium
-                            ?.copyWith(color: theme.colorScheme.primary),
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          color: theme.colorScheme.primary,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -305,7 +342,9 @@ class _MemoRecorderState extends ConsumerState<_MemoRecorder> {
                         button: true,
                         label: d.voiceMemoCancelButton,
                         child: OutlinedButton(
-                          onPressed: _finishing ? null : () => unawaited(_finish(send: false)),
+                          onPressed: _finishing
+                              ? null
+                              : () => unawaited(_finish(send: false)),
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 20),
                           ),

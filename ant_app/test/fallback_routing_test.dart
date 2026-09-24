@@ -18,7 +18,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:ant_app/core/localization/app_language.dart';
 import 'package:ant_app/core/services/assistant_service.dart';
 import 'package:ant_app/core/services/fallback_assistant_service.dart';
-import 'package:ant_app/core/services/gemini_assistant_service.dart' show AssistantTurn;
+import 'package:ant_app/core/services/gemini_assistant_service.dart'
+    show AssistantTurn;
 import 'package:ant_app/core/services/vision/cloud_vision_service.dart'
     show VisionBudgetExhausted;
 import 'package:ant_app/core/services/vision/vision_backend.dart';
@@ -31,7 +32,12 @@ import 'package:ant_app/features/onboarding/models/user_profile.dart';
 // ---- chat fakes ------------------------------------------------------------
 
 class _FakeAssistant implements AssistantService {
-  _FakeAssistant(this.backendName, {this.failWith, this.delay, this.reply = 'ok'});
+  _FakeAssistant(
+    this.backendName, {
+    this.failWith,
+    this.delay,
+    this.reply = 'ok',
+  });
 
   @override
   final String backendName;
@@ -64,23 +70,31 @@ class _FakeAssistant implements AssistantService {
   }
 }
 
-UserProfile _profile() => const UserProfile(uid: 'u1', role: UserRole.disabledUser);
+UserProfile _profile() =>
+    const UserProfile(uid: 'u1', role: UserRole.disabledUser);
 
 List<ChatMessage> _history() => [
-      ChatMessage(sender: ChatSender.user, text: 'earlier question', timestamp: DateTime(2026)),
-      ChatMessage(sender: ChatSender.assistant, text: 'earlier answer', timestamp: DateTime(2026)),
-    ];
+  ChatMessage(
+    sender: ChatSender.user,
+    text: 'earlier question',
+    timestamp: DateTime(2026),
+  ),
+  ChatMessage(
+    sender: ChatSender.assistant,
+    text: 'earlier answer',
+    timestamp: DateTime(2026),
+  ),
+];
 
 Future<AssistantTurn> _ask(
   FallbackAssistantService svc, {
   void Function(String)? onPartial,
-}) =>
-    svc.converse(
-      userText: 'where am i',
-      profile: _profile(),
-      recentHistory: _history(),
-      onPartialText: onPartial,
-    );
+}) => svc.converse(
+  userText: 'where am i',
+  profile: _profile(),
+  recentHistory: _history(),
+  onPartialText: onPartial,
+);
 
 // ---- vision fakes ----------------------------------------------------------
 
@@ -128,21 +142,30 @@ class _FakeVision implements VisionBackend {
   }
 }
 
-List<Uint8List> _frames(int n) =>
-    [for (var i = 0; i < n; i++) Uint8List.fromList([i])];
+List<Uint8List> _frames(int n) => [
+  for (var i = 0; i < n; i++) Uint8List.fromList([i]),
+];
 
-Future<VisionScene?> _look(VisionRouter r, ScanFocus focus, {int frames = 1}) =>
-    r.describe(
-      jpegs: _frames(frames),
-      focus: focus,
-      language: AppLanguage.bangla,
-    );
+Future<VisionScene?> _look(
+  VisionRouter r,
+  ScanFocus focus, {
+  int frames = 1,
+  bool sweep = false,
+}) => r.describe(
+  jpegs: _frames(frames),
+  focus: focus,
+  language: AppLanguage.bangla,
+  sweep: sweep,
+);
 
 void main() {
   group('chat — the secondary answers when the primary cannot', () {
     test('a Groq 429 becomes a Gemini answer, not a stub', () {
       // The exact shape of the twelve logged failures.
-      final groq = _FakeAssistant('groq', failWith: Exception('429 ITPM: Limit 7000'));
+      final groq = _FakeAssistant(
+        'groq',
+        failWith: Exception('429 ITPM: Limit 7000'),
+      );
       final gemini = _FakeAssistant('gemini', reply: 'তুমি গুলশানে আছ');
       final svc = FallbackAssistantService(primary: groq, secondary: gemini);
 
@@ -158,8 +181,10 @@ void main() {
       await _ask(FallbackAssistantService(primary: groq, secondary: gemini));
 
       expect(gemini.sawHistory, isNotNull);
-      expect(gemini.sawHistory!.map((m) => m.text),
-          ['earlier question', 'earlier answer']);
+      expect(gemini.sawHistory!.map((m) => m.text), [
+        'earlier question',
+        'earlier answer',
+      ]);
       expect(gemini.sawProfile?.uid, 'u1');
       expect(gemini.sawHistory, equals(groq.sawHistory));
     });
@@ -207,68 +232,137 @@ void main() {
       expect(healthy.lastTurnUsedFallback, isFalse);
     });
 
-    test('with no secondary the original error reaches the caller unchanged', () async {
-      // `ChatController`'s catch logs the reason and falls to the offline
-      // matcher. Wrapping the error here would make every existing failure
-      // read as a fallback problem.
-      final boom = Exception('groq is down');
-      final svc = FallbackAssistantService(
-        primary: _FakeAssistant('groq', failWith: boom),
-        secondary: null,
-      );
-      await expectLater(_ask(svc), throwsA(same(boom)));
-    });
+    test(
+      'with no secondary the original error reaches the caller unchanged',
+      () async {
+        // `ChatController`'s catch logs the reason and falls to the offline
+        // matcher. Wrapping the error here would make every existing failure
+        // read as a fallback problem.
+        final boom = Exception('groq is down');
+        final svc = FallbackAssistantService(
+          primary: _FakeAssistant('groq', failWith: boom),
+          secondary: null,
+        );
+        await expectLater(_ask(svc), throwsA(same(boom)));
+      },
+    );
 
-    test('both failing reports the primary reason, not just the last one', () async {
-      final svc = FallbackAssistantService(
-        primary: _FakeAssistant('groq', failWith: Exception('429 ITPM')),
-        secondary: _FakeAssistant('gemini', failWith: Exception('503 overloaded')),
-      );
-      try {
-        await _ask(svc);
-        fail('expected both-failed');
-      } on AssistantBothBackendsFailed catch (e) {
-        // Both reasons survive: a diagnostics log has to show whether this
-        // was one outage or two unrelated ones.
-        expect(e.toString(), contains('429 ITPM'));
-        expect(e.toString(), contains('503 overloaded'));
-      }
-    });
+    test(
+      'both failing reports the primary reason, not just the last one',
+      () async {
+        final svc = FallbackAssistantService(
+          primary: _FakeAssistant('groq', failWith: Exception('429 ITPM')),
+          secondary: _FakeAssistant(
+            'gemini',
+            failWith: Exception('503 overloaded'),
+          ),
+        );
+        try {
+          await _ask(svc);
+          fail('expected both-failed');
+        } on AssistantBothBackendsFailed catch (e) {
+          // Both reasons survive: a diagnostics log has to show whether this
+          // was one outage or two unrelated ones.
+          expect(e.toString(), contains('429 ITPM'));
+          expect(e.toString(), contains('503 overloaded'));
+        }
+      },
+    );
 
     test('the two timeouts fit inside the caller\'s 30 s bound', () {
       // If they could sum past it, the outer timeout would fire during the
       // second attempt and discard an answer that was on its way.
-      final total = FallbackAssistantService.defaultPrimaryTimeout +
+      final total =
+          FallbackAssistantService.defaultPrimaryTimeout +
           FallbackAssistantService.defaultSecondaryTimeout;
       expect(total, lessThan(const Duration(seconds: 30)));
     });
   });
 
-  group('vision — routing by question, not by exhaustion', () {
+  group('vision — Qwen for one frame, Gemini for a full sweep', () {
     test('a bus question goes to the fast backend first', () async {
       final groq = _FakeVision('groq');
       final gemini = _FakeVision('gemini', maxFrames: 3);
-      final scene = await _look(VisionRouter(groq: groq, gemini: gemini), ScanFocus.vehicle);
+      final scene = await _look(
+        VisionRouter(groq: groq, gemini: gemini),
+        ScanFocus.vehicle,
+      );
 
       expect(scene?.spoken, 'seen by groq');
-      expect(gemini.calls, 0, reason: 'a bus does not wait for the accurate one');
+      expect(
+        gemini.calls,
+        0,
+        reason: 'a bus does not wait for the accurate one',
+      );
     });
 
-    for (final focus in [ScanFocus.sign, ScanFocus.hazard, ScanFocus.surroundings]) {
-      test('a ${focus.name} question goes to the accurate backend first', () async {
+    for (final focus in [
+      ScanFocus.sign,
+      ScanFocus.hazard,
+      ScanFocus.surroundings,
+    ]) {
+      test(
+        'a single-frame ${focus.name} question goes to Qwen first',
+        () async {
+          final groq = _FakeVision('groq');
+          final gemini = _FakeVision('gemini', maxFrames: 3);
+          final scene = await _look(
+            VisionRouter(groq: groq, gemini: gemini),
+            focus,
+          );
+
+          expect(scene?.spoken, 'seen by groq');
+          expect(groq.calls, 1);
+          expect(gemini.calls, 0);
+        },
+      );
+    }
+
+    test(
+      'an explicit three-frame sweep goes to Gemini with all ordered frames',
+      () async {
         final groq = _FakeVision('groq');
         final gemini = _FakeVision('gemini', maxFrames: 3);
-        final scene = await _look(VisionRouter(groq: groq, gemini: gemini), focus);
+        final scene = await _look(
+          VisionRouter(groq: groq, gemini: gemini),
+          ScanFocus.surroundings,
+          frames: 3,
+          sweep: true,
+        );
 
         expect(scene?.spoken, 'seen by gemini');
+        expect(gemini.sawFrameCount, 3);
         expect(groq.calls, 0);
-      });
-    }
+      },
+    );
+
+    test('a Qwen fallback gets only the selected sharpest frame', () async {
+      final groq = _FakeVision('groq');
+      final gemini = _FakeVision(
+        'gemini',
+        maxFrames: 3,
+        failWith: StateError('Gemini is unavailable'),
+      );
+      final router = VisionRouter(groq: groq, gemini: gemini);
+      await router.describe(
+        jpegs: _frames(3),
+        focus: ScanFocus.surroundings,
+        language: AppLanguage.english,
+        sweep: true,
+        singleFrameFallback: Uint8List.fromList([99]),
+      );
+
+      expect(gemini.sawFrameCount, 3);
+      expect(groq.sawFrameCount, 1);
+    });
 
     test('either backend failing hands the scan to the other', () async {
       final groq = _FakeVision('groq', answers: false);
       final gemini = _FakeVision('gemini', maxFrames: 3);
-      final scene = await _look(VisionRouter(groq: groq, gemini: gemini), ScanFocus.vehicle);
+      final scene = await _look(
+        VisionRouter(groq: groq, gemini: gemini),
+        ScanFocus.vehicle,
+      );
 
       expect(scene?.spoken, 'seen by gemini');
       expect(groq.calls, 1);
@@ -278,7 +372,10 @@ void main() {
     test('a thrown backend does not take the scan down', () async {
       final groq = _FakeVision('groq', failWith: StateError('socket died'));
       final gemini = _FakeVision('gemini', maxFrames: 3);
-      final scene = await _look(VisionRouter(groq: groq, gemini: gemini), ScanFocus.vehicle);
+      final scene = await _look(
+        VisionRouter(groq: groq, gemini: gemini),
+        ScanFocus.vehicle,
+      );
       expect(scene?.spoken, 'seen by gemini');
     });
 
@@ -296,13 +393,16 @@ void main() {
       );
     });
 
-    test('one exhausted and one merely broken is not "too many times"', () async {
-      final router = VisionRouter(
-        groq: _FakeVision('groq', failWith: const VisionBudgetExhausted()),
-        gemini: _FakeVision('gemini', answers: false),
-      );
-      expect(await _look(router, ScanFocus.vehicle), isNull);
-    });
+    test(
+      'one exhausted and one merely broken is not "too many times"',
+      () async {
+        final router = VisionRouter(
+          groq: _FakeVision('groq', failWith: const VisionBudgetExhausted()),
+          gemini: _FakeVision('gemini', answers: false),
+        );
+        expect(await _look(router, ScanFocus.vehicle), isNull);
+      },
+    );
 
     test('no backend configured returns null rather than throwing', () async {
       final router = VisionRouter(groq: null, gemini: null);
@@ -313,7 +413,10 @@ void main() {
     test('an unconfigured backend is skipped, not tried', () async {
       final groq = _FakeVision('groq', isConfigured: false);
       final gemini = _FakeVision('gemini', maxFrames: 3);
-      final scene = await _look(VisionRouter(groq: groq, gemini: gemini), ScanFocus.vehicle);
+      final scene = await _look(
+        VisionRouter(groq: groq, gemini: gemini),
+        ScanFocus.vehicle,
+      );
 
       expect(scene?.spoken, 'seen by gemini');
       expect(groq.calls, 0);
@@ -328,44 +431,78 @@ void main() {
         groq: _FakeVision('groq'),
         gemini: _FakeVision('gemini', maxFrames: 3),
       );
-      expect(router.framesNeededFor(ScanFocus.surroundings, sweepFrames: sweep), 3);
+      expect(
+        router.framesNeededFor(
+          ScanFocus.surroundings,
+          sweepFrames: sweep,
+          sweep: true,
+        ),
+        3,
+      );
     });
 
-    test('a sweep collapses to one when only the single-frame backend exists', () {
-      // Otherwise the camera shoots two extra frames, costs the battery and
-      // the latency, and discards them — the Groq-only build's behaviour,
-      // arrived at correctly rather than by accident.
-      final router = VisionRouter(groq: _FakeVision('groq'), gemini: null);
-      expect(router.framesNeededFor(ScanFocus.surroundings, sweepFrames: sweep), 1);
-    });
+    test(
+      'a sweep collapses to one when only the single-frame backend exists',
+      () {
+        // Otherwise the camera shoots two extra frames, costs the battery and
+        // the latency, and discards them — the Groq-only build's behaviour,
+        // arrived at correctly rather than by accident.
+        final router = VisionRouter(groq: _FakeVision('groq'), gemini: null);
+        expect(
+          router.framesNeededFor(
+            ScanFocus.surroundings,
+            sweepFrames: sweep,
+            sweep: true,
+          ),
+          1,
+        );
+      },
+    );
 
     test('every non-sweep question takes exactly one frame', () {
       final router = VisionRouter(
         groq: _FakeVision('groq'),
         gemini: _FakeVision('gemini', maxFrames: 3),
       );
-      for (final focus in [ScanFocus.vehicle, ScanFocus.sign, ScanFocus.hazard]) {
-        expect(router.framesNeededFor(focus, sweepFrames: sweep), 1, reason: focus.name);
+      for (final focus in [
+        ScanFocus.vehicle,
+        ScanFocus.sign,
+        ScanFocus.hazard,
+      ]) {
+        expect(
+          router.framesNeededFor(focus, sweepFrames: sweep),
+          1,
+          reason: focus.name,
+        );
       }
     });
 
-    test('with no backend at all it still captures one, for the offline pass', () {
-      final router = VisionRouter(groq: null, gemini: null);
-      expect(router.framesNeededFor(ScanFocus.surroundings, sweepFrames: sweep), 1);
-    });
+    test(
+      'with no backend at all it still captures one, for the offline pass',
+      () {
+        final router = VisionRouter(groq: null, gemini: null);
+        expect(
+          router.framesNeededFor(
+            ScanFocus.surroundings,
+            sweepFrames: sweep,
+            sweep: true,
+          ),
+          1,
+        );
+      },
+    );
 
-    test('a single-frame backend receives one frame even when three were taken', () async {
-      // The orchestrator orders them sharpest-first, so the one frame a
-      // Groq-shaped backend takes is the best of the sweep.
-      final groq = _FakeVision('groq');
-      final router = VisionRouter(groq: groq, gemini: null);
-      await _look(router, ScanFocus.surroundings, frames: 3);
-      // The router passes the whole list; the backend itself takes what it
-      // can use. Asserted here so a backend that quietly uploaded all three
-      // — three calls' worth of tokens — would fail loudly.
-      expect(groq.sawFrameCount, 3,
-          reason: 'router forwards all frames; CloudVisionService.describe '
-              'takes jpegs.first, which is the sharpest');
-    });
+    test(
+      'a single-frame backend receives one frame even when three were taken',
+      () async {
+        // The orchestrator orders them sharpest-first, so the one frame a
+        // Groq-shaped backend takes is the best of the sweep.
+        final groq = _FakeVision('groq');
+        final router = VisionRouter(groq: groq, gemini: null);
+        await _look(router, ScanFocus.surroundings, frames: 3, sweep: true);
+        // The router limits a one-frame backend before the upload boundary.
+        expect(groq.sawFrameCount, 1);
+      },
+    );
   });
 }

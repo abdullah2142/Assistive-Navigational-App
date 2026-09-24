@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/localization/app_language.dart';
+import '../../../core/providers/ai_assistant_providers.dart';
 import '../../onboarding/models/disability_profile_enums.dart';
 import '../../onboarding/providers/onboarding_providers.dart';
 import '../models/communication_message.dart';
@@ -33,12 +35,28 @@ class CommunicationHubPanel extends ConsumerStatefulWidget {
 class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
   final _composer = TextEditingController();
   final _scroll = ScrollController();
+  bool _draftHasText = false;
+  bool _listening = false;
+  bool _startingListen = false;
 
   String get disabledUserUid => widget.disabledUserUid;
   String get caretakerUid => widget.caretakerUid;
 
   @override
+  void initState() {
+    super.initState();
+    _composer.addListener(_onComposerChanged);
+  }
+
+  void _onComposerChanged() {
+    final hasText = _composer.text.isNotEmpty;
+    if (!mounted || hasText == _draftHasText) return;
+    setState(() => _draftHasText = hasText);
+  }
+
+  @override
   void dispose() {
+    _composer.removeListener(_onComposerChanged);
     _composer.dispose();
     _scroll.dispose();
     super.dispose();
@@ -63,6 +81,53 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
           toUid: disabledUserUid,
           text: text,
         );
+  }
+
+  /// The microphone composes text. Voice messages remain a separate action
+  /// in the pill row, matching the user's chat controls.
+  Future<void> _toggleDictation() async {
+    final stt = ref.read(sttServiceProvider);
+    if (_listening || _startingListen) {
+      await stt.stop();
+      return;
+    }
+
+    _startingListen = true;
+    try {
+      if (!await stt.ensureAvailable()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Speech input is unavailable.')),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      final language =
+          ref.read(profileStreamProvider(disabledUserUid)).value?.language ??
+          AppLanguage.english;
+      setState(() => _listening = true);
+      await stt.listenOnce(
+        language: language,
+        onResult: (text, isFinal) {
+          if (!mounted) return;
+          _composer.value = TextEditingValue(
+            text: text,
+            selection: TextSelection.collapsed(offset: text.length),
+          );
+          if (isFinal) setState(() => _listening = false);
+        },
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not start speech input.')),
+        );
+      }
+    } finally {
+      _startingListen = false;
+      if (mounted) setState(() => _listening = false);
+    }
   }
 
   Future<void> _sendVoiceMemo(BuildContext context, WidgetRef ref) async {
@@ -198,38 +263,48 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            ActionChip(
-              avatar: const Icon(Icons.image_outlined, size: 18),
-              label: const Text('Send image'),
-              onPressed: () => _choosePhoto(context, ref),
-            ),
-            ActionChip(
-              avatar: const Icon(Icons.mic_none_rounded, size: 18),
-              label: const Text('Voice message'),
-              onPressed: () => _sendVoiceMemo(context, ref),
-            ),
-            if (snapshotAllowed)
-              ActionChip(
-                avatar: const Icon(Icons.camera_alt_outlined, size: 18),
-                label: const Text('Request snapshot'),
-                onPressed: () => _requestSnapshot(context, ref),
-              )
-            else
-              Tooltip(
-                message: 'Turned off in their Snapshot permission setting',
-                child: ActionChip(
-                  onPressed: null,
-                  avatar: const Icon(Icons.no_photography_outlined, size: 18),
-                  label: const Text('Request snapshot'),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: _draftHasText
+              ? const SizedBox.shrink()
+              : Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ActionChip(
+                      avatar: const Icon(Icons.image_outlined, size: 18),
+                      label: const Text('Send image'),
+                      onPressed: () => _choosePhoto(context, ref),
+                    ),
+                    ActionChip(
+                      avatar: const Icon(Icons.mic_none_rounded, size: 18),
+                      label: const Text('Voice message'),
+                      onPressed: () => _sendVoiceMemo(context, ref),
+                    ),
+                    if (snapshotAllowed)
+                      ActionChip(
+                        avatar: const Icon(Icons.camera_alt_outlined, size: 18),
+                        label: const Text('Request snapshot'),
+                        onPressed: () => _requestSnapshot(context, ref),
+                      )
+                    else
+                      Tooltip(
+                        message:
+                            'Turned off in their Snapshot permission setting',
+                        child: ActionChip(
+                          onPressed: null,
+                          avatar: const Icon(
+                            Icons.no_photography_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Request snapshot'),
+                        ),
+                      ),
+                  ],
                 ),
-              ),
-          ],
         ),
-        const SizedBox(height: 12),
+        if (!_draftHasText) const SizedBox(height: 12),
         messagesAsync.when(
           data: (messages) {
             if (messages.isEmpty) {
@@ -264,18 +339,16 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
         ),
         const SizedBox(height: 8),
         Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               child: TextField(
                 controller: _composer,
                 onSubmitted: (_) => _sendComposed(),
                 textInputAction: TextInputAction.send,
-                // Grows with the message rather than scrolling one line
-                // sideways, the same as the user's own input row.
                 minLines: 1,
-                maxLines: 4,
-                keyboardType: TextInputType.multiline,
+                maxLines: 1,
+                keyboardType: TextInputType.text,
                 decoration: const InputDecoration(
                   hintText: 'Write a message…',
                   isDense: true,
@@ -283,13 +356,16 @@ class _CommunicationHubPanelState extends ConsumerState<CommunicationHubPanel> {
               ),
             ),
             const SizedBox(width: 8),
-            IconButton.filledTonal(
-              onPressed: () => _sendVoiceMemo(context, ref),
-              icon: const Icon(Icons.mic_rounded),
-              tooltip: 'Record voice message',
-            ),
+            if (!_draftHasText || _listening)
+              IconButton.filledTonal(
+                onPressed: _toggleDictation,
+                icon: Icon(
+                  _listening ? Icons.mic_off_rounded : Icons.mic_rounded,
+                ),
+                tooltip: _listening ? 'Stop speech input' : 'Speak to compose',
+              ),
             IconButton.filled(
-              onPressed: _sendComposed,
+              onPressed: _listening ? null : _sendComposed,
               icon: const Icon(Icons.send_rounded),
               tooltip: 'Send',
             ),

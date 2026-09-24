@@ -8,13 +8,13 @@ import '../../config/gemini_config.dart';
 import '../../config/vision_config.dart';
 import '../../localization/app_language.dart';
 import '../api_budget.dart';
+import '../gemini_model_cooldowns.dart';
 import 'cloud_vision_service.dart' show VisionBudgetExhausted;
 import 'vision_backend.dart';
 import 'vision_prompt.dart';
 import 'vision_scene.dart';
 
-/// The Gemini half of the cloud tier — **the accurate one, and the only one
-/// that can carry the plan's Stationary Sweep.**
+/// One Gemini vision candidate — **the accurate tier used for guided sweeps.**
 ///
 /// ## What it is for
 ///
@@ -36,7 +36,7 @@ import 'vision_scene.dart';
 /// What it costs is latency and its spread: 1.2-6.9 s where Groq is
 /// 0.57-0.89. That is why `ScanFocus.vehicle` does not come here.
 ///
-/// ## Why this model and not a newer one
+/// ## Model selection
 ///
 /// `gemini_config.dart` records the history at length and it is not
 /// theoretical: `gemini-flash-latest` returned 503 "high demand" on every
@@ -46,25 +46,40 @@ import 'vision_scene.dart';
 /// exactly that property — it is reached when the primary has already failed,
 /// so a backup that is merely usually-up is not a backup.
 ///
-/// The pin is shared with the chat path on purpose: one model to keep an eye
-/// on, and any future bump is decided once.
+/// `modelName` is injected by `GeminiVisionCascade`. Vision uses the distinct
+/// `gemini-3.5-flash` and `gemini-3.5-flash-lite` quota buckets; chat uses
+/// `gemini-3.7-flash` and `gemini-3.6-flash`, keeping the per-model reserves
+/// separate. The constructor default stays on the previously tested lite
+/// model for direct test and legacy call sites.
 class GeminiVisionService implements VisionBackend {
   GeminiVisionService({
     String? apiKey,
+    String? modelName,
     ApiBudget? budget,
+    GeminiModelCooldowns? cooldowns,
+    Duration? requestTimeout,
     http.Client? client,
-  })  : _apiKey = apiKey ?? GeminiConfig.apiKey,
-        _budget = budget ?? defaultApiBudget,
-        _client = client ?? http.Client();
+  }) : _apiKey = apiKey ?? GeminiConfig.apiKey,
+       _modelName = modelName ?? GeminiConfig.modelName,
+       _budget = budget ?? defaultApiBudget,
+       _cooldowns = cooldowns ?? GeminiModelCooldowns.shared,
+       _requestTimeout = requestTimeout ?? VisionConfig.cloudTimeout,
+       _client = client ?? http.Client();
 
   final String _apiKey;
+  final String _modelName;
   final ApiBudget _budget;
+  final GeminiModelCooldowns _cooldowns;
+  final Duration _requestTimeout;
   final http.Client _client;
 
-  static const String _baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
+  static const String _baseUrl =
+      'https://generativelanguage.googleapis.com/v1beta';
 
   @override
-  String get name => 'gemini:${GeminiConfig.modelName}';
+  String get name => 'gemini:$_modelName';
+
+  String get modelName => _modelName;
 
   @override
   bool get isConfigured => _apiKey.isNotEmpty;
@@ -84,6 +99,7 @@ class GeminiVisionService implements VisionBackend {
     required ScanFocus focus,
     required AppLanguage language,
     List<String> edgeLabels = const [],
+
     /// The user's own question, when more specific than [focus]. See
     /// `VisionPrompt.build`.
     String? question,
@@ -93,6 +109,10 @@ class GeminiVisionService implements VisionBackend {
       return null;
     }
     if (jpegs.isEmpty) return null;
+    if (_cooldowns.isCooling(name)) {
+      debugPrint('[Vision] $name cooling down; using offline ambient fallback');
+      return null;
+    }
     if (!await _budget.tryConsume(BillableApi.visionGemini)) {
       throw const VisionBudgetExhausted();
     }
@@ -109,6 +129,7 @@ class GeminiVisionService implements VisionBackend {
                 language: language,
                 edgeLabels: edgeLabels,
                 frameCount: frames.length,
+                question: question,
               ),
             },
             for (final jpeg in frames)
@@ -136,11 +157,13 @@ class GeminiVisionService implements VisionBackend {
     try {
       final response = await _client
           .post(
-            Uri.parse('$_baseUrl/models/${GeminiConfig.modelName}:generateContent?key=$_apiKey'),
+            Uri.parse(
+              '$_baseUrl/models/$_modelName:generateContent?key=$_apiKey',
+            ),
             headers: {'Content-Type': 'application/json'},
             body: body,
           )
-          .timeout(VisionConfig.cloudTimeout);
+          .timeout(_requestTimeout);
 
       final elapsed = DateTime.now().difference(started).inMilliseconds;
 
@@ -149,30 +172,51 @@ class GeminiVisionService implements VisionBackend {
         // and it is the reason the model is pinned rather than aliased. Named
         // separately so a diagnostics log distinguishes "Google is busy" from
         // "we are out of quota", which call for opposite responses.
-        debugPrint(response.statusCode == 503
-            ? '[Vision] $name overloaded (503) after ${elapsed}ms'
-            : '[Vision] $name HTTP ${response.statusCode} after ${elapsed}ms');
+        debugPrint(
+          response.statusCode == 503
+              ? '[Vision] $name overloaded (503) after ${elapsed}ms'
+              : '[Vision] $name HTTP ${response.statusCode} after ${elapsed}ms',
+        );
+        final retry = GeminiModelCooldowns.parseRetryHeader(
+          response.headers['retry-after'] ??
+              response.headers['x-ratelimit-reset-requests'] ??
+              response.headers['x-ratelimit-reset-tokens'],
+        );
+        if (retry == null) {
+          _cooldowns.recordFailure(
+            name,
+            'HTTP ${response.statusCode}: ${response.body}',
+          );
+        } else {
+          _cooldowns.recordReset(name, retry);
+        }
         return null;
       }
 
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final decoded =
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       final usage = decoded['usageMetadata'] as Map<String, dynamic>?;
-      debugPrint('[Vision] $name ok in ${elapsed}ms, '
-          'frames=${frames.length} '
-          'prompt_tokens=${usage?['promptTokenCount']} focus=${focus.name}');
+      debugPrint(
+        '[Vision] $name ok in ${elapsed}ms, '
+        'frames=${frames.length} '
+        'prompt_tokens=${usage?['promptTokenCount']} focus=${focus.name}',
+      );
 
       final candidates = decoded['candidates'] as List<dynamic>?;
       if (candidates == null || candidates.isEmpty) {
         // A safety block or an empty generation lands here. Both mean "no
         // answer", which the caller must hear as a failure so it can fall
         // back — never as an empty scene, which would read as "nothing there".
-        debugPrint('[Vision] $name returned no candidates '
-            '(${decoded['promptFeedback'] ?? 'no feedback'})');
+        debugPrint(
+          '[Vision] $name returned no candidates '
+          '(${decoded['promptFeedback'] ?? 'no feedback'})',
+        );
         return null;
       }
 
-      final parts = (candidates.first as Map<String, dynamic>)['content']
-              ?['parts'] as List<dynamic>? ??
+      final parts =
+          (candidates.first as Map<String, dynamic>)['content']?['parts']
+              as List<dynamic>? ??
           const [];
       final text = parts
           .map((p) => (p as Map<String, dynamic>)['text'] as String? ?? '')
@@ -194,8 +238,11 @@ class GeminiVisionService implements VisionBackend {
       // and the timeout is simply too tight. If they are small, the request
       // itself is wrong and raising the timeout would only make each failure
       // take longer.
-      debugPrint('[Vision] $name timed out after ${VisionConfig.cloudTimeout.inSeconds}s '
-          '(${jpegs.length} frame(s), ${jpegs.fold<int>(0, (n, j) => n + j.length)} bytes)');
+      debugPrint(
+        '[Vision] $name timed out after ${_requestTimeout.inMilliseconds}ms '
+        '(${jpegs.length} frame(s), ${jpegs.fold<int>(0, (n, j) => n + j.length)} bytes)',
+      );
+      _cooldowns.recordReset(name, const Duration(seconds: 30));
       return null;
     } catch (e) {
       debugPrint('[Vision] $name call failed: $e');

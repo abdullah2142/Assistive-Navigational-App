@@ -100,22 +100,25 @@ void main() {
       expect(await budget.tryConsume(BillableApi.routes), isTrue);
     });
 
-    test('bounds a burst within one session without waiting for writes', () async {
-      // The local count moves first, so a retry loop is stopped immediately
-      // rather than after every increment has round-tripped.
-      final budget = MonthlyApiBudget(
-        store: FakeBudgetStore(),
-        caps: const {BillableApi.routes: 5},
-        now: () => DateTime(2026, 9, 7),
-      );
+    test(
+      'bounds a burst within one session without waiting for writes',
+      () async {
+        // The local count moves first, so a retry loop is stopped immediately
+        // rather than after every increment has round-tripped.
+        final budget = MonthlyApiBudget(
+          store: FakeBudgetStore(),
+          caps: const {BillableApi.routes: 5},
+          now: () => DateTime(2026, 9, 7),
+        );
 
-      var allowed = 0;
-      for (var i = 0; i < 100; i++) {
-        if (await budget.tryConsume(BillableApi.routes)) allowed++;
-      }
+        var allowed = 0;
+        for (var i = 0; i < 100; i++) {
+          if (await budget.tryConsume(BillableApi.routes)) allowed++;
+        }
 
-      expect(allowed, 5);
-    });
+        expect(allowed, 5);
+      },
+    );
   });
 
   group('failure behaviour', () {
@@ -124,7 +127,10 @@ void main() {
       // only monthly ceiling that exists. The cost of failing closed is a
       // worse route; the cost of failing open is a bill.
       final store = FakeBudgetStore()..failReads = true;
-      final budget = MonthlyApiBudget(store: store, now: () => DateTime(2026, 9, 7));
+      final budget = MonthlyApiBudget(
+        store: store,
+        now: () => DateTime(2026, 9, 7),
+      );
 
       expect(await budget.tryConsume(BillableApi.routes), isFalse);
     });
@@ -140,7 +146,10 @@ void main() {
 
     test('usage() reports empty rather than throwing', () async {
       final store = FakeBudgetStore()..failReads = true;
-      final budget = MonthlyApiBudget(store: store, now: () => DateTime(2026, 9, 7));
+      final budget = MonthlyApiBudget(
+        store: store,
+        now: () => DateTime(2026, 9, 7),
+      );
 
       expect(await budget.usage(), isEmpty);
     });
@@ -162,10 +171,10 @@ void main() {
     );
 
     MockClient byHost() => MockClient((request) async {
-          if (request.url.host.contains('routes.googleapis.com')) return googleOk;
-          if (request.url.host.contains('osrm')) return osrmOk;
-          return http.Response('unexpected ${request.url.host}', 500);
-        });
+      if (request.url.host.contains('routes.googleapis.com')) return googleOk;
+      if (request.url.host.contains('osrm')) return osrmOk;
+      return http.Response('unexpected ${request.url.host}', 500);
+    });
 
     test('spends budget on a Google route request', () async {
       final store = FakeBudgetStore();
@@ -175,7 +184,10 @@ void main() {
         client: byHost(),
       );
 
-      final routes = await service.walkingRoutes(origin: dhaka, destination: gulshan);
+      final routes = await service.walkingRoutes(
+        origin: dhaka,
+        destination: gulshan,
+      );
 
       expect(routes.first.distanceMeters, 1053);
       expect(store.writes, 1);
@@ -194,12 +206,22 @@ void main() {
         client: byHost(),
       );
 
-      final routes = await service.walkingRoutes(origin: dhaka, destination: gulshan);
+      final routes = await service.walkingRoutes(
+        origin: dhaka,
+        destination: gulshan,
+      );
 
-      expect(routes, isNotEmpty, reason: 'running out of free tier must not end navigation');
+      expect(
+        routes,
+        isNotEmpty,
+        reason: 'running out of free tier must not end navigation',
+      );
       expect(routes.first.distanceMeters, 900);
-      expect(routes.first.isPedestrianProfile, isFalse,
-          reason: 'the OSM route is still a car profile and must say so');
+      expect(
+        routes.first.isPedestrianProfile,
+        isFalse,
+        reason: 'the OSM route is still a car profile and must say so',
+      );
     });
 
     test('never touches the budget when Google is switched off', () async {
@@ -220,17 +242,30 @@ void main() {
     test('sit under Google\'s published free tier', () {
       // 10,000 / 10,000 / 5,000. The gap absorbs the optimistic-increment
       // race and any calls made outside the app.
-      expect(MonthlyApiBudget.defaultCaps[BillableApi.geocoding]!, lessThan(10000));
-      expect(MonthlyApiBudget.defaultCaps[BillableApi.routes]!, lessThan(10000));
+      expect(
+        MonthlyApiBudget.defaultCaps[BillableApi.geocoding]!,
+        lessThan(10000),
+      );
+      expect(
+        MonthlyApiBudget.defaultCaps[BillableApi.routes]!,
+        lessThan(10000),
+      );
+      expect(
+        MonthlyApiBudget.defaultCaps[BillableApi.routesPro]!,
+        lessThan(5000),
+      );
       expect(MonthlyApiBudget.defaultCaps[BillableApi.places]!, lessThan(5000));
     });
 
-    test('an OpenStreetMap build gets an unlimited budget and no Firestore', () {
-      // Guards the test suite as much as the app: resolving the real budget
-      // would construct a Firestore handle with no Firebase initialised.
-      expect(RoutingConfig.preferGoogle, isFalse);
-      expect(defaultApiBudget, isA<UnlimitedApiBudget>());
-    });
+    test(
+      'an OpenStreetMap build gets an unlimited budget and no Firestore',
+      () {
+        // Guards the test suite as much as the app: resolving the real budget
+        // would construct a Firestore handle with no Firebase initialised.
+        expect(RoutingConfig.preferGoogle, isFalse);
+        expect(defaultApiBudget, isA<UnlimitedApiBudget>());
+      },
+    );
   });
 }
 
@@ -239,5 +274,6 @@ class _ThrowingIncrementStore implements ApiBudgetStore {
   Future<Map<String, int>> read(String period) async => {};
 
   @override
-  Future<void> increment(String period, String api) async => throw Exception('write failed');
+  Future<void> increment(String period, String api) async =>
+      throw Exception('write failed');
 }

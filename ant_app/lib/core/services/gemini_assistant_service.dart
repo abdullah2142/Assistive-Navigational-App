@@ -165,16 +165,21 @@ class AssistantTurn {
 /// still owns the *decision* of which function to call for anything the
 /// local matcher isn't confident about, plus all free-form conversation.
 class GeminiAssistantService implements AssistantService {
-  @override
-  String get backendName => 'gemini:${GeminiConfig.modelName}';
-
   GeminiAssistantService({
     required String apiKey,
     required FunctionCallExecutor executor,
+    String? modelName,
     ApiBudget? budget,
+    String Function({
+      required String userText,
+      required UserProfile profile,
+      Position? location,
+    })? promptBuilder,
   }) : _budget = budget ?? defaultApiBudget,
+       _modelName = modelName ?? GeminiConfig.modelName,
+       _promptBuilder = promptBuilder,
        _model = GenerativeModel(
-         model: GeminiConfig.modelName,
+         model: modelName ?? GeminiConfig.modelName,
          apiKey: apiKey,
          tools: [Tool(functionDeclarations: _tools)],
          // 400 was too tight and cut real replies short in testing — this
@@ -190,11 +195,22 @@ class GeminiAssistantService implements AssistantService {
        _executor = executor;
 
   final GenerativeModel _model;
+  final String _modelName;
   final FunctionCallExecutor _executor;
   final ApiBudget _budget;
+  final String Function({
+    required String userText,
+    required UserProfile profile,
+    Position? location,
+  })? _promptBuilder;
 
   /// How many prior messages ride along as short-term context.
   static const int _historyTurns = 8;
+
+  String get modelName => _modelName;
+
+  @override
+  String get backendName => 'gemini:$_modelName';
 
   /// [onPartialText] fires with the accumulated text so far as each chunk
   /// streams in — purely a lower-perceived-latency UI affordance (the chat
@@ -240,7 +256,11 @@ class GeminiAssistantService implements AssistantService {
     final contents = <Content>[
       ..._historyToContents(recentHistory),
       Content.text(
-        buildPrompt(userText: userText, profile: profile, location: location),
+        (_promptBuilder ?? buildPrompt)(
+          userText: userText,
+          profile: profile,
+          location: location,
+        ),
       ),
     ];
 
@@ -401,7 +421,7 @@ Things this user has told you about themselves before (kept across sessions — 
 ${profile.rememberedNotes.map((n) => '- $n').join('\n')}
 '''}
 Live location (may be stale or unavailable — never invent one if missing): $locationLine
-Current app state: safety-weighted walking-route planning is available (call request_route). Live camera hazard/bus-sign scanning and emergency auto-dispatch are separate modules that are not deployed yet — if asked for those, say so briefly and don't pretend to do them.
+Current app state: walking-route planning, one-frame camera snapshots, guided camera sweeps, and live local weather are available. Use look_around for camera questions. The app handles common live-weather questions directly; never answer current weather from general knowledge. Do not claim an implemented camera feature is unavailable.
 
 Rules:
 - Never describe the state of something you cannot actually read. You have no way to check whether a screen, the camera, the microphone or a connection is on, so do not say it is. A half-heard command ("Screen.", "Route.") is a request to clarify, not a cue to invent a status: ask which of the likely commands they meant, in one short question. A confident wrong answer is worse than a question, because the user cannot see that nothing happened.
@@ -411,7 +431,11 @@ Rules:
 - The contacts and places listed above are real, saved, and readable. If the user asks what one of them is, read it back from that list. Never tell them something they have saved is not available to you — it is, it is written above.
 - If the user is asking to change any setting (text size, theme, UI language, reply style, voice, vision level, mobility aid, deaf/hearing mode, snapshot permission, crowded/complex sensitivity, home or safe-place address, emergency contacts, passerby messages, the "Hey ANT" wake word), call the matching function instead of just claiming you did it. For theme, the only valid values are "light" and "dark" — there is no colour theme picker (red, blue, green etc.); if asked for one, say it does not exist.
 - If the user wants to show a message to a passerby, or report a hazard, call the matching trigger function.
-- If the user wants to go somewhere, asks for directions, or (right after you asked where they want to go) names a place, call request_route with that destination.
+- If the user says "take me to X", asks for walking directions, or (right after you asked where they want to go) names a place, call request_route with that destination.
+- If the user asks how to get there, asks for a bus line/name, transit options, or travel time, call plan_commute so the app can fetch current transit details.
+- If the user urgently needs a toilet or food, route immediately to the nearest appropriate place ("nearest toilet" or "nearest restaurant"). Preserve any budget or other constraint they stated.
+- If they ask what is in front of them, use look_around for one frame. If they ask what is around them or to look around, use the surroundings focus for a guided sweep.
+- If they ask about current weather, do not give a canned unavailable response or guess. The local weather handler will provide current conditions when their location and the service are available.
 - If they are already on a route and want a different one ("another way", "I don't like this route"), call request_alternative_route.
 - If they say they have come off the route, ask to "re-route", or ask which way to go from here, call replan_route.
 - For a real emergency, tell them to use the physical Magic Button or call for help directly — you cannot dial or send messages on their behalf yet.
@@ -434,6 +458,42 @@ Understanding what they actually need:
 - **Ask only when it changes what you would do.** One short question, never a list of possibilities, and never when a sensible default exists. A person standing in a Dhaka street who has just told you they urgently need a toilet should be given a route, not a questionnaire.
 
 User's message: "$userText"
+''';
+  }
+
+  /// Gemma follows Groq's compact intent map, with extra guidance for
+  /// conversational context, accessibility, and multi-part requests.
+  @visibleForTesting
+  static String buildGemmaPrompt({
+    required String userText,
+    required UserProfile profile,
+    Position? location,
+  }) {
+    final bangla = profile.language == AppLanguage.bangla;
+    final locationText = location == null
+        ? 'unavailable'
+        : '${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}';
+    return '''
+You are ANT, a concise, safety-focused navigation and accessibility assistant for a disabled person in Dhaka, Bangladesh. Reply in ${bangla ? 'Bangla' : 'English'} unless asked to switch. Use recent conversation history and tools. Never claim an action occurred unless its tool was called.
+
+User: vision=${profile.visionLevel.name}; mobility=${profile.mobilityAid.name}; deaf/hard-of-hearing=${profile.isDeafOrHardOfHearing}; crowd-anxious=${profile.crowdedPlacesAnxious}; complex-instructions-hard=${profile.complexInstructionsHard}; reply-style=${profile.verbosity.name}; caretaker-paired=${profile.pairedUserId != null}; snapshot-consent=${profile.snapshotConsent.name}.
+${profile.savedPlaces.isEmpty ? '' : 'Saved places: ${profile.savedPlaces.map((p) => '${p.label}${p.address.isEmpty ? '' : ': ${p.address}'}').join('; ')}'}
+${profile.magicButtonContacts.isEmpty ? '' : 'Saved emergency contacts: ${profile.magicButtonContacts.map((c) => '${c.name}: ${c.phoneNumber}').join('; ')}'}
+${profile.rememberedNotes.isEmpty ? '' : 'Remembered details: ${profile.rememberedNotes.join('; ')}'}
+Live location: $locationText (possibly stale). Never infer a street name from coordinates.
+
+Intent rules:
+- “Take me to X” or walking directions -> request_route. Need for toilet, food, medicine, or rest -> nearest suitable place. Urgent destinations such as police, hospital, or bathroom must not trigger transport questions.
+- “How do I get there?”, travel time, bus names, or transport options -> plan_commute.
+- Questions about visible surroundings, signs, text, or objects -> look_around. Use one frame for “in front of me”; use surroundings/sweep only when asked to look around.
+- Current weather -> use live weather handling; never guess or use general knowledge.
+- Route changes/off-route requests -> request_alternative_route or replan_route. Map visibility requests -> open_map/close_map, not routing.
+- Settings, saved/forgotten facts, caretaker messages, hazard reports, and passerby requests -> matching tools. For real danger, direct the user to the physical emergency button or call for help; do not claim to contact emergency services.
+- Respect snapshot consent. A caretaker's request is not user consent; the app must confirm before sending.
+
+Be brief and concrete. Minimalist users get one short sentence; make complex directions easy to follow. If unclear, ask one short question. Treat a reply to your last question as its answer. Handle multiple requests in one turn. Do not invent businesses, live conditions, device state, or details you cannot verify.
+
+User message: "$userText"
 ''';
   }
 
@@ -722,11 +782,18 @@ User's message: "$userText"
     FunctionDeclaration(
       'plan_commute',
       'Say how the user could reach a place and how long each way would take, with '
-          'current traffic. For "how do I get to X", "how long to X", "when should I '
-          'leave for X". NOT for "take me to X" — that is request_route.',
-      Schema.object(properties: {
-        'destination': Schema.string(description: 'Where they want to get to.'),
-      }, requiredProperties: const ['destination']),
+          'current traffic and Google public-transit line/stop details when available. '
+          'For "how do I get to X", bus line/name questions, transit options, '
+          '"how long to X", or "when should I leave for X". NOT for "take me to X" — '
+          'that is request_route.',
+      Schema.object(
+        properties: {
+          'destination': Schema.string(
+            description: 'Where they want to get to.',
+          ),
+        },
+        requiredProperties: const ['destination'],
+      ),
     ),
     FunctionDeclaration(
       'send_photo_to_caretaker',

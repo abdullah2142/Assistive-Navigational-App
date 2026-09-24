@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+
 import 'dart:math' as math;
 
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -17,7 +18,8 @@ import 'api_budget.dart';
 /// application) and good practice for the OSRM demo server too. Points at
 /// the repo rather than a personal contact address since this string ships
 /// inside the client app itself, publicly inspectable.
-const String _osmUserAgent = 'ANT-AssistiveNavigationalApp/1.0 (+https://github.com/abdullah2142/Assistive-Navigational-App)';
+const String _osmUserAgent =
+    'ANT-AssistiveNavigationalApp/1.0 (+https://github.com/abdullah2142/Assistive-Navigational-App)';
 
 /// Plain average walking speed used to compute [RouteCandidate.durationSeconds]
 /// when the backend's own reported duration isn't trustworthy for
@@ -86,7 +88,10 @@ String streetNameFromGoogleInstruction(String? instruction) {
   final text = instruction?.trim() ?? '';
   if (text.isEmpty) return '';
   // "Turn left onto X", "Continue onto X", "Head north on X".
-  final match = RegExp(r'\b(?:onto|on)\s+(.+)$', caseSensitive: false).firstMatch(text);
+  final match = RegExp(
+    r'\b(?:onto|on)\s+(.+)$',
+    caseSensitive: false,
+  ).firstMatch(text);
   if (match == null) return '';
   var name = match.group(1)!.trim();
   // Routes API appends destination/side notes after a comma or a dash:
@@ -97,7 +102,11 @@ String streetNameFromGoogleInstruction(String? instruction) {
   }
   // The tail of a destination note ("on the right"), not a road. Nothing is
   // better than a wrong road name.
-  if (RegExp(r'^(?:the |your )?(?:right|left)$', caseSensitive: false).hasMatch(name)) return '';
+  if (RegExp(
+    r'^(?:the |your )?(?:right|left)$',
+    caseSensitive: false,
+  ).hasMatch(name))
+    return '';
   return name;
 }
 
@@ -193,19 +202,21 @@ ManeuverKind maneuverFromOsrm(String? type, String? modifier) {
 /// `NAME_CHANGE` and `MERGE` map to straight on purpose: they are real steps
 /// that require no action from someone on foot.
 ManeuverKind maneuverFromGoogleRoutes(String? maneuver) => switch (maneuver) {
-      'TURN_LEFT' || 'RAMP_LEFT' || 'FORK_LEFT' => ManeuverKind.left,
-      'TURN_RIGHT' || 'RAMP_RIGHT' || 'FORK_RIGHT' => ManeuverKind.right,
-      'TURN_SLIGHT_LEFT' || 'KEEP_LEFT' => ManeuverKind.slightLeft,
-      'TURN_SLIGHT_RIGHT' || 'KEEP_RIGHT' => ManeuverKind.slightRight,
-      'TURN_SHARP_LEFT' => ManeuverKind.sharpLeft,
-      'TURN_SHARP_RIGHT' => ManeuverKind.sharpRight,
-      'TURN_U_TURN_LEFT' || 'TURN_U_TURN_RIGHT' => ManeuverKind.uTurn,
-      'ROUNDABOUT_LEFT' || 'ROUNDABOUT_RIGHT' => ManeuverKind.roundabout,
-      'DEPART' => ManeuverKind.depart,
-      'DESTINATION' || 'DESTINATION_LEFT' || 'DESTINATION_RIGHT' => ManeuverKind.arrive,
-      'STRAIGHT' || 'NAME_CHANGE' || 'MERGE' => ManeuverKind.straight,
-      _ => ManeuverKind.straight,
-    };
+  'TURN_LEFT' || 'RAMP_LEFT' || 'FORK_LEFT' => ManeuverKind.left,
+  'TURN_RIGHT' || 'RAMP_RIGHT' || 'FORK_RIGHT' => ManeuverKind.right,
+  'TURN_SLIGHT_LEFT' || 'KEEP_LEFT' => ManeuverKind.slightLeft,
+  'TURN_SLIGHT_RIGHT' || 'KEEP_RIGHT' => ManeuverKind.slightRight,
+  'TURN_SHARP_LEFT' => ManeuverKind.sharpLeft,
+  'TURN_SHARP_RIGHT' => ManeuverKind.sharpRight,
+  'TURN_U_TURN_LEFT' || 'TURN_U_TURN_RIGHT' => ManeuverKind.uTurn,
+  'ROUNDABOUT_LEFT' || 'ROUNDABOUT_RIGHT' => ManeuverKind.roundabout,
+  'DEPART' => ManeuverKind.depart,
+  'DESTINATION' ||
+  'DESTINATION_LEFT' ||
+  'DESTINATION_RIGHT' => ManeuverKind.arrive,
+  'STRAIGHT' || 'NAME_CHANGE' || 'MERGE' => ManeuverKind.straight,
+  _ => ManeuverKind.straight,
+};
 
 /// One place a geocoder thinks a spoken destination might be.
 ///
@@ -229,9 +240,37 @@ class GeocodeCandidate {
   /// reading the whole chain aloud for each of three options is unusable.
   /// Keeps the first two components, which is the name and its area.
   String get spokenLabel {
-    final parts = label.split(',').map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
+    final parts = label
+        .split(',')
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
     return parts.take(2).join(', ');
   }
+}
+
+/// A Places Autocomplete prediction, resolved to coordinates only after the
+/// user selects it so autocomplete keystrokes stay in one billing session.
+class PlacePrediction {
+  const PlacePrediction({
+    required this.placeId,
+    required this.mainText,
+    this.secondaryText = '',
+  });
+
+  final String placeId;
+  final String mainText;
+  final String secondaryText;
+  String get label =>
+      secondaryText.isEmpty ? mainText : '$mainText, $secondaryText';
+}
+
+/// Creates a URL-safe token for one Places Autocomplete selection session.
+String newPlacesSessionToken() {
+  final random = math.Random.secure();
+  return base64Url
+      .encode(List<int>.generate(16, (_) => random.nextInt(256)))
+      .replaceAll('=', '');
 }
 
 /// One candidate walking route.
@@ -285,6 +324,32 @@ class RouteCandidate {
 /// record type in each signature reads worse than the thing it represents.
 typedef NearbyRefuge = ({String name, LatLng location, String kind});
 
+/// A scheduled public-transit leg returned by Google Routes API.
+class TransitLegSummary {
+  const TransitLegSummary({
+    required this.lineName,
+    required this.fromStop,
+    required this.toStop,
+    this.headsign = '',
+  });
+
+  final String lineName;
+  final String fromStop;
+  final String toStop;
+  final String headsign;
+}
+
+/// The first transit itinerary for a commute, including its bus/train legs.
+class TransitRouteSummary {
+  const TransitRouteSummary({
+    required this.durationMinutes,
+    required this.legs,
+  });
+
+  final int durationMinutes;
+  final List<TransitLegSummary> legs;
+}
+
 /// Thrown for any Directions/Geocoding failure the caller should show a
 /// graceful "couldn't plan that route" message for, rather than crash —
 /// consistent with the app's offline/degradation philosophy.
@@ -334,10 +399,10 @@ class RoutingService {
     RoutingBackend? backend,
     bool? allowFallback,
     ApiBudget? budget,
-  })  : _client = client ?? http.Client(),
-        _backend = backend ?? RoutingConfig.primary,
-        _allowFallback = allowFallback ?? RoutingConfig.allowOsmFallback,
-        _budget = budget ?? defaultApiBudget;
+  }) : _client = client ?? http.Client(),
+       _backend = backend ?? RoutingConfig.primary,
+       _allowFallback = allowFallback ?? RoutingConfig.allowOsmFallback,
+       _budget = budget ?? defaultApiBudget;
 
   final http.Client _client;
   final RoutingBackend _backend;
@@ -356,6 +421,137 @@ class RoutingService {
   Future<bool> _canSpend(BillableApi api) async {
     if (!_preferGoogle) return false;
     return _budget.tryConsume(api);
+  }
+
+  /// Google Places Autocomplete (New), biased around the user's last known
+  /// position. The selected place is resolved separately with the same
+  /// session token.
+  Future<List<PlacePrediction>> autocompletePlaces(
+    String input, {
+    required String sessionToken,
+    LatLng? origin,
+    String languageCode = 'en',
+    int limit = 5,
+  }) async {
+    if (!_preferGoogle || input.trim().length < 2) return const [];
+    if (!await _canSpend(BillableApi.places)) return const [];
+    final locationBias = origin == null
+        ? {
+            'rectangle': {
+              'low': {'latitude': 23.62, 'longitude': 90.28},
+              'high': {'latitude': 23.92, 'longitude': 90.52},
+            },
+          }
+        : {
+            'circle': {
+              'center': {
+                'latitude': origin.latitude,
+                'longitude': origin.longitude,
+              },
+              'radius': 20000.0,
+            },
+          };
+    try {
+      final response = await _postJson(
+        Uri.https('places.googleapis.com', '/v1/places:autocomplete'),
+        headers: {
+          'X-Goog-Api-Key': MapsConfig.apiKey,
+          'X-Goog-FieldMask': 'suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat',
+        },
+        body: {
+          'input': input.trim(),
+          'sessionToken': sessionToken,
+          'languageCode': languageCode,
+          'regionCode': 'BD',
+          'locationBias': locationBias,
+        },
+        failurePrefix: 'places_autocomplete_failed',
+        timeout: const Duration(seconds: 4),
+      );
+      final suggestions = response['suggestions'];
+      if (suggestions is! List) return const [];
+      final predictions = <PlacePrediction>[];
+      for (final item in suggestions) {
+        final prediction = item is Map ? item['placePrediction'] : null;
+        if (prediction is! Map) continue;
+        final id = prediction['placeId'] as String?;
+        final structured = prediction['structuredFormat'];
+        final mainPart = structured is Map ? structured['mainText'] : null;
+        final secondaryPart = structured is Map
+            ? structured['secondaryText']
+            : null;
+        final main = mainPart is Map ? mainPart['text'] as String? : null;
+        final secondary = secondaryPart is Map
+            ? secondaryPart['text'] as String?
+            : null;
+        final fallback = (prediction['text'] as Map?)?['text'] as String?;
+        if (id == null || id.isEmpty) continue;
+        predictions.add(
+          PlacePrediction(
+            placeId: id,
+            mainText: main?.trim().isNotEmpty == true
+                ? main!.trim()
+                : (fallback ?? input.trim()),
+            secondaryText: secondary?.trim() ?? '',
+          ),
+        );
+        if (predictions.length >= limit.clamp(1, 5)) break;
+      }
+      return predictions;
+    } on RoutingException catch (e) {
+      debugPrint('[Routing] Places autocomplete failed (${e.reason})');
+      return const [];
+    }
+  }
+
+  /// Resolves a selected Google prediction using the autocomplete session.
+  Future<GeocodeCandidate?> resolvePlacePrediction(
+    PlacePrediction prediction, {
+    required String sessionToken,
+  }) async {
+    if (!_preferGoogle || !await _canSpend(BillableApi.places)) return null;
+    final uri = Uri.https(
+      'places.googleapis.com',
+      '/v1/places/${Uri.encodeComponent(prediction.placeId)}',
+      {'sessionToken': sessionToken},
+    );
+    try {
+      final response = await _get(
+        uri,
+        headers: {
+          'X-Goog-Api-Key': MapsConfig.apiKey,
+          'X-Goog-FieldMask': 'displayName,formattedAddress,location',
+          ...MapsConfig.androidRestrictionHeaders,
+        },
+        timeout: const Duration(seconds: 5),
+      );
+      final location = response['location'];
+      if (location is! Map ||
+          location['latitude'] is! num ||
+          location['longitude'] is! num) {
+        return null;
+      }
+      final name = (response['displayName'] as Map?)?['text'] as String?;
+      final address = response['formattedAddress'] as String?;
+      final label = [
+        if (name?.trim().isNotEmpty == true) name!.trim(),
+        if (address?.trim().isNotEmpty == true &&
+            address!.trim() != name?.trim())
+          address.trim(),
+      ].join(', ');
+      return GeocodeCandidate(
+        label: label.isEmpty ? prediction.label : label,
+        location: LatLng(
+          (location['latitude'] as num).toDouble(),
+          (location['longitude'] as num).toDouble(),
+        ),
+      );
+    } on RoutingException catch (e) {
+      debugPrint(
+        '[Routing] selected place could not be resolved (${e.reason})',
+      );
+      return null;
+    }
   }
 
   /// Resolves free-text like "Gulshan 2, Dhaka" to coordinates. Returns
@@ -379,7 +575,10 @@ class RoutingService {
   /// dearer and is built for *names of things*. Users of this app say both
   /// — "Road 7 Dhanmondi" and "Labaid" — so the address lookup runs first
   /// and the expensive name search only runs when it comes back empty.
-  Future<List<GeocodeCandidate>> geocodeCandidates(String address, {int limit = 5}) async {
+  Future<List<GeocodeCandidate>> geocodeCandidates(
+    String address, {
+    int limit = 5,
+  }) async {
     if (_preferGoogle) {
       try {
         // Gated separately, because they are separate SKUs with separate
@@ -395,7 +594,9 @@ class RoutingService {
         }
       } on RoutingException catch (e) {
         if (!_allowFallback) rethrow;
-        debugPrint('[Routing] Google geocode failed (${e.reason}); trying Nominatim');
+        debugPrint(
+          '[Routing] Google geocode failed (${e.reason}); trying Nominatim',
+        );
       }
       if (!_allowFallback) return const [];
     }
@@ -428,7 +629,9 @@ class RoutingService {
         }
       } on RoutingException catch (e) {
         if (!_allowFallback) rethrow;
-        debugPrint('[Routing] Google reverse geocode failed (${e.reason}); trying Nominatim');
+        debugPrint(
+          '[Routing] Google reverse geocode failed (${e.reason}); trying Nominatim',
+        );
       }
       if (!_allowFallback) return null;
     }
@@ -447,23 +650,34 @@ class RoutingService {
         // An empty list is returned as-is, on purpose. See the class comment:
         // "Google found no pedestrian route" is a real answer, and OSRM would
         // override it with a car route every single time.
-        return await _walkingRoutesGoogle(origin: origin, destination: destination);
+        return await _walkingRoutesGoogle(
+          origin: origin,
+          destination: destination,
+        );
       } on RoutingException catch (e) {
         if (!_allowFallback) rethrow;
-        debugPrint('[Routing] Google routing failed (${e.reason}); trying OSRM');
+        debugPrint(
+          '[Routing] Google routing failed (${e.reason}); trying OSRM',
+        );
       }
     }
     return _walkingRoutesOsrm(origin: origin, destination: destination);
   }
 
-  Future<List<GeocodeCandidate>> _geocodeCandidatesGoogle(String address, int limit) async {
+  Future<List<GeocodeCandidate>> _geocodeCandidatesGoogle(
+    String address,
+    int limit,
+  ) async {
     final uri = Uri.https('maps.googleapis.com', '/maps/api/geocode/json', {
       'address': address,
       'region': 'bd',
       'bounds': '23.62,90.28|23.92,90.52',
       'key': MapsConfig.apiKey,
     });
-    final response = await _get(uri, headers: MapsConfig.androidRestrictionHeaders);
+    final response = await _get(
+      uri,
+      headers: MapsConfig.androidRestrictionHeaders,
+    );
     final status = response['status'] as String?;
     if (status == 'ZERO_RESULTS') return const [];
     if (status != 'OK') throw RoutingException('geocode_failed:$status');
@@ -471,10 +685,14 @@ class RoutingService {
     return [
       for (final r in results)
         GeocodeCandidate(
-          label: (r as Map<String, dynamic>)['formatted_address'] as String? ?? address,
+          label:
+              (r as Map<String, dynamic>)['formatted_address'] as String? ??
+              address,
           location: LatLng(
-            ((r['geometry']['location'] as Map<String, dynamic>)['lat'] as num).toDouble(),
-            ((r['geometry']['location'] as Map<String, dynamic>)['lng'] as num).toDouble(),
+            ((r['geometry']['location'] as Map<String, dynamic>)['lat'] as num)
+                .toDouble(),
+            ((r['geometry']['location'] as Map<String, dynamic>)['lng'] as num)
+                .toDouble(),
           ),
         ),
     ];
@@ -494,12 +712,16 @@ class RoutingService {
   /// several times the cost of a geocode, with a smaller free monthly
   /// allowance. Running it only on a miss keeps the expensive call rare
   /// without giving up the recall it buys.
-  Future<List<GeocodeCandidate>> _placesTextSearch(String query, int limit) async {
+  Future<List<GeocodeCandidate>> _placesTextSearch(
+    String query,
+    int limit,
+  ) async {
     final response = await _postJson(
       Uri.https('places.googleapis.com', '/v1/places:searchText'),
       headers: {
         'X-Goog-Api-Key': MapsConfig.apiKey,
-        'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location',
+        'X-Goog-FieldMask':
+            'places.displayName,places.formattedAddress,places.location',
       },
       body: {
         'textQuery': query,
@@ -538,10 +760,12 @@ class RoutingService {
         if (name != null && name.trim().isNotEmpty) name.trim(),
         if (address != null && address.trim().isNotEmpty) address.trim(),
       ].join(', ');
-      out.add(GeocodeCandidate(
-        label: label.isEmpty ? query : label,
-        location: LatLng(lat.toDouble(), lng.toDouble()),
-      ));
+      out.add(
+        GeocodeCandidate(
+          label: label.isEmpty ? query : label,
+          location: LatLng(lat.toDouble(), lng.toDouble()),
+        ),
+      );
     }
     return out;
   }
@@ -614,21 +838,29 @@ class RoutingService {
     final clauses = category.osmFilters
         .map((f) => 'nwr[$f](around:$r,$lat,$lng);')
         .join();
-    final query = '[out:json][timeout:8];($clauses);out center $_categoryResultLimit;';
+    final query =
+        '[out:json][timeout:8];($clauses);out center $_categoryResultLimit;';
     try {
       final response = await _client
           .post(
             Uri.https('overpass-api.de', '/api/interpreter'),
-            headers: {'User-Agent': _osmUserAgent, 'Content-Type': 'text/plain; charset=utf-8'},
+            headers: {
+              'User-Agent': _osmUserAgent,
+              'Content-Type': 'text/plain; charset=utf-8',
+            },
             body: query,
           )
           .timeout(timeout);
       if (response.statusCode != 200) {
-        debugPrint('[Routing] category search returned HTTP ${response.statusCode}');
+        debugPrint(
+          '[Routing] category search returned HTTP ${response.statusCode}',
+        );
         return const [];
       }
       final decoded = jsonDecode(response.body);
-      final elements = decoded is Map<String, dynamic> ? decoded['elements'] : null;
+      final elements = decoded is Map<String, dynamic>
+          ? decoded['elements']
+          : null;
       if (elements is! List) return const [];
       final out = <NearbyRefuge>[];
       for (final element in elements) {
@@ -640,16 +872,24 @@ class RoutingService {
         final rawLng = element['lon'] ?? (centre is Map ? centre['lon'] : null);
         if (rawLat is! num || rawLng is! num) continue;
         final tags = element['tags'];
-        final name = tags is Map && tags['name'] is String ? tags['name'] as String : '';
+        final name = tags is Map && tags['name'] is String
+            ? tags['name'] as String
+            : '';
         out.add((
           name: name,
           location: LatLng(rawLat.toDouble(), rawLng.toDouble()),
           kind: category.id,
         ));
       }
-      out.sort((a, b) => _haversineMeters(origin, a.location)
-          .compareTo(_haversineMeters(origin, b.location)));
-      debugPrint('[Routing] category ${category.id}: ${out.length} within ${r}m');
+      out.sort(
+        (a, b) => _haversineMeters(
+          origin,
+          a.location,
+        ).compareTo(_haversineMeters(origin, b.location)),
+      );
+      debugPrint(
+        '[Routing] category ${category.id}: ${out.length} within ${r}m',
+      );
       return out;
     } catch (e) {
       debugPrint('[Routing] category search failed: $e');
@@ -670,9 +910,12 @@ class RoutingService {
     double rad(double deg) => deg * math.pi / 180;
     final dLat = rad(b.latitude - a.latitude);
     final dLng = rad(b.longitude - a.longitude);
-    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.sin(dLng / 2) * math.sin(dLng / 2) *
-            math.cos(rad(a.latitude)) * math.cos(rad(b.latitude));
+    final h =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.sin(dLng / 2) *
+            math.sin(dLng / 2) *
+            math.cos(rad(a.latitude)) *
+            math.cos(rad(b.latitude));
     return 2 * earthRadius * math.asin(math.min(1, math.sqrt(h)));
   }
 
@@ -685,10 +928,9 @@ class RoutingService {
   /// those apart, and that difference is the whole reason somebody asks.
   ///
   /// `TRAFFIC_AWARE` is only valid for DRIVE — sending it with WALK is a
-  /// 400 — and it leaves the Essentials SKU, so this is deliberately not on
-  /// the path of an ordinary walking route. It runs only when the user is
-  /// *planning* a commute, which is a question they ask rarely and
-  /// deliberately.
+  /// 400 — and it triggers Compute Routes Pro billing. It runs only when
+  /// the user is *planning* a commute, and has its own 4,500/month app cap
+  /// below Google's 5,000-call free tier.
   ///
   /// Returns null on any failure, and the caller falls back to arithmetic.
   Future<int?> drivingMinutesInTraffic({
@@ -696,7 +938,7 @@ class RoutingService {
     required LatLng destination,
     Duration timeout = const Duration(seconds: 8),
   }) async {
-    if (!_preferGoogle) return null;
+    if (!await _canSpend(BillableApi.routesPro)) return null;
     try {
       final response = await _postJson(
         Uri.https('routes.googleapis.com', '/directions/v2:computeRoutes'),
@@ -733,6 +975,97 @@ class RoutingService {
     }
   }
 
+  /// Gets the current transit itinerary with real line and stop names.
+  ///
+  /// One Compute Routes Essentials call, charged against the same monthly
+  /// Essentials cap as walking route requests. It requests only
+  /// duration and transit step details; no fare, toll, traffic, or polyline
+  /// fields are needed for the spoken commute suggestion.
+  Future<TransitRouteSummary?> transitRoute({
+    required LatLng origin,
+    required LatLng destination,
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    if (!await _canSpend(BillableApi.routes)) return null;
+    try {
+      final response = await _postJson(
+        Uri.https('routes.googleapis.com', '/directions/v2:computeRoutes'),
+        headers: {
+          'X-Goog-Api-Key': MapsConfig.apiKey,
+          'X-Goog-FieldMask': [
+            'routes.duration',
+            'routes.legs.steps.travelMode',
+            'routes.legs.steps.transitDetails',
+          ].join(','),
+        },
+        body: {
+          'origin': _routesWaypoint(origin),
+          'destination': _routesWaypoint(destination),
+          'travelMode': 'TRANSIT',
+          'departureTime': DateTime.now().toUtc().toIso8601String(),
+          'transitPreferences': {
+            'allowedTravelModes': ['BUS'],
+            'routingPreference': 'FEWER_TRANSFERS',
+          },
+          'languageCode': 'en',
+          'regionCode': 'BD',
+          'units': 'METRIC',
+        },
+        failurePrefix: 'transit_route',
+        timeout: timeout,
+      );
+      final routes = response['routes'];
+      if (routes is! List || routes.isEmpty || routes.first is! Map) {
+        return null;
+      }
+      final route = routes.first as Map;
+      final duration = _routesDurationSeconds(route['duration']);
+      final legs = <TransitLegSummary>[];
+      final routeLegs = route['legs'];
+      if (routeLegs is List) {
+        for (final routeLeg in routeLegs.whereType<Map>()) {
+          final steps = routeLeg['steps'];
+          if (steps is! List) continue;
+          for (final step in steps.whereType<Map>()) {
+            if (step['travelMode'] != 'TRANSIT') continue;
+            final details = step['transitDetails'];
+            if (details is! Map) continue;
+            final line = details['transitLine'];
+            final departure = details['stopDetails'] is Map
+                ? (details['stopDetails'] as Map)['departureStop']
+                : null;
+            final arrival = details['stopDetails'] is Map
+                ? (details['stopDetails'] as Map)['arrivalStop']
+                : null;
+            String text(Object? value) =>
+                value is Map ? (value['name'] as String? ?? '') : '';
+            final lineName = line is Map
+                ? ((line['nameShort'] as String?)?.trim().isNotEmpty == true
+                      ? (line['nameShort'] as String).trim()
+                      : (line['name'] as String? ?? '').trim())
+                : '';
+            legs.add(
+              TransitLegSummary(
+                lineName: lineName,
+                fromStop: text(departure),
+                toStop: text(arrival),
+                headsign: details['headsign'] as String? ?? '',
+              ),
+            );
+          }
+        }
+      }
+      if (duration == null || legs.isEmpty) return null;
+      return TransitRouteSummary(
+        durationMinutes: math.max(1, (duration / 60).round()),
+        legs: legs,
+      );
+    } catch (e) {
+      debugPrint('[Routing] transit route failed: $e');
+      return null;
+    }
+  }
+
   /// Places API **Nearby Search (New)**.
   ///
   /// Worth the money here specifically because of where it runs. This is the
@@ -756,14 +1089,18 @@ class RoutingService {
         Uri.https('places.googleapis.com', '/v1/places:searchNearby'),
         headers: {
           'X-Goog-Api-Key': MapsConfig.apiKey,
-          'X-Goog-FieldMask': 'places.displayName,places.location,places.primaryType',
+          'X-Goog-FieldMask':
+              'places.displayName,places.location,places.primaryType',
         },
         body: {
           'includedTypes': const ['hospital', 'police', 'doctor'],
           'maxResultCount': 20,
           'locationRestriction': {
             'circle': {
-              'center': {'latitude': origin.latitude, 'longitude': origin.longitude},
+              'center': {
+                'latitude': origin.latitude,
+                'longitude': origin.longitude,
+              },
               'radius': radiusMeters,
             },
           },
@@ -804,11 +1141,11 @@ class RoutingService {
   /// produces, so `SafeHavenFinder` and the narrator cannot tell which
   /// backend answered.
   static String _refugeKindFromPlaceType(String? type) => switch (type) {
-        'hospital' => 'hospital',
-        'police' => 'police',
-        'doctor' || 'medical_lab' || 'dental_clinic' => 'clinic',
-        _ => 'place',
-      };
+    'hospital' => 'hospital',
+    'police' => 'police',
+    'doctor' || 'medical_lab' || 'dental_clinic' => 'clinic',
+    _ => 'place',
+  };
 
   /// Overpass rather than Nominatim: Nominatim answers "where is this
   /// name", and the question here is "what of this kind is near this
@@ -822,7 +1159,8 @@ class RoutingService {
     final r = radiusMeters.round();
     final lat = origin.latitude;
     final lng = origin.longitude;
-    final query = '[out:json][timeout:5];('
+    final query =
+        '[out:json][timeout:5];('
         'node["amenity"="hospital"](around:$r,$lat,$lng);'
         'node["amenity"="clinic"](around:$r,$lat,$lng);'
         'node["amenity"="police"](around:$r,$lat,$lng);'
@@ -831,7 +1169,10 @@ class RoutingService {
       final response = await _client
           .post(
             Uri.https('overpass-api.de', '/api/interpreter'),
-            headers: {'User-Agent': _osmUserAgent, 'Content-Type': 'text/plain; charset=utf-8'},
+            headers: {
+              'User-Agent': _osmUserAgent,
+              'Content-Type': 'text/plain; charset=utf-8',
+            },
             body: query,
           )
           .timeout(timeout);
@@ -840,7 +1181,9 @@ class RoutingService {
         return const [];
       }
       final decoded = jsonDecode(response.body);
-      final elements = decoded is Map<String, dynamic> ? decoded['elements'] : null;
+      final elements = decoded is Map<String, dynamic>
+          ? decoded['elements']
+          : null;
       if (elements is! List) return const [];
       final out = <({String name, LatLng location, String kind})>[];
       for (final element in elements) {
@@ -849,10 +1192,14 @@ class RoutingService {
         final elementLng = element['lon'];
         if (elementLat is! num || elementLng is! num) continue;
         final tags = element['tags'];
-        final kind = tags is Map && tags['amenity'] is String ? tags['amenity'] as String : 'place';
+        final kind = tags is Map && tags['amenity'] is String
+            ? tags['amenity'] as String
+            : 'place';
         // An unnamed node is still a real place, and being told "a hospital"
         // is usable when the alternative is being told nothing.
-        final name = tags is Map && tags['name'] is String ? tags['name'] as String : kind;
+        final name = tags is Map && tags['name'] is String
+            ? tags['name'] as String
+            : kind;
         out.add((
           name: name,
           location: LatLng(elementLat.toDouble(), elementLng.toDouble()),
@@ -866,7 +1213,10 @@ class RoutingService {
     }
   }
 
-  Future<List<GeocodeCandidate>> _geocodeCandidatesOsm(String address, int limit) async {
+  Future<List<GeocodeCandidate>> _geocodeCandidatesOsm(
+    String address,
+    int limit,
+  ) async {
     final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
       'q': address,
       'format': 'jsonv2',
@@ -879,7 +1229,8 @@ class RoutingService {
     return [
       for (final r in results)
         GeocodeCandidate(
-          label: (r as Map<String, dynamic>)['display_name'] as String? ?? address,
+          label:
+              (r as Map<String, dynamic>)['display_name'] as String? ?? address,
           location: LatLng(
             double.parse(r['lat'] as String),
             double.parse(r['lon'] as String),
@@ -893,10 +1244,14 @@ class RoutingService {
       'latlng': '${location.latitude},${location.longitude}',
       'key': MapsConfig.apiKey,
     });
-    final response = await _get(uri, headers: MapsConfig.androidRestrictionHeaders);
+    final response = await _get(
+      uri,
+      headers: MapsConfig.androidRestrictionHeaders,
+    );
     final status = response['status'] as String?;
     if (status == 'ZERO_RESULTS') return null;
-    if (status != 'OK') throw RoutingException('reverse_geocode_failed:$status');
+    if (status != 'OK')
+      throw RoutingException('reverse_geocode_failed:$status');
     // Google orders reverse results most-specific first, which is the one
     // worth saying: "Road 7, Dhanmondi" rather than "Dhaka Division".
     //
@@ -930,9 +1285,12 @@ class RoutingService {
   ///
   /// Anchored to the start because that is where Google puts it, and a real
   /// address is never shaped this way.
-  static final _plusCode = RegExp(r'^[23456789CFGHJMPQRVWX]{4,}\+[23456789CFGHJMPQRVWX]{2,}\b');
+  static final _plusCode = RegExp(
+    r'^[23456789CFGHJMPQRVWX]{4,}\+[23456789CFGHJMPQRVWX]{2,}\b',
+  );
 
-  static bool _startsWithPlusCode(String label) => _plusCode.hasMatch(label.trim());
+  static bool _startsWithPlusCode(String label) =>
+      _plusCode.hasMatch(label.trim());
 
   @visibleForTesting
   static bool debugIsPlusCode(String label) => _startsWithPlusCode(label);
@@ -942,8 +1300,11 @@ class RoutingService {
 
   /// Drops the code and keeps the rest — "P9V4+452, Dhaka 1209" becomes
   /// "Dhaka 1209".
-  static String _withoutPlusCode(String label) =>
-      label.trim().replaceFirst(_plusCode, '').replaceFirst(RegExp(r'^[\s,]+'), '').trim();
+  static String _withoutPlusCode(String label) => label
+      .trim()
+      .replaceFirst(_plusCode, '')
+      .replaceFirst(RegExp(r'^[\s,]+'), '')
+      .trim();
 
   Future<GeocodeCandidate?> _reverseGeocodeOsm(LatLng location) async {
     final uri = Uri.https('nominatim.openstreetmap.org', '/reverse', {
@@ -1026,16 +1387,19 @@ class RoutingService {
   }
 
   static Map<String, dynamic> _routesWaypoint(LatLng point) => {
-        'location': {
-          'latLng': {'latitude': point.latitude, 'longitude': point.longitude},
-        },
-      };
+    'location': {
+      'latLng': {'latitude': point.latitude, 'longitude': point.longitude},
+    },
+  };
 
   /// The public OSRM demo server. Its encoded-geometry format
   /// (`geometries=polyline`) is bit-compatible with Google's own polyline
   /// encoding (same precision-5 algorithm), so [decodePolyline] works
   /// unchanged for either backend.
-  Future<List<RouteCandidate>> _walkingRoutesOsrm({required LatLng origin, required LatLng destination}) async {
+  Future<List<RouteCandidate>> _walkingRoutesOsrm({
+    required LatLng origin,
+    required LatLng destination,
+  }) async {
     final uri = Uri.https(
       'router.project-osrm.org',
       '/route/v1/foot/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}',
@@ -1055,7 +1419,9 @@ class RoutingService {
       throw RoutingException('directions_failed:$code');
     }
     final routes = response['routes'] as List<dynamic>;
-    return routes.map((r) => _toCandidateOsrm(r as Map<String, dynamic>)).toList();
+    return routes
+        .map((r) => _toCandidateOsrm(r as Map<String, dynamic>))
+        .toList();
   }
 
   RouteCandidate _toCandidateOsrm(Map<String, dynamic> route) {
@@ -1067,7 +1433,9 @@ class RoutingService {
     // speeds, so a real walking-speed estimate is computed from distance
     // instead of trusting the (car-speed) value the server returns.
     final duration = distance / _walkingSpeedMps;
-    final bearing = points.length >= 2 ? _bearingDegrees(points[0], points[1]) : 0.0;
+    final bearing = points.length >= 2
+        ? _bearingDegrees(points[0], points[1])
+        : 0.0;
     return RouteCandidate(
       encodedPolyline: encoded,
       points: points,
@@ -1085,20 +1453,31 @@ class RoutingService {
     if (legs == null) return const [];
     final steps = <RouteStep>[];
     for (final leg in legs) {
-      for (final raw in ((leg as Map<String, dynamic>)['steps'] as List<dynamic>? ?? const [])) {
+      for (final raw
+          in ((leg as Map<String, dynamic>)['steps'] as List<dynamic>? ??
+              const [])) {
         final step = raw as Map<String, dynamic>;
         final maneuver = step['maneuver'] as Map<String, dynamic>?;
         final location = (maneuver?['location'] as List<dynamic>?) ?? const [];
         if (location.length < 2) continue;
-        steps.add(RouteStep(
-          // OSRM returns [longitude, latitude], the opposite order to
-          // everything else in this file.
-          location: LatLng((location[1] as num).toDouble(), (location[0] as num).toDouble()),
-          distanceMeters: ((step['distance'] as num?) ?? 0).toDouble(),
-          maneuver: maneuverFromOsrm(maneuver?['type'] as String?, maneuver?['modifier'] as String?),
-          streetName: (step['name'] as String?)?.trim() ?? '',
-          bearingAfter: ((maneuver?['bearing_after'] as num?) ?? 0).toDouble(),
-        ));
+        steps.add(
+          RouteStep(
+            // OSRM returns [longitude, latitude], the opposite order to
+            // everything else in this file.
+            location: LatLng(
+              (location[1] as num).toDouble(),
+              (location[0] as num).toDouble(),
+            ),
+            distanceMeters: ((step['distance'] as num?) ?? 0).toDouble(),
+            maneuver: maneuverFromOsrm(
+              maneuver?['type'] as String?,
+              maneuver?['modifier'] as String?,
+            ),
+            streetName: (step['name'] as String?)?.trim() ?? '',
+            bearingAfter: ((maneuver?['bearing_after'] as num?) ?? 0)
+                .toDouble(),
+          ),
+        );
       }
     }
     return steps;
@@ -1107,7 +1486,10 @@ class RoutingService {
   Future<List<dynamic>> _getList(Uri uri) async {
     final http.Response response;
     try {
-      response = await _client.get(uri, headers: const {'User-Agent': _osmUserAgent});
+      response = await _client.get(
+        uri,
+        headers: const {'User-Agent': _osmUserAgent},
+      );
     } catch (_) {
       throw const RoutingException('network_error');
     }
@@ -1118,13 +1500,16 @@ class RoutingService {
   }
 
   RouteCandidate _toCandidateGoogle(Map<String, dynamic> route) {
-    final encoded = (route['polyline'] as Map?)?['encodedPolyline'] as String? ?? '';
+    final encoded =
+        (route['polyline'] as Map?)?['encodedPolyline'] as String? ?? '';
     final points = decodePolyline(encoded);
     final steps = _stepsFromGoogle(route['legs']);
     // Bearing off the decoded geometry rather than the first step, because
     // the field mask does not ask for step end points and a step can be a
     // single location. The polyline always has the real first leg in it.
-    final bearing = points.length >= 2 ? _bearingDegrees(points[0], points[1]) : 0.0;
+    final bearing = points.length >= 2
+        ? _bearingDegrees(points[0], points[1])
+        : 0.0;
     final distance = ((route['distanceMeters'] as num?) ?? 0).toDouble();
     return RouteCandidate(
       encodedPolyline: encoded,
@@ -1133,7 +1518,9 @@ class RoutingService {
       // Unlike OSRM's, this duration is a real pedestrian estimate from a
       // real pedestrian profile, so it is trusted. The fallback to
       // walking-speed arithmetic is only for a malformed value.
-      durationSeconds: _routesDurationSeconds(route['duration']) ?? distance / _walkingSpeedMps,
+      durationSeconds:
+          _routesDurationSeconds(route['duration']) ??
+          distance / _walkingSpeedMps,
       initialBearingDegrees: bearing,
       steps: steps,
     );
@@ -1146,7 +1533,9 @@ class RoutingService {
   static double? _routesDurationSeconds(Object? raw) {
     if (raw is num) return raw.toDouble();
     if (raw is! String) return null;
-    return double.tryParse(raw.endsWith('s') ? raw.substring(0, raw.length - 1) : raw);
+    return double.tryParse(
+      raw.endsWith('s') ? raw.substring(0, raw.length - 1) : raw,
+    );
   }
 
   /// Routes API describes a manoeuvre as an enum on `navigationInstruction`
@@ -1178,20 +1567,24 @@ class RoutingService {
         final lng = latLng['longitude'];
         if (lat is! num || lng is! num) continue;
         final instruction = raw['navigationInstruction'];
-        steps.add(RouteStep(
-          location: LatLng(lat.toDouble(), lng.toDouble()),
-          distanceMeters: ((raw['distanceMeters'] as num?) ?? 0).toDouble(),
-          maneuver: maneuverFromGoogleRoutes(
-            instruction is Map ? instruction['maneuver'] as String? : null,
+        steps.add(
+          RouteStep(
+            location: LatLng(lat.toDouble(), lng.toDouble()),
+            distanceMeters: ((raw['distanceMeters'] as num?) ?? 0).toDouble(),
+            maneuver: maneuverFromGoogleRoutes(
+              instruction is Map ? instruction['maneuver'] as String? : null,
+            ),
+            streetName: streetNameFromGoogleInstruction(
+              instruction is Map
+                  ? instruction['instructions'] as String?
+                  : null,
+            ),
+            // Routes API has no per-step bearing. The narrator only uses this
+            // when it exists; 0 means "unknown", the same as it does on the
+            // OSRM path for a step with no `bearing_after`.
+            bearingAfter: 0,
           ),
-          streetName: streetNameFromGoogleInstruction(
-            instruction is Map ? instruction['instructions'] as String? : null,
-          ),
-          // Routes API has no per-step bearing. The narrator only uses this
-          // when it exists; 0 means "unknown", the same as it does on the
-          // OSRM path for a step with no `bearing_after`.
-          bearingAfter: 0,
-        ));
+        );
       }
     }
     return steps;
@@ -1245,7 +1638,9 @@ class RoutingService {
     if (response.statusCode != 200) {
       final error = decoded is Map ? decoded['error'] : null;
       final status = error is Map ? error['status'] as String? : null;
-      throw RoutingException('$failurePrefix:${status ?? 'http_${response.statusCode}'}');
+      throw RoutingException(
+        '$failurePrefix:${status ?? 'http_${response.statusCode}'}',
+      );
     }
     if (decoded is! Map<String, dynamic>) {
       throw RoutingException('$failurePrefix:malformed');
@@ -1253,13 +1648,16 @@ class RoutingService {
     return decoded;
   }
 
-  Future<Map<String, dynamic>> _get(Uri uri, {Map<String, String> headers = const {}}) async {
+  Future<Map<String, dynamic>> _get(
+    Uri uri, {
+    Map<String, String> headers = const {},
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
     final http.Response response;
     try {
-      response = await _client.get(
-        uri,
-        headers: {'User-Agent': _osmUserAgent, ...headers},
-      );
+      response = await _client
+          .get(uri, headers: {'User-Agent': _osmUserAgent, ...headers})
+          .timeout(timeout);
     } catch (_) {
       throw const RoutingException('network_error');
     }
@@ -1311,7 +1709,9 @@ double _bearingDegrees(LatLng from, LatLng to) {
   final lat2 = to.latitude * math.pi / 180;
   final dLng = (to.longitude - from.longitude) * math.pi / 180;
   final y = math.sin(dLng) * math.cos(lat2);
-  final x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+  final x =
+      math.cos(lat1) * math.sin(lat2) -
+      math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
   final bearingDeg = math.atan2(y, x) * 180 / math.pi;
   return (bearingDeg + 360) % 360;
 }

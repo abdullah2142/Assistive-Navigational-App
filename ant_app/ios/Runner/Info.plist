@@ -70,6 +70,8 @@
 	<string>ANT uses your location to center the map and to share it with your paired caretaker for safety.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ANT uses your microphone so you can talk to your assistant and dictate messages instead of typing.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>ANT searches contacts on your phone so you can choose one emergency contact for the Magic Button. Only the contact you select is saved.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>ANT converts your speech to text so you can talk to your assistant and dictate messages instead of typing.</string>
 </dict>

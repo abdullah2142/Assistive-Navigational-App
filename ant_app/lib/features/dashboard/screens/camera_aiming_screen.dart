@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -10,7 +11,7 @@ import '../../../core/providers/ai_assistant_providers.dart';
 import '../../../core/services/vision/snapshot_camera.dart';
 import '../../onboarding/models/disability_profile_enums.dart';
 
-/// A viewfinder, for the people who can use one.
+/// A short viewfinder for a user-requested camera capture.
 ///
 /// ## Why this does not break the "no live video" rule
 ///
@@ -29,17 +30,9 @@ import '../../onboarding/models/disability_profile_enums.dart';
 ///
 /// ## Who it is for
 ///
-/// Not the blind user, and that is the point of it being a *screen* rather
-/// than a step. Asked for as: the camera should open for aiming when the
-/// button is tapped. A low-vision user can see roughly where the phone is
-/// pointed, and a sighted companion helping somebody at a kerb can aim it
-/// exactly — and neither had any way to tell whether the camera was facing a
-/// signboard or the inside of a bag.
-///
-/// The paths that serve a blind user are untouched and still bypass this
-/// entirely: holding Volume Up, and asking out loud. Both still run the
-/// three-frame sweep with its spoken Left / Straight ahead / Right cues,
-/// which is the aiming interface for somebody who cannot use this one.
+/// Any user who explicitly opens the camera can aim and capture the frame
+/// that will be analyzed. Volume Up remains an immediate one-frame action,
+/// and a spoken surroundings request remains a guided multi-frame sweep.
 class CameraAimingScreen extends ConsumerStatefulWidget {
   const CameraAimingScreen({super.key, required this.language});
 
@@ -56,8 +49,13 @@ class CameraAimingScreen extends ConsumerStatefulWidget {
   ConsumerState<CameraAimingScreen> createState() => _CameraAimingScreenState();
 }
 
+/// Explicit camera requests offer the viewfinder regardless of vision level.
+bool shouldOfferAiming(VisionLevel _) => true;
+
 class _CameraAimingScreenState extends ConsumerState<CameraAimingScreen> {
-  late final SnapshotCamera _camera = ref.read(snapshotVisionServiceProvider).camera;
+  late final SnapshotCamera _camera = ref
+      .read(snapshotVisionServiceProvider)
+      .camera;
 
   bool _opening = true;
   bool _failed = false;
@@ -90,12 +88,23 @@ class _CameraAimingScreenState extends ConsumerState<CameraAimingScreen> {
     });
   }
 
-  /// Closes the viewfinder and asks the caller to take the shot.
-  ///
-  /// The scan itself is run by `ChatController` after this pops, not here:
-  /// it owns the narration, the transcript entry and the cloud budget, and a
-  /// second path into the vision tier would bypass all three.
-  void _shoot() => Navigator.of(context).pop(true);
+  /// Captures the exact frame shown in the viewfinder and returns it to the
+  /// controller for the normal analysis/transcript path.
+  Future<void> _shoot() async {
+    final controller = _camera.controller;
+    if (controller == null || !controller.value.isInitialized) {
+      Navigator.of(context).pop<Uint8List>();
+      return;
+    }
+    try {
+      final photo = await controller.takePicture();
+      final bytes = await photo.readAsBytes();
+      if (mounted) Navigator.of(context).pop<Uint8List>(bytes);
+    } catch (e) {
+      debugPrint('[CameraAim] shutter failed: $e');
+      if (mounted) Navigator.of(context).pop<Uint8List>();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -112,17 +121,17 @@ class _CameraAimingScreenState extends ConsumerState<CameraAimingScreen> {
               child: switch ((_opening, _failed, controller)) {
                 (true, _, _) => const CircularProgressIndicator(),
                 (_, true, _) || (_, _, null) => Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      d.visionNoCamera,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white),
-                    ),
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    d.visionNoCamera,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white),
                   ),
+                ),
                 _ => AspectRatio(
-                    aspectRatio: controller!.value.aspectRatio,
-                    child: CameraPreview(controller),
-                  ),
+                  aspectRatio: controller!.value.aspectRatio,
+                  child: CameraPreview(controller),
+                ),
               },
             ),
           ),
@@ -150,7 +159,7 @@ class _CameraAimingScreenState extends ConsumerState<CameraAimingScreen> {
                         // to take the picture the button promises — the scan
                         // does not need the viewfinder, only this screen
                         // does.
-                        onPressed: _shoot,
+                        onPressed: _opening || _failed ? null : _shoot,
                         icon: const Icon(Icons.camera_alt_rounded, size: 28),
                         label: Text(d.cameraAimingShoot),
                       ),
@@ -165,10 +174,3 @@ class _CameraAimingScreenState extends ConsumerState<CameraAimingScreen> {
     );
   }
 }
-
-/// Whether a viewfinder is worth offering at all.
-///
-/// A user with no usable vision gets the sweep straight away instead: a
-/// preview they cannot see is a screen between them and the answer, and the
-/// spoken Left / Straight ahead / Right cues are their aiming interface.
-bool shouldOfferAiming(VisionLevel level) => level != VisionLevel.none;

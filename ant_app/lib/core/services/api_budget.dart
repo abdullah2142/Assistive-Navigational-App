@@ -22,7 +22,15 @@ import '../config/routing_config.dart';
 /// and the 24 tool declarations are roughly 5,200 tokens of the ~5,600 sent
 /// on an average turn, whatever the user actually said. A call is therefore
 /// a good proxy for a fixed slice of money.
-enum BillableApi { geocoding, routes, places, gemini, vision, visionGemini }
+enum BillableApi {
+  geocoding,
+  routes,
+  routesPro,
+  places,
+  gemini,
+  vision,
+  visionGemini,
+}
 
 /// Decides whether one more billable Google call may be made.
 ///
@@ -48,13 +56,14 @@ abstract class ApiBudget {
 /// email you after the money is spent. So the only place a real monthly
 /// ceiling can live is in the client, which is here.
 ///
-/// ## Why the count is project-wide, not per-device
+/// ## Why the counter is shared across devices
 ///
-/// The free tier is project-wide. Dividing it by an assumed number of
-/// installs would be a guess that silently breaks the moment the app is
-/// distributed more widely than planned — which is exactly the situation
-/// where an overspend would be least expected and most annoying. A single
-/// shared counter in Firestore has no such assumption in it.
+/// The Firestore counter is shared by every install of this app. Dividing it
+/// by an assumed number of installs would be a guess that silently breaks as
+/// soon as more testers install the app. Google aggregates SKU usage across
+/// projects linked to a billing account; this counter only sees calls made by
+/// this app, so calls from other projects or the Cloud Console can still use
+/// the same free allowance.
 ///
 /// It also happens to be the only usage figure anyone on this project can
 /// actually see. The Cloud Console's own quota pages are near-unreadable for
@@ -73,9 +82,9 @@ class MonthlyApiBudget implements ApiBudget {
     required ApiBudgetStore store,
     DateTime Function()? now,
     Map<BillableApi, int>? caps,
-  })  : _store = store,
-        _now = now ?? DateTime.now,
-        _caps = caps ?? defaultCaps;
+  }) : _store = store,
+       _now = now ?? DateTime.now,
+       _caps = caps ?? defaultCaps;
 
   final ApiBudgetStore _store;
   final DateTime Function() _now;
@@ -87,9 +96,14 @@ class MonthlyApiBudget implements ApiBudget {
   /// calls made outside this app — a console test, a colleague's build —
   /// that the counter cannot see.
   static const Map<BillableApi, int> defaultCaps = {
-    // Free tier 10,000/month.
+    // Geocoding Essentials free tier 10,000/month.
     BillableApi.geocoding: 9000,
+    // Compute Routes Essentials free tier 10,000/month. Walking and the
+    // transit-line lookup use only Essentials features.
     BillableApi.routes: 9000,
+    // Compute Routes Pro free tier 5,000/month. Traffic-aware driving routes
+    // trigger Pro, so keep a separate counter and 10% headroom.
+    BillableApi.routesPro: 4500,
     // Free tier 5,000/month, and the dearest SKU by a wide margin.
     BillableApi.places: 4500,
     // Superseded from a Gemini dollar ceiling to a Groq rate-limit ceiling:
@@ -178,7 +192,9 @@ class MonthlyApiBudget implements ApiBudget {
     final used = _cached![api.name] ?? 0;
     final cap = _caps[api] ?? 0;
     if (used >= cap) {
-      debugPrint('[ApiBudget] ${api.name} at $used/$cap for $period — using OpenStreetMap');
+      debugPrint(
+        '[ApiBudget] ${api.name} at $used/$cap for $period — using OpenStreetMap',
+      );
       return false;
     }
 
@@ -187,9 +203,11 @@ class MonthlyApiBudget implements ApiBudget {
     _cached![api.name] = used + 1;
     // Deliberately not awaited. A route request must not wait on a counter
     // write, and a lost increment costs one call out of a 10% margin.
-    unawaited(_store.increment(period, api.name).catchError((Object e) {
-      debugPrint('[ApiBudget] increment failed for ${api.name}: $e');
-    }));
+    unawaited(
+      _store.increment(period, api.name).catchError((Object e) {
+        debugPrint('[ApiBudget] increment failed for ${api.name}: $e');
+      }),
+    );
     return true;
   }
 
@@ -217,7 +235,7 @@ abstract class ApiBudgetStore {
 /// add up correctly on the server even though the local cache is optimistic.
 class FirestoreApiBudgetStore implements ApiBudgetStore {
   FirestoreApiBudgetStore({FirebaseFirestore? firestore})
-      : _db = firestore ?? FirebaseFirestore.instance;
+    : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
 
@@ -234,10 +252,9 @@ class FirestoreApiBudgetStore implements ApiBudgetStore {
 
   @override
   Future<void> increment(String period, String api) {
-    return _db.collection('api_usage').doc(period).set(
-      {api: FieldValue.increment(1)},
-      SetOptions(merge: true),
-    );
+    return _db.collection('api_usage').doc(period).set({
+      api: FieldValue.increment(1),
+    }, SetOptions(merge: true));
   }
 }
 
@@ -256,7 +273,6 @@ class UnlimitedApiBudget implements ApiBudget {
   @override
   Future<Map<String, int>> usage() async => const {};
 }
-
 
 ApiBudget? _shared;
 

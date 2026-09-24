@@ -43,7 +43,15 @@ class UserProfile {
     this.savedPlaces = const [],
     this.onboardingStep,
     bool? voiceAutoListen,
-  }) : voiceAutoListen = voiceAutoListen ?? (visionLevel != VisionLevel.full || complexInstructionsHard);
+    bool? depthScanningEnabled,
+    bool? autoOpenMapOnRoute,
+  }) : voiceAutoListen =
+           voiceAutoListen ??
+           (visionLevel != VisionLevel.full || complexInstructionsHard),
+       depthScanningEnabled =
+           depthScanningEnabled ?? visionLevel == VisionLevel.none,
+       autoOpenMapOnRoute =
+           autoOpenMapOnRoute ?? visionLevel != VisionLevel.none;
 
   final String uid;
   final UserRole role;
@@ -67,6 +75,7 @@ class UserProfile {
 
   // Step 3.1 — AI verbosity & voice.
   final VerbosityLevel verbosity;
+
   /// Which synthesized voice narrates the app, e.g. `en-US-female-1`.
   ///
   /// The language half must match [language]. It used to be hardcoded to
@@ -205,6 +214,14 @@ class UserProfile {
   // overrides the computed default and is what actually gets persisted.
   final bool voiceAutoListen;
 
+  /// Whether the local depth model checks the ground during ambient scans.
+  /// Defaults on for blind users; older profiles keep that smart default.
+  final bool depthScanningEnabled;
+
+  /// Whether a successful route automatically reveals the map.
+  /// Defaults off for blind users and on for other vision profiles.
+  final bool autoOpenMapOnRoute;
+
   /// Places this user goes to often, so "take me to work" resolves
   /// instantly — no geocoding, no language model, no follow-up question.
   /// Collected optionally during onboarding and editable afterwards by
@@ -214,81 +231,94 @@ class UserProfile {
   bool get requiresVisualCalibration => visionLevel == VisionLevel.low;
 
   Map<String, dynamic> toJson() => {
-        'uid': uid,
-        'role': role.firestoreValue,
-        'pairedUserId': pairedUserId,
-        'displayName': displayName,
-        'visionLevel': visionLevel.name,
-        'contrastLevel': contrastLevel,
-        'fontScale': fontScale,
-        'mobilityAid': mobilityAid.name,
-        'crowdedPlacesAnxious': crowdedPlacesAnxious,
-        'complexInstructionsHard': complexInstructionsHard,
-        'isDeafOrHardOfHearing': isDeafOrHardOfHearing,
-        'verbosity': verbosity.name,
-        'voiceId': voiceId,
-        'magicButtonContacts': magicButtonContacts.map((c) => c.toJson()).toList(),
-        'homeAddress': homeAddress,
-        'safePlaceAddress': safePlaceAddress,
-        'onboardingComplete': onboardingComplete,
-        'themePreference': themePreference.name,
-        'passerbyHelperMessages': passerbyHelperMessages,
-        'rememberedNotes': rememberedNotes,
-        'language': language.name,
-        'snapshotConsent': snapshotConsent.name,
-        'wakeWordEnabled': wakeWordEnabled,
-        'wakeWordThreshold': wakeWordThreshold,
-        'narrateOptionsFirst': narrateOptionsFirst,
-        'hapticIntensity': hapticIntensity.name,
-        'voiceAutoListen': voiceAutoListen,
-        'savedPlaces': savedPlaces.map((p) => p.toJson()).toList(),
-        'onboardingStep': onboardingStep?.name,
-      };
+    'uid': uid,
+    'role': role.firestoreValue,
+    'pairedUserId': pairedUserId,
+    'displayName': displayName,
+    'visionLevel': visionLevel.name,
+    'contrastLevel': contrastLevel,
+    'fontScale': fontScale,
+    'mobilityAid': mobilityAid.name,
+    'crowdedPlacesAnxious': crowdedPlacesAnxious,
+    'complexInstructionsHard': complexInstructionsHard,
+    'isDeafOrHardOfHearing': isDeafOrHardOfHearing,
+    'verbosity': verbosity.name,
+    'voiceId': voiceId,
+    'magicButtonContacts': magicButtonContacts.map((c) => c.toJson()).toList(),
+    'homeAddress': homeAddress,
+    'safePlaceAddress': safePlaceAddress,
+    'onboardingComplete': onboardingComplete,
+    'themePreference': themePreference.name,
+    'passerbyHelperMessages': passerbyHelperMessages,
+    'rememberedNotes': rememberedNotes,
+    'language': language.name,
+    'snapshotConsent': snapshotConsent.name,
+    'wakeWordEnabled': wakeWordEnabled,
+    'wakeWordThreshold': wakeWordThreshold,
+    'narrateOptionsFirst': narrateOptionsFirst,
+    'hapticIntensity': hapticIntensity.name,
+    'voiceAutoListen': voiceAutoListen,
+    'depthScanningEnabled': depthScanningEnabled,
+    'autoOpenMapOnRoute': autoOpenMapOnRoute,
+    'savedPlaces': savedPlaces.map((p) => p.toJson()).toList(),
+    'onboardingStep': onboardingStep?.name,
+  };
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
-        uid: json['uid'] as String,
-        role: UserRole.fromFirestore(json['role'] as String? ?? 'disabledUser'),
-        pairedUserId: json['pairedUserId'] as String?,
-        displayName: json['displayName'] as String? ?? '',
-        visionLevel: VisionLevel.fromFirestore(json['visionLevel'] as String?),
-        contrastLevel: (json['contrastLevel'] as num?)?.toDouble() ?? 0.5,
-        fontScale: (json['fontScale'] as num?)?.toDouble() ?? 1.0,
-        mobilityAid: MobilityAid.fromFirestore(json['mobilityAid'] as String?),
-        crowdedPlacesAnxious: json['crowdedPlacesAnxious'] as bool? ?? false,
-        complexInstructionsHard: json['complexInstructionsHard'] as bool? ?? false,
-        isDeafOrHardOfHearing: json['isDeafOrHardOfHearing'] as bool? ?? false,
-        verbosity: VerbosityLevel.fromFirestore(json['verbosity'] as String?),
-        voiceId: json['voiceId'] as String? ?? 'bn-BD-female-1',
-        magicButtonContacts: (json['magicButtonContacts'] as List<dynamic>? ?? [])
-            .map((c) => TrustedContact.fromJson(c as Map<String, dynamic>))
+    uid: json['uid'] as String,
+    role: UserRole.fromFirestore(json['role'] as String? ?? 'disabledUser'),
+    pairedUserId: json['pairedUserId'] as String?,
+    displayName: json['displayName'] as String? ?? '',
+    visionLevel: VisionLevel.fromFirestore(json['visionLevel'] as String?),
+    contrastLevel: (json['contrastLevel'] as num?)?.toDouble() ?? 0.5,
+    fontScale: (json['fontScale'] as num?)?.toDouble() ?? 1.0,
+    mobilityAid: MobilityAid.fromFirestore(json['mobilityAid'] as String?),
+    crowdedPlacesAnxious: json['crowdedPlacesAnxious'] as bool? ?? false,
+    complexInstructionsHard: json['complexInstructionsHard'] as bool? ?? false,
+    isDeafOrHardOfHearing: json['isDeafOrHardOfHearing'] as bool? ?? false,
+    verbosity: VerbosityLevel.fromFirestore(json['verbosity'] as String?),
+    voiceId: json['voiceId'] as String? ?? 'bn-BD-female-1',
+    magicButtonContacts: (json['magicButtonContacts'] as List<dynamic>? ?? [])
+        .map((c) => TrustedContact.fromJson(c as Map<String, dynamic>))
+        .toList(),
+    homeAddress: json['homeAddress'] as String?,
+    safePlaceAddress: json['safePlaceAddress'] as String?,
+    onboardingComplete: json['onboardingComplete'] as bool? ?? false,
+    themePreference: ThemePreference.fromFirestore(
+      json['themePreference'] as String?,
+    ),
+    passerbyHelperMessages:
+        (json['passerbyHelperMessages'] as List<dynamic>? ?? [])
+            .map((m) => m as String)
             .toList(),
-        homeAddress: json['homeAddress'] as String?,
-        safePlaceAddress: json['safePlaceAddress'] as String?,
-        onboardingComplete: json['onboardingComplete'] as bool? ?? false,
-        themePreference: ThemePreference.fromFirestore(json['themePreference'] as String?),
-        passerbyHelperMessages:
-            (json['passerbyHelperMessages'] as List<dynamic>? ?? []).map((m) => m as String).toList(),
-        rememberedNotes:
-            (json['rememberedNotes'] as List<dynamic>? ?? []).whereType<String>().toList(),
-        language: AppLanguage.fromFirestore(json['language'] as String?),
-        snapshotConsent: SnapshotConsentPreference.fromFirestore(json['snapshotConsent'] as String?),
-        wakeWordEnabled: json['wakeWordEnabled'] as bool? ?? false,
-        wakeWordThreshold: (json['wakeWordThreshold'] as num?)?.toDouble(),
-        // Absent on every profile written before the question existed, and
-        // those users have been hearing the options all along.
-        narrateOptionsFirst: json['narrateOptionsFirst'] as bool? ?? true,
-        hapticIntensity: HapticIntensity.fromFirestore(json['hapticIntensity'] as String?),
-        // Not `?? false` like the others — a profile that's never had this
-        // field written yet (every profile created before this field
-        // existed) should still get the smart, profile-based default
-        // rather than being silently opted out. `null` here is what lets
-        // the constructor's own default-computation run.
-        voiceAutoListen: json['voiceAutoListen'] as bool?,
-        savedPlaces: (json['savedPlaces'] as List<dynamic>? ?? [])
-            .map((p) => SavedPlace.fromJson(p as Map<String, dynamic>))
-            .toList(),
-        onboardingStep: _stepFromName(json['onboardingStep'] as String?),
-      );
+    rememberedNotes: (json['rememberedNotes'] as List<dynamic>? ?? [])
+        .whereType<String>()
+        .toList(),
+    language: AppLanguage.fromFirestore(json['language'] as String?),
+    snapshotConsent: SnapshotConsentPreference.fromFirestore(
+      json['snapshotConsent'] as String?,
+    ),
+    wakeWordEnabled: json['wakeWordEnabled'] as bool? ?? false,
+    wakeWordThreshold: (json['wakeWordThreshold'] as num?)?.toDouble(),
+    // Absent on every profile written before the question existed, and
+    // those users have been hearing the options all along.
+    narrateOptionsFirst: json['narrateOptionsFirst'] as bool? ?? true,
+    hapticIntensity: HapticIntensity.fromFirestore(
+      json['hapticIntensity'] as String?,
+    ),
+    // Not `?? false` like the others — a profile that's never had this
+    // field written yet (every profile created before this field
+    // existed) should still get the smart, profile-based default
+    // rather than being silently opted out. `null` here is what lets
+    // the constructor's own default-computation run.
+    voiceAutoListen: json['voiceAutoListen'] as bool?,
+    depthScanningEnabled: json['depthScanningEnabled'] as bool?,
+    autoOpenMapOnRoute: json['autoOpenMapOnRoute'] as bool?,
+    savedPlaces: (json['savedPlaces'] as List<dynamic>? ?? [])
+        .map((p) => SavedPlace.fromJson(p as Map<String, dynamic>))
+        .toList(),
+    onboardingStep: _stepFromName(json['onboardingStep'] as String?),
+  );
 
   /// Tolerant of a name this build does not have. A step removed or renamed
   /// between releases must not make the whole profile unreadable — that
@@ -328,47 +358,51 @@ class UserProfile {
     bool? narrateOptionsFirst,
     HapticIntensity? hapticIntensity,
     bool? voiceAutoListen,
+    bool? depthScanningEnabled,
+    bool? autoOpenMapOnRoute,
     List<SavedPlace>? savedPlaces,
     OnboardingStep? onboardingStep,
-  }) =>
-      UserProfile(
-        uid: uid,
-        role: role ?? this.role,
-        pairedUserId: pairedUserId ?? this.pairedUserId,
-        displayName: displayName ?? this.displayName,
-        visionLevel: visionLevel ?? this.visionLevel,
-        contrastLevel: contrastLevel ?? this.contrastLevel,
-        fontScale: fontScale ?? this.fontScale,
-        mobilityAid: mobilityAid ?? this.mobilityAid,
-        crowdedPlacesAnxious: crowdedPlacesAnxious ?? this.crowdedPlacesAnxious,
-        complexInstructionsHard: complexInstructionsHard ?? this.complexInstructionsHard,
-        isDeafOrHardOfHearing: isDeafOrHardOfHearing ?? this.isDeafOrHardOfHearing,
-        verbosity: verbosity ?? this.verbosity,
-        voiceId: voiceId ?? this.voiceId,
-        magicButtonContacts: magicButtonContacts ?? this.magicButtonContacts,
-        homeAddress: homeAddress ?? this.homeAddress,
-        safePlaceAddress: safePlaceAddress ?? this.safePlaceAddress,
-        onboardingComplete: onboardingComplete ?? this.onboardingComplete,
-        themePreference: themePreference ?? this.themePreference,
-        passerbyHelperMessages: passerbyHelperMessages ?? this.passerbyHelperMessages,
-        rememberedNotes: rememberedNotes ?? this.rememberedNotes,
-        language: language ?? this.language,
-        snapshotConsent: snapshotConsent ?? this.snapshotConsent,
-        wakeWordEnabled: wakeWordEnabled ?? this.wakeWordEnabled,
-        wakeWordThreshold: wakeWordThreshold ?? this.wakeWordThreshold,
-        narrateOptionsFirst: narrateOptionsFirst ?? this.narrateOptionsFirst,
-        hapticIntensity: hapticIntensity ?? this.hapticIntensity,
-        // Always resolved to a concrete value before reaching the
-        // constructor (never left as a bare `null` pass-through) — this
-        // preserves whatever was already persisted rather than recomputing
-        // the smart default off a field that might be changing in this
-        // same `copyWith` call (e.g. `visionLevel`).
-        voiceAutoListen: voiceAutoListen ?? this.voiceAutoListen,
-        savedPlaces: savedPlaces ?? this.savedPlaces,
-        onboardingStep: onboardingStep ?? this.onboardingStep,
-      );
+  }) => UserProfile(
+    uid: uid,
+    role: role ?? this.role,
+    pairedUserId: pairedUserId ?? this.pairedUserId,
+    displayName: displayName ?? this.displayName,
+    visionLevel: visionLevel ?? this.visionLevel,
+    contrastLevel: contrastLevel ?? this.contrastLevel,
+    fontScale: fontScale ?? this.fontScale,
+    mobilityAid: mobilityAid ?? this.mobilityAid,
+    crowdedPlacesAnxious: crowdedPlacesAnxious ?? this.crowdedPlacesAnxious,
+    complexInstructionsHard:
+        complexInstructionsHard ?? this.complexInstructionsHard,
+    isDeafOrHardOfHearing: isDeafOrHardOfHearing ?? this.isDeafOrHardOfHearing,
+    verbosity: verbosity ?? this.verbosity,
+    voiceId: voiceId ?? this.voiceId,
+    magicButtonContacts: magicButtonContacts ?? this.magicButtonContacts,
+    homeAddress: homeAddress ?? this.homeAddress,
+    safePlaceAddress: safePlaceAddress ?? this.safePlaceAddress,
+    onboardingComplete: onboardingComplete ?? this.onboardingComplete,
+    themePreference: themePreference ?? this.themePreference,
+    passerbyHelperMessages:
+        passerbyHelperMessages ?? this.passerbyHelperMessages,
+    rememberedNotes: rememberedNotes ?? this.rememberedNotes,
+    language: language ?? this.language,
+    snapshotConsent: snapshotConsent ?? this.snapshotConsent,
+    wakeWordEnabled: wakeWordEnabled ?? this.wakeWordEnabled,
+    wakeWordThreshold: wakeWordThreshold ?? this.wakeWordThreshold,
+    narrateOptionsFirst: narrateOptionsFirst ?? this.narrateOptionsFirst,
+    hapticIntensity: hapticIntensity ?? this.hapticIntensity,
+    // Always resolved to a concrete value before reaching the
+    // constructor (never left as a bare `null` pass-through) — this
+    // preserves whatever was already persisted rather than recomputing
+    // the smart default off a field that might be changing in this
+    // same `copyWith` call (e.g. `visionLevel`).
+    voiceAutoListen: voiceAutoListen ?? this.voiceAutoListen,
+    depthScanningEnabled: depthScanningEnabled ?? this.depthScanningEnabled,
+    autoOpenMapOnRoute: autoOpenMapOnRoute ?? this.autoOpenMapOnRoute,
+    savedPlaces: savedPlaces ?? this.savedPlaces,
+    onboardingStep: onboardingStep ?? this.onboardingStep,
+  );
 }
-
 
 /// The voice id for [language] and gender.
 ///
@@ -399,18 +433,19 @@ class UserProfile {
 bool autoListenDefaultFor({
   required VisionLevel visionLevel,
   required bool complexInstructionsHard,
-}) =>
-    visionLevel == VisionLevel.none;
+}) => visionLevel == VisionLevel.none;
 
 /// Whether onboarding should put the question to this user at all.
-bool shouldAskAboutAutoListen(VisionLevel visionLevel) => visionLevel != VisionLevel.none;
+bool shouldAskAboutAutoListen(VisionLevel visionLevel) =>
+    visionLevel != VisionLevel.none;
 
 /// Whether to ask how options should be narrated.
 ///
 /// Not asked of a Deaf or hard-of-hearing user: spoken guidance is switched
 /// off for them the moment they say so (see `setDeafHearing`), so a question
 /// about when narration happens is a question about something that does not.
-bool shouldAskAboutOptionNarration({required bool isDeafOrHardOfHearing}) => !isDeafOrHardOfHearing;
+bool shouldAskAboutOptionNarration({required bool isDeafOrHardOfHearing}) =>
+    !isDeafOrHardOfHearing;
 
 String voiceIdFor(AppLanguage language, {required bool female}) {
   final locale = language == AppLanguage.bangla ? 'bn-BD' : 'en-US';

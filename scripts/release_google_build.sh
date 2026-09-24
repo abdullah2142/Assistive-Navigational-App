@@ -29,8 +29,8 @@ GROUP="fydp"
 # the build was rejected rather than the command being incomplete.
 APP_ID="1:514133180208:android:45009c17a5721198b2d2f5"
 
-# Secrets live here, gitignored: GEMINI_API_KEY, CLOUD_STT_API_KEY,
-# CLOUD_TTS_API_KEY.
+# Secrets live here, gitignored: GROQ_API_KEY, GEMINI_API_KEY,
+# CLOUD_STT_API_KEY, and optionally CLOUD_TTS_API_KEY.
 # NOT optional. See preflight() for what happens without it.
 DEFINES_FILE="$APP_DIR/dart_defines.local.json"
 
@@ -40,6 +40,7 @@ DEFINES_FILE="$APP_DIR/dart_defines.local.json"
 DEFINES=(
   --dart-define-from-file=dart_defines.local.json
   --dart-define=ROUTING_PREFER_GOOGLE=true
+  --dart-define=ROUTING_OSM_FALLBACK=true
   # Item 61: puts the ⏩ skip-onboarding shortcut back for testers. It is
   # wrapped in a compile-time constant, so a build made without this flag
   # still does not contain it at all. This script only ever distributes to
@@ -62,8 +63,9 @@ DEFINES=(
 
 # The keys that must be compiled in, and what breaks without each.
 REQUIRED_DEFINES=(
+  "GROQ_API_KEY|the requested primary chat and one-frame vision backend is unavailable"
   "CLOUD_STT_API_KEY|voice input falls back to the on-device recognizer"
-  "GEMINI_API_KEY|the assistant cannot answer anything"
+  "GEMINI_API_KEY|the Gemini fallback for chat and vision is unavailable"
 )
 
 # Keys whose absence degrades rather than breaks — warned about loudly, but

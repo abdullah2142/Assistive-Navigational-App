@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../localization/app_language.dart';
 
 /// Web (and any other platform without `dart:io`) fallback for
@@ -12,14 +14,15 @@ class CloudSttService {
   Future<bool> start({
     required AppLanguage language,
     required void Function(String text, bool isFinal) onResult,
+    Stream<Uint8List>? audioSource,
+
     /// Never called here — this stub reports unavailable before any stream
     /// exists. Present so the two implementations stay interchangeable.
     void Function(Object error)? onStreamError,
 
     /// Accepted and ignored — nothing recognises anything on web.
     List<String> phraseHints = const [],
-  }) async =>
-      false;
+  }) async => false;
 
   Future<void> stop() async {}
 

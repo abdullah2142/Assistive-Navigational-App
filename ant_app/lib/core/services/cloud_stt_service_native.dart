@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:google_speech/endless_streaming_service.dart';
-import 'package:google_speech/generated/google/cloud/speech/v1/cloud_speech.pb.dart' show StreamingRecognizeResponse;
+import 'package:google_speech/generated/google/cloud/speech/v1/cloud_speech.pb.dart'
+    show StreamingRecognizeResponse;
 import 'package:google_speech/google_speech.dart';
 import 'package:record/record.dart';
 
@@ -50,6 +51,7 @@ class CloudSttService {
   /// it out from underneath.
   StreamSubscription<List<int>>? _audioSub;
   StreamController<List<int>>? _audioRelay;
+  bool _ownsAudioRecorder = false;
 
   static const int _sampleRate = 16000;
 
@@ -71,6 +73,11 @@ class CloudSttService {
   Future<bool> start({
     required AppLanguage language,
     required void Function(String text, bool isFinal) onResult,
+
+    /// Optional PCM stream opened by another feature. It keeps recognition
+    /// and recording on one microphone session.
+    Stream<Uint8List>? audioSource,
+
     /// Called if the recognition stream dies *after* a successful start.
     ///
     /// Without this the caller cannot know: `start()` has already returned
@@ -94,8 +101,8 @@ class CloudSttService {
     List<String> phraseHints = const [],
   }) async {
     if (!CloudSttConfig.isConfigured) return false;
-    if (isListening) return true;
-    if (!await _recorder.hasPermission()) {
+    if (isListening) return audioSource == null;
+    if (audioSource == null && !await _recorder.hasPermission()) {
       debugPrint('[CloudStt] mic permission not granted');
       return false;
     }
@@ -122,45 +129,48 @@ class CloudSttService {
         interimResults: true,
       );
 
-      final audioStream = await _recorder.startStream(
-        const RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
-          sampleRate: _sampleRate,
-          numChannels: 1,
-          // Confirmed live as a real problem: the app's own TTS narration
-          // (the Passerby overlay's "Showing your screen now..." announcement,
-          // e.g.) was getting picked back up by this same microphone stream
-          // and mistaken for user speech. Both default to `false` in this
-          // package — echoCancel engages the platform's acoustic echo
-          // canceler (built for exactly this: filtering out audio the
-          // device is itself playing), noiseSuppress helps with general
-          // background noise on top of that.
-          echoCancel: true,
-          noiseSuppress: true,
-          // Resume automatically once whatever interrupted us is done.
-          //
-          // The default is `pause`, which the package documents as "pauses
-          // automatically, resumes *manually*" — nothing in this app ever
-          // resumed it, so any interruption killed the session silently and
-          // the user carried on talking into a recorder that had stopped.
-          // Seen on device 10 September in the passerby picker, where this
-          // app's own narration ducked its own dictation session:
-          //
-          //   02:19:13.564  onAudioFocusChange(-3) -> record
-          //   02:19:15.513  onAudioFocusChange(1)  -> record
-          //
-          // `record` treats a duck request as a full focus loss, so -3 is
-          // enough to trigger it. The narration ordering is fixed separately
-          // (see `PasserbyMessagePicker._autoListenLoop`); this is what keeps
-          // a phone call, an alarm or another app from doing the same.
-          //
-          // Deliberately not `none`, unlike the wake word: pausing a
-          // dictation session the user deliberately started, while something
-          // else has the speakers, is the right behaviour. It just has to
-          // come back afterwards.
-          audioInterruption: AudioInterruptionMode.pauseResume,
-        ),
-      );
+      final audioStream =
+          audioSource ??
+          await _recorder.startStream(
+            const RecordConfig(
+              encoder: AudioEncoder.pcm16bits,
+              sampleRate: _sampleRate,
+              numChannels: 1,
+              // Confirmed live as a real problem: the app's own TTS narration
+              // (the Passerby overlay's "Showing your screen now..." announcement,
+              // e.g.) was getting picked back up by this same microphone stream
+              // and mistaken for user speech. Both default to `false` in this
+              // package — echoCancel engages the platform's acoustic echo
+              // canceler (built for exactly this: filtering out audio the
+              // device is itself playing), noiseSuppress helps with general
+              // background noise on top of that.
+              echoCancel: true,
+              noiseSuppress: true,
+              // Resume automatically once whatever interrupted us is done.
+              //
+              // The default is `pause`, which the package documents as "pauses
+              // automatically, resumes *manually*" — nothing in this app ever
+              // resumed it, so any interruption killed the session silently and
+              // the user carried on talking into a recorder that had stopped.
+              // Seen on device 10 September in the passerby picker, where this
+              // app's own narration ducked its own dictation session:
+              //
+              //   02:19:13.564  onAudioFocusChange(-3) -> record
+              //   02:19:15.513  onAudioFocusChange(1)  -> record
+              //
+              // `record` treats a duck request as a full focus loss, so -3 is
+              // enough to trigger it. The narration ordering is fixed separately
+              // (see `PasserbyMessagePicker._autoListenLoop`); this is what keeps
+              // a phone call, an alarm or another app from doing the same.
+              //
+              // Deliberately not `none`, unlike the wake word: pausing a
+              // dictation session the user deliberately started, while something
+              // else has the speakers, is the right behaviour. It just has to
+              // come back afterwards.
+              audioInterruption: AudioInterruptionMode.pauseResume,
+            ),
+          );
+      _ownsAudioRecorder = audioSource == null;
 
       _resultSub = service.endlessStream.listen(
         (response) {
@@ -244,11 +254,14 @@ class CloudSttService {
     //    the original reason this order was chosen: a recorder still running
     //    while the destination goes away is how the first version of this bug
     //    happened.
-    try {
-      await _recorder.stop();
-    } catch (_) {
-      // Already stopped — fine.
+    if (_ownsAudioRecorder) {
+      try {
+        await _recorder.stop();
+      } catch (_) {
+        // Already stopped — fine.
+      }
     }
+    _ownsAudioRecorder = false;
     _streamingService?.dispose();
     _streamingService = null;
   }

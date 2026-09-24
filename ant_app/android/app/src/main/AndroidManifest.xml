@@ -24,6 +24,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Requested only when importing a single emergency contact through
+         Android's native contact picker. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
 
     <!-- Module 9, the Magic Button.
 

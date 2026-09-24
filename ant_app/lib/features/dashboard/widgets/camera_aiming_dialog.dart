@@ -1,24 +1,38 @@
+import 'dart:typed_data';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
-/// A short, user-triggered camera preview. Capture remains in
-/// SnapshotVisionService after the person confirms the aim.
+/// A short, user-triggered camera preview. The exact frame shown in the
+/// viewfinder is returned for analysis or caretaker sharing.
 class CameraAimingDialog extends StatefulWidget {
-  const CameraAimingDialog({
-    super.key,
-    required this.controller,
-    required this.onUseView,
-  });
+  const CameraAimingDialog({super.key, required this.controller});
 
   final CameraController controller;
-  final VoidCallback onUseView;
 
   @override
   State<CameraAimingDialog> createState() => _CameraAimingDialogState();
 }
 
 class _CameraAimingDialogState extends State<CameraAimingDialog> {
-  bool _analyzing = false;
+  bool _capturing = false;
+
+  Future<void> _capture() async {
+    setState(() => _capturing = true);
+    try {
+      final photo = await widget.controller.takePicture();
+      final bytes = await photo.readAsBytes();
+      if (mounted) Navigator.of(context).pop<Uint8List>(bytes);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _capturing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not capture this frame. Try again.'),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Dialog.fullscreen(
@@ -31,9 +45,9 @@ class _CameraAimingDialogState extends State<CameraAimingDialog> {
               children: [
                 IconButton(
                   tooltip: 'Close camera',
-                  onPressed: _analyzing
+                  onPressed: _capturing
                       ? null
-                      : () => Navigator.of(context).pop(false),
+                      : () => Navigator.of(context).pop<Uint8List>(),
                   icon: const Icon(Icons.close_rounded),
                 ),
                 const Expanded(
@@ -57,18 +71,11 @@ class _CameraAimingDialogState extends State<CameraAimingDialog> {
             child: SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _analyzing
-                    ? null
-                    : () {
-                        setState(() => _analyzing = true);
-                        widget.onUseView();
-                      },
+                onPressed: _capturing ? null : _capture,
                 icon: Icon(
-                  _analyzing ? Icons.auto_awesome : Icons.camera_alt_rounded,
+                  _capturing ? Icons.hourglass_top : Icons.camera_alt_rounded,
                 ),
-                label: Text(
-                  _analyzing ? 'Analyzing snapshot…' : 'Use this view',
-                ),
+                label: Text(_capturing ? 'Capturing…' : 'Capture this frame'),
               ),
             ),
           ),

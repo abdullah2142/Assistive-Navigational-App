@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:ant_app/core/services/cloud_stt_service.dart';
 import 'package:ant_app/core/services/stt_service.dart';
 import 'package:ant_app/core/localization/app_language.dart';
@@ -24,6 +26,7 @@ class _FailsMidStreamCloudStt implements CloudSttService {
   Future<bool> start({
     required AppLanguage language,
     required void Function(String text, bool isFinal) onResult,
+    Stream<Uint8List>? audioSource,
     void Function(Object error)? onStreamError,
     List<String> phraseHints = const [],
   }) async {
@@ -96,7 +99,9 @@ void main() {
     // not be keyed on the *reason* a cloud session died. A dropped connection
     // in a Dhaka basement leaves the user just as untranscribed as an
     // exhausted quota does, and both must reach the on-device recognizer.
-    final stt = _FailsMidStreamCloudStt(failWith: 'UNAVAILABLE: network dropped');
+    final stt = _FailsMidStreamCloudStt(
+      failWith: 'UNAVAILABLE: network dropped',
+    );
     expect(stt.failWith, 'UNAVAILABLE: network dropped');
     expect(stt.isListening, isFalse);
   });

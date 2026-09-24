@@ -15,72 +15,162 @@ import 'package:ant_app/core/config/maps_config.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ant_app/core/localization/app_language.dart';
+import 'package:ant_app/core/providers/ai_assistant_providers.dart';
+import 'package:ant_app/core/services/stt_service.dart';
 import 'package:ant_app/features/guardian/models/communication_message.dart';
 import 'package:ant_app/features/guardian/models/guardian_alert.dart';
 import 'package:ant_app/features/guardian/models/live_location.dart';
 import 'package:ant_app/features/guardian/providers/guardian_providers.dart';
 import 'package:ant_app/features/guardian/screens/guardian_hub_screen.dart';
+import 'package:ant_app/features/guardian/widgets/communication_hub_panel.dart';
+import 'package:ant_app/features/onboarding/providers/onboarding_providers.dart';
 import 'package:ant_app/features/onboarding/models/user_profile.dart';
 import 'package:ant_app/features/onboarding/models/user_role.dart';
 
 void main() {
-  testWidgets('Guardian Hub shows a not-paired state when pairedUserId is null', (tester) async {
-    final profile = UserProfile(uid: 'caretaker-1', role: UserRole.caretaker);
+  testWidgets(
+    'caretaker composer grows sideways and keeps voicemail separate',
+    (tester) async {
+      tester.view.physicalSize = const Size(1000, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(
-      ProviderScope(
-        child: MaterialApp(home: GuardianHubScreen(profile: profile)),
-      ),
-    );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            sttServiceProvider.overrideWithValue(_SilentStt()),
+            profileStreamProvider('disabled-1').overrideWith(
+              (ref) => Stream.value(
+                UserProfile(uid: 'disabled-1', role: UserRole.disabledUser),
+              ),
+            ),
+            communicationsStreamProvider('disabled-1').overrideWith(
+              (ref) => Stream.value(const <CommunicationMessage>[]),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: CommunicationHubPanel(
+                  disabledUserUid: 'disabled-1',
+                  caretakerUid: 'caretaker-1',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
 
-    expect(find.text('Not paired with anyone yet.'), findsOneWidget);
-  });
+      final field = find.byType(TextField);
+      expect(find.text('Request snapshot'), findsOneWidget);
+      expect(find.text('Send image'), findsOneWidget);
+      expect(find.text('Voice message'), findsOneWidget);
+      expect(tester.widget<TextField>(field).maxLines, 1);
+      final compactWidth = tester.getSize(field).width;
 
-  testWidgets('Guardian Hub renders Overwatch/Alerts/Communication panels once paired', (tester) async {
-    const disabledUserUid = 'disabled-1';
-    final profile = UserProfile(uid: 'caretaker-1', role: UserRole.caretaker, pairedUserId: disabledUserUid);
+      await tester.enterText(field, 'Checking in');
+      await tester.pump(const Duration(milliseconds: 200));
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          liveLocationStreamProvider(disabledUserUid).overrideWith((ref) => Stream<LiveLocation?>.value(null)),
-          alertsStreamProvider(disabledUserUid).overrideWith((ref) => Stream<List<GuardianAlert>>.value(const [])),
-          communicationsStreamProvider(disabledUserUid)
-              .overrideWith((ref) => Stream<List<CommunicationMessage>>.value(const [])),
-        ],
-        child: MaterialApp(home: GuardianHubScreen(profile: profile)),
-      ),
-    );
-    await tester.pump();
+      expect(tester.getSize(field).width, greaterThan(compactWidth));
+      expect(find.text('Request snapshot'), findsNothing);
+      expect(find.text('Send image'), findsNothing);
+      expect(find.text('Voice message'), findsNothing);
+      expect(find.byTooltip('Speak to compose'), findsNothing);
+      expect(find.byTooltip('Stop speech input'), findsNothing);
+    },
+  );
 
-    expect(find.text('Overwatch'), findsOneWidget);
-    expect(find.text('Alerts'), findsOneWidget);
-    expect(find.text('Communication'), findsOneWidget);
-    expect(find.text('No active alerts.'), findsOneWidget);
-    expect(find.text('No messages yet.'), findsOneWidget);
-    expect(find.text('Waiting for the first location update…'), findsOneWidget);
-  });
+  testWidgets(
+    'Guardian Hub shows a not-paired state when pairedUserId is null',
+    (tester) async {
+      final profile = UserProfile(uid: 'caretaker-1', role: UserRole.caretaker);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(home: GuardianHubScreen(profile: profile)),
+        ),
+      );
+
+      expect(find.text('Not paired with anyone yet.'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Guardian Hub renders Overwatch/Alerts/Communication panels once paired',
+    (tester) async {
+      const disabledUserUid = 'disabled-1';
+      final profile = UserProfile(
+        uid: 'caretaker-1',
+        role: UserRole.caretaker,
+        pairedUserId: disabledUserUid,
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            liveLocationStreamProvider(disabledUserUid)
+                .overrideWith((ref) => Stream<LiveLocation?>.value(null)),
+            alertsStreamProvider(disabledUserUid).overrideWith(
+              (ref) => Stream<List<GuardianAlert>>.value(const []),
+            ),
+            communicationsStreamProvider(disabledUserUid).overrideWith(
+              (ref) => Stream<List<CommunicationMessage>>.value(const []),
+            ),
+          ],
+          child: MaterialApp(home: GuardianHubScreen(profile: profile)),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Overwatch'), findsOneWidget);
+      expect(find.text('Alerts'), findsOneWidget);
+      expect(find.text('Communication'), findsOneWidget);
+      expect(find.text('No active alerts.'), findsOneWidget);
+      expect(find.text('No messages yet.'), findsOneWidget);
+      expect(
+        find.text('Waiting for the first location update…'),
+        findsOneWidget,
+      );
+    },
+  );
 
   // Regression guard for the OpenStreetMap swap: `flutter_map`'s tile
   // provider mutates the headers map it's handed, so a `const` literal
   // there crashed with "Unsupported operation: Cannot modify unmodifiable
   // map" the moment a real location arrived and the map actually rendered.
   // The empty-state test above never reaches that code path.
-  testWidgets('Overwatch renders a real map once a location arrives', (tester) async {
+  testWidgets('Overwatch renders a real map once a location arrives', (
+    tester,
+  ) async {
     const disabledUserUid = 'disabled-1';
-    final profile = UserProfile(uid: 'caretaker-1', role: UserRole.caretaker, pairedUserId: disabledUserUid);
+    final profile = UserProfile(
+      uid: 'caretaker-1',
+      role: UserRole.caretaker,
+      pairedUserId: disabledUserUid,
+    );
 
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           liveLocationStreamProvider(disabledUserUid).overrideWith(
             (ref) => Stream<LiveLocation?>.value(
-              const LiveLocation(uid: disabledUserUid, lat: 23.8103, lng: 90.4125, batteryPercent: 72),
+              const LiveLocation(
+                uid: disabledUserUid,
+                lat: 23.8103,
+                lng: 90.4125,
+                batteryPercent: 72,
+              ),
             ),
           ),
-          alertsStreamProvider(disabledUserUid).overrideWith((ref) => Stream<List<GuardianAlert>>.value(const [])),
-          communicationsStreamProvider(disabledUserUid)
-              .overrideWith((ref) => Stream<List<CommunicationMessage>>.value(const [])),
+          alertsStreamProvider(
+            disabledUserUid,
+          ).overrideWith((ref) => Stream<List<GuardianAlert>>.value(const [])),
+          communicationsStreamProvider(disabledUserUid).overrideWith(
+            (ref) => Stream<List<CommunicationMessage>>.value(const []),
+          ),
         ],
         child: MaterialApp(home: GuardianHubScreen(profile: profile)),
       ),
@@ -99,4 +189,22 @@ void main() {
     );
     expect(find.text('72%'), findsOneWidget);
   });
+}
+
+class _SilentStt extends SttService {
+  @override
+  Future<bool> ensureAvailable() async => true;
+
+  @override
+  Future<void> listenOnce({
+    required AppLanguage language,
+    required void Function(String text, bool isFinal) onResult,
+    Duration pauseFor = const Duration(seconds: 3),
+    Duration listenFor = const Duration(minutes: 5),
+    Duration? initialSilence,
+    List<String> phraseHints = const [],
+  }) async {}
+
+  @override
+  Future<void> stop() async {}
 }

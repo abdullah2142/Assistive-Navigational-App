@@ -46,6 +46,7 @@ class ChatState {
     this.lastSettingChanged,
     this.answerInvitations = 0,
     this.caretakerMessageArmed = false,
+    this.snapshotConsentPrompt = false,
   });
 
   final List<ChatMessage> messages;
@@ -66,6 +67,7 @@ class ChatState {
   /// True only while a voice command is waiting for the user's next written
   /// or spoken input to forward as a caretaker message.
   final bool caretakerMessageArmed;
+  final bool snapshotConsentPrompt;
 
   /// Set when the AI Assistant's function calling decided the Passerby
   /// Helper or Hazard Report overlay should open — `ChatStreamPanel` (which
@@ -128,6 +130,7 @@ class ChatState {
     String? lastSettingChanged,
     int? answerInvitations,
     bool? caretakerMessageArmed,
+    bool? snapshotConsentPrompt,
   }) => ChatState(
     messages: messages ?? this.messages,
     isAssistantTyping: isAssistantTyping ?? this.isAssistantTyping,
@@ -150,6 +153,7 @@ class ChatState {
     lastSettingChanged: lastSettingChanged ?? this.lastSettingChanged,
     answerInvitations: answerInvitations ?? this.answerInvitations,
     caretakerMessageArmed: caretakerMessageArmed ?? this.caretakerMessageArmed,
+    snapshotConsentPrompt: snapshotConsentPrompt ?? this.snapshotConsentPrompt,
   );
 }
 
@@ -165,21 +169,21 @@ class ChatState {
 /// so the chat stream, suggested chips, and overlay triggers all keep
 /// working exactly as before a key exists.
 class ChatController extends Notifier<ChatState> {
-  Future<bool> Function()? _cameraAimer;
+  Future<Uint8List?> Function()? _cameraAimer;
   Future<void> Function()? _cameraAimFinisher;
   bool _oneShotCaretakerMessage = false;
 
   /// The dashboard owns the camera UI/context; the controller requests a
   /// short aim session before every explicit scan or user-requested photo.
   void registerCameraAimer(
-    Future<bool> Function()? aim, {
+    Future<Uint8List?> Function()? aim, {
     Future<void> Function()? finish,
   }) {
     _cameraAimer = aim;
     _cameraAimFinisher = finish;
   }
 
-  Future<bool> _aimCamera() async => await _cameraAimer?.call() ?? true;
+  Future<Uint8List?> _aimCamera() async => await _cameraAimer?.call();
   Future<void> _finishCameraAim() async {
     final finish = _cameraAimFinisher;
     if (finish != null) await finish();
@@ -449,6 +453,15 @@ class ChatController extends Notifier<ChatState> {
           await _appendAssistantReply(d.caretakerVoiceMemoUnplayable, profile);
         }
       case CommunicationType.snapshotRequest:
+        // Do not interrupt an answer or fight an active camera capture. The
+        // caretaker's request remains queued by CaretakerInboxListener while
+        // this bounded wait yields; ambient scans already defer to chat.
+        final vision = ref.read(snapshotVisionServiceProvider);
+        final idleDeadline = DateTime.now().add(const Duration(seconds: 30));
+        while ((state.isAssistantTyping || vision.isScanning.value) &&
+            DateTime.now().isBefore(idleDeadline)) {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        }
         await _appendAssistantReply(d.caretakerSnapshotRequested, profile);
         // Consent is read here for the first time. Onboarding has been
         // collecting it since Module 1 and nothing has ever looked at it.
@@ -460,10 +473,12 @@ class ChatController extends Notifier<ChatState> {
           // Asked, not assumed. `mayInviteAnswer` reopens the microphone, so
           // the answer is one spoken word away — see `_pendingSnapshotFor`.
           _pendingSnapshotFor = message.fromUid;
+          state = state.copyWith(snapshotConsentPrompt: true);
           await _appendAssistantReply(
             d.caretakerSnapshotAsk,
             profile,
             mayInviteAnswer: true,
+            forceInviteAnswer: true,
           );
           return;
         }
@@ -575,7 +590,11 @@ class ChatController extends Notifier<ChatState> {
   /// Resolves the destination the same way a route does — saved places
   /// first, then a category search, then a geocode — so "how long to work"
   /// and "take me to work" cannot disagree about where work is.
-  Future<void> _planCommute(String destination, UserProfile profile, Dashboard d) async {
+  Future<void> _planCommute(
+    String destination,
+    UserProfile profile,
+    Dashboard d,
+  ) async {
     Position? here;
     try {
       here = await Geolocator.getLastKnownPosition().timeout(_lastFixBudget);
@@ -590,20 +609,35 @@ class ChatController extends Notifier<ChatState> {
     state = state.copyWith(isAssistantTyping: true);
     final origin = LatLng(here.latitude, here.longitude);
     final planner = ref.read(routePlanningServiceProvider);
-    final result = await planner.plan(destinationQuery: destination, origin: origin);
+    final result = await planner.plan(
+      destinationQuery: destination,
+      origin: origin,
+    );
     state = state.copyWith(isAssistantTyping: false);
 
     if (result is! RoutePlanned) {
       // Reuses the route failure vocabulary rather than inventing a second
       // one: "I don't know where that is" means the same thing whichever
       // question asked it.
-      await _appendAssistantReply(d.clarifyAskArea(destination), profile, mayInviteAnswer: true);
+      await _appendAssistantReply(
+        d.clarifyAskArea(destination),
+        profile,
+        mayInviteAnswer: true,
+      );
       return;
     }
 
     final choice = result.choice;
     // The one figure worth a network call. Everything else is a ratio of it.
-    final driving = await ref.read(routingServiceProvider).drivingMinutesInTraffic(
+    final driving = await ref
+        .read(routingServiceProvider)
+        .drivingMinutesInTraffic(
+          origin: origin,
+          destination: choice.points.isEmpty ? origin : choice.points.last,
+        );
+    final transit = await ref
+        .read(routingServiceProvider)
+        .transitRoute(
           origin: origin,
           destination: choice.points.isEmpty ? origin : choice.points.last,
         );
@@ -620,7 +654,21 @@ class ChatController extends Notifier<ChatState> {
     final lines = <String>[
       d.commuteIntro,
       for (final o in options)
-        d.commuteOptionLine(o.mode, o.minutes, trafficAware: o.isTrafficAware),
+        if (transit == null || o.mode != CommuteMode.bus)
+          d.commuteOptionLine(
+            o.mode,
+            o.minutes,
+            trafficAware: o.isTrafficAware,
+          ),
+      if (transit != null) d.commuteTransitDuration(transit.durationMinutes),
+      if (transit != null)
+        for (final leg in transit.legs)
+          d.commuteTransitLeg(
+            line: leg.lineName,
+            fromStop: leg.fromStop,
+            toStop: leg.toStop,
+            headsign: leg.headsign,
+          ),
       // Said once, at the end, when the numbers are averages rather than
       // live traffic — so the user knows which kind of figure they have.
       if (driving == null) d.commuteEstimated,
@@ -643,7 +691,8 @@ class ChatController extends Notifier<ChatState> {
     final caretakerUid = profile.pairedUserId;
     if (caretakerUid == null) return;
 
-    if (!await _aimCamera()) return;
+    final capturedJpeg = await _aimCamera();
+    if (_cameraAimer != null && capturedJpeg == null) return;
 
     final vision = ref.read(snapshotVisionServiceProvider);
     try {
@@ -652,6 +701,7 @@ class ChatController extends Notifier<ChatState> {
         result = await vision.scan(
           focus: ScanFocus.ahead,
           language: profile.language,
+          capturedJpeg: capturedJpeg,
         );
       } catch (e) {
         debugPrint('[Chat] photo for caretaker failed: $e');
@@ -820,12 +870,25 @@ class ChatController extends Notifier<ChatState> {
   ) async {
     final caretakerUid = _pendingSnapshotFor;
     if (caretakerUid == null) return false;
+    final lower = text.toLowerCase().trim();
+    final deferred = RegExp(r'\b(akhon na|ekhon na|pore|later|not now)\b')
+            .hasMatch(lower) ||
+        lower.contains('এখন না') ||
+        lower.contains('পরে');
+    if (deferred) {
+      _pendingSnapshotFor = null;
+      state = state.copyWith(snapshotConsentPrompt: false);
+      await _appendAssistantReply(d.caretakerSnapshotDeferred, profile);
+      return true;
+    }
     final answer = _yesOrNo(text);
     if (answer == null) {
       _pendingSnapshotFor = null;
+      state = state.copyWith(snapshotConsentPrompt: false);
       return false;
     }
     _pendingSnapshotFor = null;
+    state = state.copyWith(snapshotConsentPrompt: false);
     if (!answer) {
       await _appendAssistantReply(d.caretakerSnapshotDeclined, profile);
       return true;
@@ -846,6 +909,7 @@ class ChatController extends Notifier<ChatState> {
     const no = [
       'no',
       'nope',
+      'nah',
       'not now',
       "don't",
       'do not',
@@ -890,6 +954,23 @@ class ChatController extends Notifier<ChatState> {
     return null;
   }
 
+  /// Resolves the visible caretaker consent prompt. Null means defer.
+  Future<void> resolveSnapshotConsent(bool? send, UserProfile profile) async {
+    final caretakerUid = _pendingSnapshotFor;
+    if (caretakerUid == null) return;
+    _pendingSnapshotFor = null;
+    state = state.copyWith(snapshotConsentPrompt: false);
+    final d = Dashboard.of(profile.language);
+    if (send == true) {
+      await _captureForCaretaker(profile, d, caretakerUid: caretakerUid);
+    } else {
+      await _appendAssistantReply(
+        send == null ? d.caretakerSnapshotDeferred : d.caretakerSnapshotDeclined,
+        profile,
+      );
+    }
+  }
+
   /// Takes the frame a guardian asked for and sends it back.
   ///
   /// This used to answer "that ability will be added later", which was true
@@ -907,7 +988,8 @@ class ChatController extends Notifier<ChatState> {
     Dashboard d, {
     required String caretakerUid,
   }) async {
-    if (!await _aimCamera()) {
+    final capturedJpeg = await _aimCamera();
+    if (_cameraAimer != null && capturedJpeg == null) {
       await _appendAssistantReply(d.caretakerSnapshotDeclined, profile);
       return;
     }
@@ -922,6 +1004,7 @@ class ChatController extends Notifier<ChatState> {
         result = await vision.scan(
           focus: ScanFocus.ahead,
           language: profile.language,
+          capturedJpeg: capturedJpeg,
         );
       } catch (e) {
         debugPrint('[Chat] caretaker snapshot failed: $e');
@@ -1441,6 +1524,79 @@ class ChatController extends Notifier<ChatState> {
     await _appendAssistantReply(d.routeCancelled, profile);
   }
 
+  Future<void> _answerCurrentWeather(UserProfile profile, Dashboard d) async {
+    Position? here;
+    try {
+      here = await Geolocator.getLastKnownPosition().timeout(_lastFixBudget);
+      if (here == null) {
+        here = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.low,
+            timeLimit: Duration(seconds: 4),
+          ),
+        ).timeout(const Duration(seconds: 4));
+      }
+    } catch (e) {
+      debugPrint('[Weather] location unavailable for direct query: $e');
+    }
+    if (here == null) {
+      await _appendAssistantReply(d.weatherUnavailable, profile);
+      return;
+    }
+
+    final reading = await ref
+        .read(weatherServiceProvider)
+        .current(latitude: here.latitude, longitude: here.longitude);
+    if (reading == null) {
+      await _appendAssistantReply(d.weatherUnavailable, profile);
+      return;
+    }
+    final condition = switch (reading.code) {
+      0 => profile.language == AppLanguage.bangla ? 'পরিষ্কার' : 'clear',
+      1 =>
+        profile.language == AppLanguage.bangla
+            ? 'প্রায় পরিষ্কার'
+            : 'mostly clear',
+      2 =>
+        profile.language == AppLanguage.bangla
+            ? 'আংশিক মেঘলা'
+            : 'partly cloudy',
+      3 => profile.language == AppLanguage.bangla ? 'মেঘলা' : 'overcast',
+      45 || 48 => profile.language == AppLanguage.bangla ? 'কুয়াশা' : 'foggy',
+      51 || 53 || 55 || 56 || 57 =>
+        profile.language == AppLanguage.bangla
+            ? 'গুঁড়ি গুঁড়ি বৃষ্টি'
+            : 'drizzling',
+      61 ||
+      63 ||
+      65 ||
+      66 ||
+      67 => profile.language == AppLanguage.bangla ? 'বৃষ্টি' : 'raining',
+      71 ||
+      73 ||
+      75 ||
+      77 ||
+      85 ||
+      86 => profile.language == AppLanguage.bangla ? 'তুষারপাত' : 'snowing',
+      80 || 81 || 82 =>
+        profile.language == AppLanguage.bangla
+            ? 'বৃষ্টির ঝাপটা'
+            : 'rain showers',
+      95 || 96 || 99 =>
+        profile.language == AppLanguage.bangla ? 'বজ্রঝড়' : 'thunderstorms',
+      _ => profile.language == AppLanguage.bangla ? 'আংশিক মেঘলা' : 'cloudy',
+    };
+    await _appendAssistantReply(
+      d.weatherCurrentSummary(
+        condition,
+        reading.temperatureC.round(),
+        reading.feelsLikeC.round(),
+        reading.rainChanceNextHourPercent,
+      ),
+      profile,
+    );
+  }
+
   /// Begins spoken turn-by-turn guidance the moment a route is accepted.
   ///
   /// Not gated behind a "start navigation" tap: for a user who cannot see
@@ -1564,14 +1720,27 @@ class ChatController extends Notifier<ChatState> {
   Future<void> announceAmbientHazard(String line, UserProfile profile) =>
       _appendAssistantReply(line, profile);
 
-  /// The Volume-Up hold's entry point — Module 6's physical sweep trigger.
+  /// The Volume-Up hold takes one frame directly, without opening a viewfinder.
+  Future<void> runSnapshot(
+    UserProfile profile, {
+    bool aim = false,
+    Uint8List? capturedJpeg,
+  }) => _runScan(
+    ScanFocus.ahead,
+    profile,
+    aimCamera: aim,
+    capturedJpeg: capturedJpeg,
+  );
+
+  /// Explicit verbal sweep entry point. Only this request captures multiple
+  /// frames; an ordinary camera shutter and the physical key take one.
   ///
   /// Public because `VisionChannel` fires from outside any chat turn. It
   /// appends nothing as a user message: the user did not say anything, they
   /// pressed a key, and inventing a line of their speech in the transcript
   /// would misrepresent what happened to anyone reading it back.
   Future<void> runSweep(UserProfile profile) =>
-      _runScan(ScanFocus.surroundings, profile);
+      _runScan(ScanFocus.surroundings, profile, sweep: true, aimCamera: false);
 
   /// Runs one Snapshot Vision scan and speaks what it saw — Module 6.
   ///
@@ -1587,11 +1756,17 @@ class ChatController extends Notifier<ChatState> {
     ScanFocus focus,
     UserProfile profile, {
     String? question,
+    bool sweep = false,
+    bool aimCamera = true,
+    Uint8List? capturedJpeg,
   }) async {
     final d = Dashboard.of(profile.language);
-    if (!await _aimCamera()) {
-      await _appendAssistantReply(d.visionCaptureFailed, profile);
-      return;
+    if (aimCamera && capturedJpeg == null && _cameraAimer != null) {
+      capturedJpeg = await _aimCamera();
+      if (capturedJpeg == null) {
+        await _appendAssistantReply(d.visionCaptureFailed, profile);
+        return;
+      }
     }
     final vision = ref.read(snapshotVisionServiceProvider);
 
@@ -1600,7 +1775,7 @@ class ChatController extends Notifier<ChatState> {
     // finish being spoken, so saying it would be an instruction to do
     // something that no longer matters, which teaches the user to ignore
     // instructions that do.
-    if (focus == ScanFocus.surroundings) {
+    if (sweep) {
       await _appendAssistantReply(d.visionSweepPrompt, profile);
     }
 
@@ -1610,6 +1785,8 @@ class ChatController extends Notifier<ChatState> {
       result = await vision.scan(
         focus: focus,
         language: profile.language,
+        sweep: sweep,
+        capturedJpeg: capturedJpeg,
         // The user's own wording, so "what colour is the rabbit" is asked of
         // the camera as that question rather than reduced to the focus
         // enum's "describe the path ahead".
@@ -1637,6 +1814,7 @@ class ChatController extends Notifier<ChatState> {
       return;
     } finally {
       vision.closeCamera();
+      await _finishCameraAim();
     }
     state = state.copyWith(isAssistantTyping: false);
 
@@ -1682,6 +1860,7 @@ class ChatController extends Notifier<ChatState> {
     /// a question. False for anything the user is not being asked to answer
     /// — a caretaker's memo read aloud is not the app asking them something.
     bool mayInviteAnswer = false,
+    bool forceInviteAnswer = false,
 
     /// The camera frame this reply is about — shown under the bubble. See
     /// [ChatMessage.imageJpeg].
@@ -1707,8 +1886,8 @@ class ChatController extends Notifier<ChatState> {
       ],
     );
 
-    final invites =
-        mayInviteAnswer && profile.voiceAutoListen && _invitesAnAnswer(text);
+    final invites = forceInviteAnswer ||
+        (mayInviteAnswer && profile.voiceAutoListen && _invitesAnAnswer(text));
     if (profile.isDeafOrHardOfHearing) {
       // Nothing is spoken, so there is nothing to wait for. A deaf user with
       // auto-listen on still gets the microphone — `voiceAutoListen` is a
@@ -1872,6 +2051,48 @@ class ChatController extends Notifier<ChatState> {
       await _sendPhotoToCaretaker(profile, d);
       return;
     }
+    final repliedPicture = _pictureForReply(replyToMessageId);
+    final picture = repliedPicture ?? _mostRecentPicture();
+    if (picture != null &&
+        (_looksLikePictureFollowUp(trimmed) || repliedPicture != null)) {
+      await _answerPictureFollowUp(picture, trimmed, profile, d);
+      return;
+    }
+    // These actions need no location lookup. The camera request opens aiming
+    // UI; ordinary scene questions capture immediately.
+    if (localIntent?.name == 'open_camera') {
+      await _runScan(ScanFocus.ahead, profile, aimCamera: true);
+      return;
+    }
+    if (localIntent?.name == 'look_around') {
+      final focus = switch (localIntent!.args['focus']) {
+        'surroundings' => ScanFocus.surroundings,
+        'vehicle' => ScanFocus.vehicle,
+        'sign' => ScanFocus.sign,
+        'hazard' => ScanFocus.hazard,
+        _ => ScanFocus.ahead,
+      };
+      await _runScan(
+        focus,
+        profile,
+        sweep: focus == ScanFocus.surroundings,
+        aimCamera: false,
+      );
+      return;
+    }
+    if (localIntent?.name == 'current_weather') {
+      await _answerCurrentWeather(profile, d);
+      return;
+    }
+    if (localIntent?.name == 'cancel_route') {
+      await _cancelRoute(profile, d);
+      return;
+    }
+    if (localIntent?.name == 'cancel_route_and_close_map') {
+      state = state.copyWith(pendingOverlayAction: SuggestedChipAction.hideMap);
+      await _cancelRoute(profile, d);
+      return;
+    }
 
     // Best-effort cached fix rather than `getCurrentPosition()` — a chat
     // reply doesn't need a fresh GPS lock badly enough to justify the
@@ -1896,9 +2117,11 @@ class ChatController extends Notifier<ChatState> {
       // Same defect and same fix as the hazard hub's and the Magic Button's
       // position lookups (open_bugs item 27). A cached fix is a nicety here;
       // the reply is not.
-      location = await Geolocator.getLastKnownPosition().timeout(
-        _lastFixBudget,
-      );
+      if (replyTo == null) {
+        location = await Geolocator.getLastKnownPosition().timeout(
+          _lastFixBudget,
+        );
+      }
     } catch (_) {
       // No last-known fix available (denied permission, web, first launch
       // before any GPS read, or the platform not answering) — proceed
@@ -2027,7 +2250,13 @@ class ChatController extends Notifier<ChatState> {
         mayInviteAnswer: true,
       );
       if (turn.scanFocus != null) {
-        await _runScan(turn.scanFocus!, profile, question: turn.scanQuestion);
+        await _runScan(
+          turn.scanFocus!,
+          profile,
+          question: turn.scanQuestion,
+          sweep: turn.scanFocus == ScanFocus.surroundings,
+          aimCamera: false,
+        );
       }
       if (turn.replayDirection != null) {
         await replayVoiceMemo(turn.replayDirection!, profile);
@@ -2315,7 +2544,13 @@ class ChatController extends Notifier<ChatState> {
         );
       }
       if (turn.scanFocus != null) {
-        await _runScan(turn.scanFocus!, profile, question: turn.scanQuestion);
+        await _runScan(
+          turn.scanFocus!,
+          profile,
+          question: turn.scanQuestion,
+          sweep: turn.scanFocus == ScanFocus.surroundings,
+          aimCamera: false,
+        );
       }
       if (turn.replayDirection != null) {
         await replayVoiceMemo(turn.replayDirection!, profile);
@@ -2371,6 +2606,77 @@ class ChatController extends Notifier<ChatState> {
     }
   }
 
+  ({Uint8List jpeg, String description})? _mostRecentPicture() {
+    for (final message in state.messages.reversed) {
+      if (message.sender != ChatSender.assistant || message.imageJpeg == null) {
+        continue;
+      }
+      if (DateTime.now().difference(message.timestamp) >
+          const Duration(minutes: 10)) {
+        return null;
+      }
+      return (jpeg: message.imageJpeg!, description: message.text);
+    }
+    return null;
+  }
+
+  ({Uint8List jpeg, String description})? _pictureForReply(String? messageId) {
+    if (messageId == null) return null;
+    for (final message in state.messages) {
+      if (message.id != messageId ||
+          message.sender != ChatSender.assistant ||
+          message.imageJpeg == null ||
+          DateTime.now().difference(message.timestamp) >
+              const Duration(minutes: 10)) {
+        continue;
+      }
+      return (jpeg: message.imageJpeg!, description: message.text);
+    }
+    return null;
+  }
+
+  bool _looksLikePictureFollowUp(String text) {
+    final value = text.toLowerCase();
+    // Keep explicit navigation, weather, emergency and route commands on
+    // their existing paths even if a recent image is still in the transcript.
+    if (RegExp(
+      r'\b(route|navigate|directions|weather|rain|emergency|help|sos|cancel trip|cancel route)\b',
+    ).hasMatch(value)) {
+      return false;
+    }
+    return RegExp(
+      r'\b(picture|photo|image|scene|frame|sign|text|word|color|colour|car|bus|vehicle|person|man|woman|child|tree|building|door|window|object|thing|shape|left|right|behind|beside|next to|near|far|what else|tell me more|more about|it|this|that|those|these)\b|ছবিতে|ছবির|এটা|ওটা|ওই|এখানে|লেখা|রং',
+    ).hasMatch(value);
+  }
+
+  Future<void> _answerPictureFollowUp(
+    ({Uint8List jpeg, String description}) picture,
+    String question,
+    UserProfile profile,
+    Dashboard d,
+  ) async {
+    state = state.copyWith(isAssistantTyping: true);
+    try {
+      final scene = await ref
+          .read(snapshotVisionServiceProvider)
+          .answerPictureFollowUp(
+            jpeg: picture.jpeg,
+            initialDescription: picture.description,
+            question: question,
+            language: profile.language,
+          );
+      state = state.copyWith(isAssistantTyping: false);
+      await _appendAssistantReply(
+        scene?.spoken ?? d.visionCaptureFailed,
+        profile,
+      );
+    } catch (error) {
+      debugPrint('[Chat] picture follow-up failed: $error');
+      state = state.copyWith(isAssistantTyping: false);
+      await _appendAssistantReply(d.visionCaptureFailed, profile);
+    }
+  }
+
   /// How long the assistant may stay silent before saying it is still
   /// working. Long enough that a normal reply never triggers it, short
   /// enough that the user has not yet decided nothing happened.
@@ -2408,9 +2714,7 @@ class ChatController extends Notifier<ChatState> {
     _appendUserMessage(chipLabel);
     switch (chip.action) {
       case SuggestedChipAction.cameraScan:
-        // The wide sweep, not the bus-only frame this chip used to take.
-        // Same path Volume Up and `look_around` use.
-        await runSweep(profile);
+        await runSnapshot(profile);
       case SuggestedChipAction.openPath:
       case SuggestedChipAction.showScreenToPasserby:
       case SuggestedChipAction.reportHazard:

@@ -109,5 +109,40 @@ class GeminiConfig {
   /// Cost is bounded in the client, not by a budget alert — see
   /// `BillableApi.gemini` in `api_budget.dart` for why that distinction
   /// matters and what the ceiling actually is.
+  /// Ordered recovery models. These are separate model quota buckets within
+  /// the same Google Cloud project; they still share the project/API key.
+  /// Keep the already tested lite model last in chat and front-snap fallback.
+  /// Chat and vision intentionally share these model pools where their
+  /// ordered lineups overlap; cooldowns are keyed by provider and model.
+  static const String gemma4 = 'gemma-4-31b-it';
+  static const String flash37 = 'gemini-3.7-flash';
+  static const String flash36 = 'gemini-3.6-flash';
+  static const String flash35 = 'gemini-3.5-flash';
+  static const String flashLite35 = 'gemini-3.5-flash-lite';
+
+  static const List<String> chatFallbackModels = [
+    gemma4,
+    flash37,
+    flash36,
+    flash35,
+    flashLite35,
+  ];
+
+  static const List<String> frontSnapFallbackModels = [
+    flash37,
+    flash36,
+    gemma4,
+    flash35,
+    flashLite35,
+  ];
+
+  static const List<String> sweepFallbackModels = [
+    flash37,
+    flash36,
+    gemma4,
+    flash35,
+  ];
+
+  /// Kept for older call sites and as the last-resort default.
   static const String modelName = 'gemini-3.5-flash-lite';
 }

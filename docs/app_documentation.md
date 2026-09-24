@@ -1,201 +1,134 @@
-# ANT Application — Overall Technical and User Guide
+# ANT: A Guide to the App
 
-**Status:** current implementation guide, updated 24 September 2026. This guide describes code in this repository. The numbered module plans and the original [project master plan](../project_master_plan.md) contain useful goals and history, but some names, services, and behaviors in those plans are proposals that have since changed. Where there is a conflict, follow this guide and the linked implementation.
+**Updated 24 September 2026.** This guide explains ANT feature by feature: what a person can do, what the app does in response, and where each feature has limits. It is based on the current code. Some older plans describe ideas that changed; see [Notes for people working on ANT](#notes-for-people-working-on-ant) at the end.
 
-ANT (Assistive Navigational Tool) is a bilingual, voice-first navigation and communication app, primarily for blind and low-vision people in Dhaka. It also supports users with hearing, mobility, cognitive, and anxiety-related needs. It has a paired caretaker role, but location and communication are shared through explicit Firebase records and permissions. This document complements the deeper [Vision and Camera Module](vision_camera_module.md) reference.
+ANT is a bilingual (English and বাংলা) navigation and communication app, built mainly for blind and low-vision people in Dhaka. It can also adapt to hearing, mobility, anxiety, and cognitive needs. A trusted person can connect as a caretaker through the mobile app or the Guardian Hub in a computer browser.
 
-## 1. Product shape and architecture
+## Using ANT, feature by feature
 
-The Android-first mobile app is Flutter. Firebase Authentication and Firestore provide identity, pairing, profiles, communication and safety records. The browser Guardian Hub is a separate TypeScript/Vite client that reads the same Firebase project and data contract. Cloud Functions implement server-side pairing/profile work and route-safety, incident and report aggregation. A Cloudflare Worker periodically collects selected public crime signals and submits them to the Firebase backend.
+### 1. Set up ANT for the person using it
+
+**What you can do:** Choose whether you need assistance or are a caretaker. For an ANT user, answer a guided set of questions about language, vision, mobility, hearing, preferred amount of detail, speech, contacts, places, and safety preferences.
+
+**What ANT does:** Saves those choices in the user's profile and uses them to shape later screens, voice prompts, map behavior, and scanning. You can search the phone's contacts or add a name and number yourself. Both methods support voice input. The app reads important information back so it can be checked before saving.
+
+**Caretaker pairing:** A caretaker generates a one-time code. The ANT user enters that code to link the accounts. The pairing code expires after 15 minutes and can only be used once.
+
+**When it works:** Contact search needs permission to read the phone's contacts. Pairing and profile sharing need an internet connection.
+
+### 2. Talk to ANT or type a request
+
+**What you can do:** Speak, type, use the configured wake-word option, or choose an on-screen shortcut. Requests can be conversational (“what's the weather?”) or ask ANT to take an action (“open the camera”, “take me to the nearest bathroom”).
+
+**What ANT does:** Converts speech to text, checks whether the request matches a supported direct command, and uses an AI assistant for questions that need broader language understanding. The assistant can call app actions such as starting a route or changing supported settings. ANT reads replies aloud and shows them in the conversation. English and Bangla are supported.
+
+**AI backup:** The current chat lineup tries Groq models first—GPT-OSS 120B, then Qwen 3.8 27B—followed by Gemma 4 31B and Gemini Flash models. If a model reports a limit or service problem, ANT can skip it temporarily and try the next available model. After the cooldown, the preferred model can return to the front of the line.
+
+**When it works:** Cloud speech and AI need internet and configured service keys. Speech recognition or text-to-speech can fall back to device services, whose language and voice quality depend on the phone. An AI answer may be wrong; confirm important choices.
+
+### 3. Find a place and choose how to travel
+
+**What you can do:** Search for a destination, choose a map suggestion, ask ANT to take you somewhere, or ask how to get there. You can also ask for nearby essentials such as a bathroom, restaurant, hospital, or police station.
+
+**What ANT does:** Destination search can show Google Places suggestions. Selecting one gives ANT a clearer place to route to. For ordinary destinations, “take me to…” asks a basic transport question. A short trip generally favors a rickshaw suggestion; a medium trip asks how you want to travel. Emergency destinations such as a hospital or police station skip that transport question. “How do I get there?” is for comparing more travel options. Bus details are included when the routing service has them.
+
+ANT can provide route distance and ETA, traffic context, and relevant weather advisories. Some travel times and fares are estimates. The map does not have to open automatically when a route starts; that behavior is a setting.
+
+**When it works:** Maps and search need location permission and internet for live results. Google Routes/Places are preferred in the configured release, with OpenStreetMap-based fallbacks. Bus names, transit itineraries, fares, and traffic may be missing or approximate.
+
+### 4. Follow spoken directions
+
+**What you can do:** Start a route and keep the phone with you while walking.
+
+**What ANT does:** Tracks location while navigation is active, announces upcoming turns and crossings, and updates the remaining distance. A large map and directional arrow are available for users who want them. The app can also announce route landmarks and nearby bus stops when those lookups return information.
+
+The same small set of vibration patterns is used across the app for navigation, confirmation, and urgent hazard cues. These add to spoken instructions; they do not replace them.
+
+**When it works:** GPS accuracy affects when and where a direction is announced. Poor reception, indoor use, and dense streets can delay or reduce location accuracy. Follow the spoken instructions carefully and use the user's usual mobility aids.
+
+### 5. Ask the camera about a scene
+
+**What you can do:** Open the camera to aim at something, take a single photo, ask what is ahead, or request a guided “what's around me?” sweep. You can ask follow-up questions about the same photo. A camera image can also be sent to a caretaker.
+
+**What ANT does:** A direct question or shutter action uses one still image. A sweep asks the user to aim left, ahead, and right, then captures up to three separate stills. Gemini gets the ordered sweep images; if that path fails, Qwen receives only the sharpest single frame. For detailed one-frame requests such as reading a sign, the upload is capped at 1280×960. Sweep images are capped at 640×480. These are maximum dimensions, not guaranteed sizes.
+
+Before an interactive cloud analysis, a local object detector checks the captured frame. If the local model sees an urgent hazard, it can warn before the photo is sent to a cloud model. Cloud image analysis uses the configured Qwen/Gemini order for the request type. Asking a follow-up sends the same photo again, because vision models do not retain image memory between requests.
+
+**When it works:** Camera permission is required. Image quality, blur, lighting, phone position, network, and model availability affect the answer. One image cannot prove the whole path is safe or reveal hazards outside the frame. See the detailed [Vision and Camera Guide](vision_camera_module.md).
+
+### 6. Let ANT make periodic forward checks
+
+**Who it's for:** Blind and low-vision profiles.
+
+**What ANT does:** While walking, it can periodically take one forward-facing photo and check for visible obstacles and access challenges. It uses Gemini 3.5 Flash-Lite for this ambient check. The image is kept out of the chat. Normal checks are 30 seconds apart; they become 15 seconds apart near a mapped hazard or crossing, then back off to 60 seconds after four clear checks.
+
+ANT pauses ambient work when foreground assistant or camera work is underway. It also considers movement, battery, app state, and whether the user has enabled depth scanning. If the online check is unavailable or times out, local object and optional depth detectors are used. Those local models have limited capabilities.
+
+**When it works:** Ambient results are advisory. A photo can miss a hazard or mistake what it sees; silence does not mean the route is safe. Checks stop at low battery and while the app is in the background.
+
+### 7. Report a hazard or safety concern
+
+**What you can do:** Use the reporting flow to report a road/accessibility hazard or safety concern from the user's current area.
+
+**What ANT does:** Saves the report so backend services can group nearby reports, assess route impact, and age temporary information over time. A single report is treated as a community signal, not unquestionable proof. ANT can use the resulting safety information when checking routes.
+
+**When it works:** Reports need a location and network access to reach Firebase. Crowdsourced information can be incomplete, old, or incorrect. The app does not silently publish a hazard just because the camera noticed something.
+
+### 8. Keep a caretaker in the loop
+
+**What you can do:** Once paired, exchange messages, share an image, send or receive a voice memo, check shared location and alerts, or request a snapshot.
+
+**What ANT does:** Shows caretaker and AI messages with different visual treatments. Voice messages can be tapped to play in both mobile chat interfaces. The user's caretaker-routing control can route messages to the caretaker. A snapshot request follows the user's consent setting: it may be allowed, blocked, or ask the user each time. In ask mode, the user can answer with voice or touch. Remote camera access is not a live video stream.
+
+**When it works:** Both people need connectivity for real-time sharing. Location depends on permissions, GPS, battery, and whether the app is able to publish an update. Photo consent applies to remote snapshot requests; ordinary images that a person chooses to send are a separate chat action.
+
+### 9. Test the caretaker experience in a browser
+
+The Guardian Hub lets you test the caretaker side without a second phone or a published website.
+
+1. Make sure `guardian_web/.env.local` contains the Firebase web-app `VITE_` settings. This local file is ignored by Git.
+2. From the `guardian_web/` folder, run `npm install` once, then run `npm run dev`.
+3. Open the localhost URL Vite prints, usually `http://localhost:5173/`.
+4. Choose **Generate pairing code**, then enter that code in the ANT app's caretaker pairing flow. Keep the browser tab open; the code is single-use and expires after 15 minutes.
+5. Try text, image sharing, snapshot requests, voice memo recording/playback, alerts, and shared location.
+
+Localhost works as a secure browser origin for microphone recording. Both clients still need internet access to reach Firebase, and Firebase Authentication must allow localhost as an authorized domain. No Hosting setup or deployment is needed for local testing. The Hub shows the paired user's shared location and alerts, and supports messages, photos, voice memos and snapshot requests; it does not include mobile route planning or remote settings controls. More setup detail is in the [Guardian Hub README](../guardian_web/README.md).
+
+### 10. Ask for help in an emergency
+
+**What you can do:** Use the configured physical trigger or supported urgent voice command to enter the emergency flow.
+
+**What ANT does:** The emergency service coordinates the available alert, caretaker communication, location, and safe-haven route features. Test releases are configured to avoid unexpected real-world emergency dispatch.
+
+**Important limit:** Do not assume a phone will automatically send an SMS, place a call, or contact emergency services in every build. Those behaviors depend on platform permissions and release configuration; verify them on the intended device and build. Use established emergency procedures when immediate help is needed.
+
+## How the pieces fit together
 
 ```mermaid
 flowchart LR
-  User[ANT mobile app<br/>Flutter] <-->|Firestore/Auth| FB[Firebase<br/>Auth · Firestore · Functions]
-  Guardian[Guardian Hub<br/>local browser/Vite] <-->|Firestore/Auth| FB
-  User -->|GPS + destination| Routing[Google Routes/Places<br/>or configured fallback]
-  User -->|voice/text| AI[Groq primary<br/>Gemini cascade]
-  User -->|still photos| Vision[Qwen/Gemini vision<br/>local SSD/depth fallback]
-  Worker[Cloudflare scheduled collectors] --> FB
-  FB -->|crime evidence, advisories,<br/>hazards| User
+  Phone[ANT app] <-->|profile, pairing,<br/>messages, alerts, location| Firebase[Firebase]
+  Browser[Guardian Hub<br/>local browser] <-->|paired caretaker data| Firebase
+  Phone --> Maps[Places, Routes<br/>OSM fallback]
+  Phone --> AI[Speech + assistant<br/>Groq / Gemini]
+  Phone --> Camera[Still photo vision<br/>cloud + local checks]
+  Collectors[Scheduled crime collectors] --> Firebase
+  Firebase --> Phone
 ```
 
-The app uses one `UserProfile` to drive language, accessibility, saved places, contacts, preferences, and caretaker pairing. `ProviderScope`/Riverpod providers construct shared services; feature screens/widgets present them. Services own network and device integrations. Bilingual English/Bangla strings live in `core/localization` and are used by both visible UI and spoken messages.
-
-### Repository map
-
-| Path | Responsibility |
-| --- | --- |
-| `ant_app/lib/core/` | Shared providers, configuration, localization, routing, AI, camera, haptics, permissions and utilities |
-| `ant_app/lib/features/onboarding/` | Role selection, pairing, accessibility profile, contacts, saved places and preferences |
-| `ant_app/lib/features/dashboard/` | User chat, map, navigation display, camera UI, route request, reporting and in-session caretaker messages |
-| `ant_app/lib/features/guardian/` | Caretaker mobile dashboard, paired location, alerts, messages, snapshot requests and remote profile functions |
-| `guardian_web/` | Browser caretaker companion for local multi-device testing |
-| `functions/` | Firebase callable, document-triggered, and scheduled backend functions |
-| `cloudflare-worker/` | Scheduled crime-news/social signal collectors and feed tests |
-| `firestore.rules` | Firestore access policy; review before changing data models or writing a new client |
-| `scripts/release_google_build.sh` | Preflight and release APK build; distribution is a separate explicit command |
-| `testing/` | Manual tester scripts and previous round notes |
-
-## 2. The nine product modules
-
-### Module 1 — Onboarding, account and accessibility profile
-
-**What it does:** Selects the supported role (ANT user or caretaker), establishes anonymous Firebase identity, collects accessibility and communication preferences, and optionally pairs the two people. The user interview configures English/Bangla, vision level, mobility aid, hearing, cognitive/anxiety preferences, verbosity, voice, narration behavior, trusted contacts, frequent places, safe havens, depth scanning, map-opening preference and snapshot-consent policy.
-
-**How it works:** Onboarding screens update the Riverpod profile state. `ProfileService` persists profile data. `AuthService` uses Firebase Authentication; `PairingService` manages one-time pairing codes. `UserProfile` serializes supported fields and defaults missing fields when reading older profiles. Phone contacts are searched locally through the platform contacts plugin; only the chosen contact is added to the ANT profile. Manual name/number entry supports voice dictation and reads data back for confirmation.
-
-**Key source:** `features/onboarding/screens/`, `models/user_profile.dart`, `services/profile_service.dart`, `services/auth_service.dart`, `services/pairing_service.dart`, `services/phone_contact_importer.dart`.
-
-**Limits:** Phone address-book search requires the user's permission and a supported device/plugin implementation. Contact entry is not automatically shared to every caretaker. Pairing and profile authorization remain governed by Firestore rules.
-
-### Module 2 — Core UI, localization and user dashboard
-
-**What it does:** Provides a role-aware app shell, accessible onboarding, user split-mode dashboard (conversation and navigation map), caretaker mobile dashboard, Settings, large directional/map elements, text controls, action chips, alerts, reporting and overlays. English and Bangla are supported, with accessibility choices applied throughout.
-
-**How it works:** Flutter widgets consume Riverpod state and invoke feature services. The user's chat composer handles typed and spoken input, camera aiming, caretaker routing, snapshots, quotes, and replayable voice messages. Settings exposes preferences that are also controllable by supported natural-language commands. Map visibility can remain closed after routing for users who prefer voice-first navigation.
-
-**Key source:** `features/dashboard/`, `features/guardian/screens/`, `core/localization/`, `core/theme/`, `core/providers/`.
-
-**Limits:** Screen-reader and device behavior must be verified on real Android hardware. App support for iOS exists in platform files but the current release workflow is Android-first.
-
-### Module 3 — Conversational AI, speech and local voice actions
-
-**What it does:** Converts voice to text, recognizes supported local commands, answers conversational requests with tool/function calls, maintains short conversation context, and speaks responses or navigation cues. It supports English and Bangla and provides deterministic local routing for common commands such as weather, camera, cancel/close, food and bathroom requests.
-
-**Input/output path:** The user taps the microphone, uses the configured wake-word path, or types. `SttService` chooses Cloud STT when configured and falls back to the platform/on-device recognizer. `LocalIntentMatcher` and offline intent logic handle high-confidence phrases without an LLM; other requests go through the assistant service. The `FunctionCallExecutor` applies supported actions (route, settings, overlay, etc.). `TtsService` speaks and queues responses; Cloud TTS is optional, otherwise the device speech engine is used. A narration queue keeps ambient warnings and turn prompts from talking over each other.
-
-**Current assistant order:** GPT-OSS 120B on Groq, then Qwen 3.8 27B on Groq, then Gemma 4 31B and Gemini 3.7 Flash → 3.6 Flash → 3.5 Flash → 3.5 Flash-Lite on AI Studio. Gemma uses its own prompt variant, expanded from the Groq prompt for its smaller stated token budget. Provider/model failures are cooled down and skipped; expired cooldowns restore preferred order. Caching behavior is not described as provider-side prompt caching unless verified at the provider—current reliability behavior is client-side fallback/cooldown and selected response/scene reuse.
-
-**Key source:** `core/services/groq_assistant_service.dart`, `gemini_assistant_service.dart`, `gemini_assistant_cascade.dart`, `gemini_model_cooldowns.dart`, `fallback_assistant_service.dart`, `local_intent_matcher.dart`, `function_call_executor.dart`, `stt_service.dart`, `cloud_stt_service_native.dart`, `tts_service.dart`, `features/dashboard/providers/chat_providers.dart`.
-
-**Limits:** Online model choice, speed and availability depend on key configuration, current provider quotas and network conditions. A model handover may follow a timeout or error, so it can take longer than a healthy primary response. LLM responses are not guaranteed factual; consequential choices should be confirmed with the user.
-
-### Module 4 — Maps, route planning and safety scoring
-
-**What it does:** Searches destinations, compares supported routes, gives turn-by-turn walking instructions, considers hazards/crime advisories, and presents distance, ETA, transit or transport guidance where data is available. Nearby bathroom/food requests can resolve to a nearby category. Emergency destinations bypass ordinary transport clarification. “Take me to X” asks the user's basic transport preference for ordinary trips; “how do I get there?” gives broader travel options. Short trips prioritize a reasonable rickshaw suggestion; medium trips ask before choosing a mode. Bus options are only as complete as the route provider's transit data.
-
-**How it works:** Google Places Autocomplete is used for supported search fields, with legacy geocoding fallbacks. Google Routes is preferred in the tester release where configured; OSM/OSRM fallback remains. Route results normalize to `RouteChoice`/`RouteStep` so `NavigationNarrator` is backend-independent. The app can annotate route choices with crowdsourced hazard zones and thana crime/advisory information. `CommutePlanner` combines route/traffic estimates with walking/rickshaw/CNG/bus estimates, labels approximations, and can include high-confidence weather advisories. API call counters/budget guards are implemented for capped services.
-
-**Navigation runtime:** `NavigationController` subscribes to acceptable GPS fixes, rejects inaccurate or insignificant movement, asks `NavigationNarrator` for the next cue, speaks it, updates progress, and gives the haptic pattern. Bus-stop lookups can run after route startup so a slow lookup does not block the first walking instruction. The map can show a route line and giant directional indicator but need not automatically open for blind profiles.
-
-**Key source:** `core/services/routing_service.dart`, `route_planning_service.dart`, `commute_planner.dart`, `navigation_controller.dart`, `navigation_narrator.dart`, `weather_service.dart`, `route_safety_service.dart`, `features/dashboard/widgets/destination_sheet.dart`, `dashboard_map_panel.dart`.
-
-**Limits:** Google results can omit walking paths, transit line names or fares. Fare and non-car time estimates may be approximations, not live operator quotations. OSM fallbacks have coverage and service availability limits. Maps/Places/Routes credentials and project quota settings must be configured for the intended build.
-
-### Module 5 — Community reporting and hazard aggregation
-
-**What it does:** Lets users report a hazard or incident from a current location and reads nearby/route hazards back to later walkers. It avoids treating one unverified report as a confirmed road closure. Reports can be clustered, counted and decayed; users can resolve a hazard where permitted.
-
-**How it works:** The dashboard's reporting hub gathers a category, details and location. `HazardReportService` writes the report. `onHazardReportCreated` validates/aggregates reports into hazard zones. Scheduled `decayHazardZones` reduces/removes temporary signals as they age. Route safety functions intersect selected route points with active zones. Crime advisories and incident records are separate functions/data from transient street hazards.
-
-**Key source:** `features/dashboard/services/hazard_report_service.dart`, `widgets/crowdsource_reporting_hub.dart`, `functions/lib/hazard_clustering.js`, `hazard_decay.js`, and matching exports in `functions/index.js`.
-
-**Limits:** Reports are community signals, not authoritative ground truth. Automatic camera detection does not silently create a public hazard report. Old module-plan claims about exact report thresholds/decay are historical; current backend thresholds and tests are the source of truth.
-
-### Module 6 — Snapshot vision, camera and ambient scanning
-
-**What it does:** Performs deliberate one-frame scene/sign requests, deliberate camera aiming and image sharing, guided left/ahead/right sweeps, photo follow-up questions, and periodic forward hazard checks for blind/low-vision users. A local SSD detector and optional depth estimate offer limited offline signals.
-
-**How it works:** `SnapshotCamera` serializes access to the device camera. `SnapshotVisionService` captures and checks frames with the local SSD model before an interactive upload, then `VisionRouter` selects Qwen/Gemini by task. Front snaps use one frame and a larger upload cap; guided sweeps send up to three ordered frames to Gemini, with the sharpest single frame sent to Qwen only as a sweep fallback. `AmbientHazardScanner` uses Gemini 3.5 Flash-Lite on one frame at 30-second normal, 15-second near-route-hazard/crossing and 60-second after four clear scans. Ambient frames never enter chat; online timeout/failure falls back to local SSD and optional depth detection. It yields to foreground assistant/camera work and respects movement, lifecycle, profile and battery gates.
-
-**Image upload caps:** Detailed one-frame scan ≤1280×960; sweep and ambient ≤640×480; JPEG quality 86. These are caps, not guaranteed final dimensions or provider token counts. The separate caretaker image attachment path has its own compression logic. See the [Vision and Camera Module](vision_camera_module.md) reference for mechanics and limitations.
-
-**Limits:** One frame cannot prove safety or detect unseen hazards. SSD's object classes are limited; depth is relative rather than a measured distance. Low light, blur, image angle, network and quota affect accuracy. Treat vision as additional information, not a guarantee.
-
-### Module 7 — Haptics and multimodal feedback
-
-**What it does:** Adds a small set of learned vibration cues to voice and visual feedback: navigation turns/confirmation and urgent hazard signals. It lets users configure intensity and throttles repeated hazard alarms.
-
-**How it works:** `HapticsService` maps semantic cues to platform vibration patterns. Navigation and vision use the same service so feedback stays consistent. The app's spoken narration and map/text counterpart remain the primary explanation; a vibration is not intended to encode a full sentence.
-
-**Key source:** `core/services/haptics_service.dart`, onboarding/settings profile controls, `NavigationController`, vision services.
-
-### Module 8 — Virtual Guardian and caretaker communications
-
-**What it does:** Provides a paired caretaker with shared user location (when the app publishes it), alerts, chat, snapshot requests, images and voice memos. User snapshot consent supports automatic approval, never, or asking per request. In ask mode, a request can be held while a foreground task runs and answered by voice or touch. There is no live remote video.
-
-**How it works:** `LiveLocationPublisher` sends updates into Firestore while the app has the needed permission/lifecycle conditions. Caretaker providers/services read profile, `liveLocations`, alert and `communications/{userUid}/messages` documents. Messages identify sender/type and may carry text, JPEG or WAV data. Snapshot requests go through the consent policy and use the user's camera only after permission. The app shows images as messages and can describe incoming photos. Voice messages are tap-to-play in both mobile chat interfaces. The separate `guardian_web/` app uses anonymous Firebase auth, the same one-time pairing code, subscriptions, composer, browser audio, and an OpenStreetMap display.
-
-**Local Guardian Hub test:** from `guardian_web/`, run `npm install` once, then `npm run dev`. Open the localhost URL Vite prints (normally `http://localhost:5173/`), click **Generate pairing code**, and enter it in the mobile app's caretaker pairing flow. Keep the tab open; codes expire after 15 minutes and are single-use. Configure the ignored `guardian_web/.env.local` with Firebase web-app `VITE_` fields first. Localhost is HTTPS-equivalent for browser microphone permissions. This does not need Firebase Hosting or a public URL; Firebase Authentication must allow the local domain and both clients need network access to Firebase. For details see [Guardian Hub README](../guardian_web/README.md).
-
-**Key source:** `features/guardian/`, `features/dashboard/providers/caretaker_inbox_providers.dart`, `widgets/caretaker_inbox_listener.dart`, `features/onboarding/services/pairing_service.dart`, `guardian_web/src/main.ts`, `firestore.rules`.
-
-**Limits:** Location freshness depends on OS permission, GPS, battery, network and app lifecycle. The web build is a local test client; Hosting has no `hosting` entry in root `firebase.json`, so it is not published by this repository's Firebase configuration. Browser storage/profile retains pairing; use a dedicated browser profile for a separate test caretaker.
-
-### Module 9 — Magic Button and emergency support
-
-**What it does:** Offers an emergency trigger through configured physical volume control and supported urgent voice phrases. It can notify trusted contacts/caretaker, share location/status, and offer safe-haven routing through the app's supported online paths.
-
-**How it works:** `EmergencyService` coordinates device trigger, location, messaging and route/navigation integrations. `EmergencyChannel` bridges platform-specific button/battery capabilities. The service writes the relevant alert/communication records and asks the navigation stack to route when the online place/routing path is available. The build script's emergency dispatch mode remains off; tester builds are not automatically authorized to contact real emergency services.
-
-**Key source:** `core/services/emergency_service.dart`, `emergency_channel.dart`, `emergency_config.dart`, guardian alert services, and the platform channel under `android/`/`ios/`.
-
-**Limits:** The original plan described reliable offline SMS/auto-dial and automatic emergency dispatch, but those plan statements must not be taken as proof that every platform/build currently performs those actions. Verify the current `EmergencyConfig`, platform code, permissions and hardware behavior before relying on it. The test release intentionally avoids unexpected real-world dispatch.
-
-## 3. Shared runtime and external services
-
-### Identity, pairing and data
-
-- Firebase Auth supplies app/browser identities; pairing records associate a caretaker with an ANT user's UID.
-- Firestore is the shared data store. The main concepts include user profiles, pairing codes, live locations, alerts, communications, hazard reports/zones, route-safety crime zones/advisories/incidents and API usage counters.
-- `firestore.rules` is the authoritative access policy. Before adding a collection or browser operation, update and test its rule; do not assume a client-side role check is security.
-- Firebase Storage usage varies by message path/build; inspect the current service and rules before changing media size or persistence.
-
-### Speech, AI and quota handling
-
-- `CloudSttService` is preferred when its key/configuration exists; platform recognition is fallback.
-- Assistant and VLM model cascades are configured separately. Cooldown state is keyed by provider/model and shared where configured; separate model IDs do not guarantee independent quota pools at the provider level.
-- `ApiBudget` tracks configured provider/service usage, but provider consoles remain the authority on project quota and billing.
-- Local phrase matching handles known actions deterministically. Complex language falls through to LLM/function calling; fallback responses and device TTS support degraded operation.
-
-### Mapping and routing
-
-- Google Maps Flutter displays the map; Places provides suggestions; Routes provides directions/traffic/transit where enabled.
-- OSM/Nominatim/OSRM/Overpass paths are retained as fallbacks or supporting lookups. They have their own usage policies and availability.
-- Hazard and crime scoring enriches route choices. It is not a replacement for official emergency guidance or a guarantee of personal safety.
-
-### Backend ingestion and processing
-
-- `functions/index.js` contains callable route checks and recorders, document-triggered user/report handlers, and scheduled decay/ingestion jobs.
-- `functions/lib/` contains geographic math, route hazard intersection, report clustering/decay, crime temporal weighting, thresholds, advisories and evidence ingestion.
-- `cloudflare-worker/src/collectors/` reads news and social sources on schedules, filters/normalizes evidence and files records through Firebase. It is not part of the mobile APK process.
-- `functions/data/` contains seed/geometry/transit reference data. Data quality/freshness should be checked with the repository's health scripts and Firebase state, not inferred from a successful compile.
-
-## 4. Build, run and verify
-
-### Mobile Android app
-
-From `ant_app/`, install dependencies (`flutter pub get`). Provide local secrets through ignored `dart_defines.local.json`; do not commit it. The release workflow is `../scripts/release_google_build.sh verify` followed by `../scripts/release_google_build.sh build`. It sets Google Routes preference plus OSM fallback and tester build switches and validates expected keys/flags in the artifact. `distribute` is a separate command and uploads to Firebase App Distribution; building does not upload.
-
-Run the Flutter suite with `flutter test`. The current suite exercises profile/onboarding, intent matching, provider fallbacks, camera flow/policy, routing, Guardian Hub services, contacts and localization. Run `flutter analyze` after Dart changes; treat analyzer warnings as items to review even if the APK compiler succeeds.
-
-### Guardian Hub local browser
-
-1. Ensure Node.js/npm is installed and Firebase web config is in ignored `guardian_web/.env.local` (`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_APP_ID`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`). The mobile app's web Firebase options can be used as the source for matching project values.
-2. From `guardian_web/`, run `npm install` and `npm run dev`.
-3. Open Vite's localhost URL in the browser. Anonymous Authentication must be enabled for the Firebase project and localhost allowed as an authorized domain.
-4. Generate the one-time code and enter it in the app's caretaker pairing screen. Test paired messages/location, snapshot request consent, image upload and voice memo recording/playback.
-5. `npm run build` runs TypeScript project build and Vite production bundling. A bundle-size warning is informational; deployment is not configured in root Firebase Hosting.
-
-The browser app's Firebase web configuration is delivered to the browser by design; Firebase security depends on Authentication, authorized domains, Firestore rules and appropriately restricted API keys, not hiding the web config. Never paste a private server credential or service-account key into this file.
-
-### Firebase backend and worker
-
-Use `functions/package.json` scripts for backend tests and `cloudflare-worker/package.json` for collector tests. Cloud deployment needs the corresponding authenticated CLI/project permissions and backend secrets/config. Read `docs/google_maps_setup.md`, `docs/open_bugs.md` and the relevant package README before changing/deploying. Root `.firebaserc` currently selects `ant-assistive-nav`; root `firebase.json` configures Firestore rules and Functions, not Hosting.
-
-## 5. Security, privacy and operational constraints
-
-- A release APK includes compile-time API keys passed with `--dart-define`; restrict these keys and distribute only to the intended testers. Do not commit local defines or web `.env.local`.
-- Raw-transcript diagnostic mode is enabled by the current tester build script. Diagnostic exports may contain speech, names or location context; share privately and exclude raw tester recordings from source commits unless there is a specific approved reason.
-- A caretaker sees data only through pairing/rules and what the user app publishes. Snapshot requests are mediated by the profile's consent mode; ordinary user/caretaker image messages remain separate from remote camera permission.
-- The browser caretaker tool is a multi-device testing companion, not an independent emergency dispatch service.
-- Predictions from vision, crime data, community reports, Google route ETAs, estimated fares and weather should be presented with their uncertainty. Test on representative devices, network conditions and real walking routes before depending on them.
-
-## 6. Source-of-truth and follow-up
-
-- Overall implementation guide: this file.
-- Camera/VLM detail: [Vision and Camera Module](vision_camera_module.md).
-- Current tester changes: [Round 4 release notes](release_notes_round4.md).
-- Current deferred product work: [Backlog](../BACKLOG.md).
-- Local browser setup: [Guardian Hub README](../guardian_web/README.md).
-- Historical design intent: `01_module_plan_*.md` through `09_module_plan_*.md` and `project_master_plan.md`; check implementation when old plan language names a model/API or promises behavior.
+The phone app and the Guardian Hub share Firebase Auth/Firestore records. Cloud Functions process selected pairing, safety, incident and report operations. A scheduled Cloudflare Worker collects selected public crime signals and submits them to the backend. Maps, AI, speech, camera, GPS and haptics are separate services; the app connects them through feature actions such as “route to a bathroom” or “warn about something ahead.”
+
+## A few things worth knowing
+
+- **Internet:** Live maps, cloud AI, Firebase pairing/messages, and many alerts need a network connection. Local phrase matching and some camera checks can still work without one, but with reduced capability.
+- **Privacy:** The app shares profile, location, messages, images and alert data according to the feature and pairing permissions. Check [Firestore rules](../firestore.rules) before changing who can read or write data.
+- **API credentials:** The Android release build may contain compile-time API keys. Use restricted keys and only distribute the APK to intended testers. Never commit `dart_defines.local.json`, `.env.local`, service-account keys, or raw tester logs.
+- **Raw diagnostics:** The tester build can preserve what was said in diagnostic logs. Those files may contain names, speech, and location context; handle them privately.
+- **Not a safety guarantee:** Route safety, community reports, image analysis, ETA, weather, and fare information can be incomplete or wrong. This app adds useful cues but cannot guarantee a safe route.
+
+## Notes for people working on ANT
+
+- This guide follows current implementation. Older `01_module_plan_*.md` through `09_module_plan_*.md` and `project_master_plan.md` are historical design documents; some planned systems were changed or are not present in the current build. See the [master plan note](../project_master_plan.md).
+- Main code areas are `ant_app/lib/features/` for user-facing features, `ant_app/lib/core/services/` for integrations, `functions/` for Firebase backend logic, and `cloudflare-worker/` for scheduled collectors.
+- Main verification commands are `cd ant_app && flutter test`, `cd guardian_web && npm run build`, `cd functions && npm test`, and `cd cloudflare-worker && npm test`.
+- The current Firebase project alias is `ant-assistive-nav`. Root `firebase.json` configures Firestore rules and Functions; it does not define Firebase Hosting. Building the Guardian Hub locally is complete without Hosting.
+- More detailed references: [Vision and Camera](vision_camera_module.md), [Release notes](release_notes_round4.md), [Backlog](../BACKLOG.md), [Guardian Hub setup](../guardian_web/README.md), and [Google Maps setup](google_maps_setup.md).

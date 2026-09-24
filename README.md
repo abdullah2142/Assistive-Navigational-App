@@ -21,25 +21,30 @@ more expensive than a missed one.
 | `ant_app/` | The Flutter app (Android-first; the phone is the product) |
 | `functions/` | Firebase Cloud Functions — routing safety, crime scoring, hazard aggregation |
 | `cloudflare-worker/` | Scheduled collectors that pull current crime signals from news and social feeds |
+| `guardian_web/` | Browser-based caretaker companion for local multi-device testing |
 | `firestore.rules` | Security rules — read these before changing any data model |
 | `0N_module_plan_*.md` | Per-module specifications |
 | `project_master_plan.md` | Overall architecture and intent |
+| `docs/app_documentation.md` | Current end-to-end app and backend implementation guide |
 | `testing/` | Test packs — one scoped assignment per tester — and the voice phrasebook |
 | `task.md` | Live bug and task list |
 
 ### Module status
 
+The module-plan files and older status summaries preserve design history.
+For current behavior and known limits, use the [implementation guide](docs/app_documentation.md).
+
 | # | Module | State |
 | --- | --- | --- |
-| 1 | Onboarding — accessibility interview, voice-driven | Built |
-| 2 | Core UI — dual-role dashboards, localization | Built |
-| 3 | AI Assistant — Gemini function calling, local intent matching | Built |
-| 4 | Crime & route safety — thana scoring, temporal weighting, advisories, incident ledger | Built; incident ledger needs deploy |
-| 5 | Crowdsourcing — hazard reports, clustering, Red Flag anti-spam | Built + deployed |
-| 6 | Snapshot Vision | Built — edge hazard detection, dual-backend cloud scene/OCR with fallback, route verification. Untested on a phone |
-| 7 | Haptics | Partial — navigation cues built |
-| 8 | Virtual Guardian | Read side built; alert + location writes now exist (Module 9 uses them) |
-| 9 | Magic Button | Built — triggers, SMS, auto-dial, caretaker alert, safe-haven routing. Ships in practice mode until fired on hardware |
+| 1 | Onboarding and profile | Role selection, pairing, accessibility interview, emergency contacts and saved places |
+| 2 | Core UI | User/caretaker mobile dashboards, settings, localization, reporting and navigation display |
+| 3 | AI Assistant | Groq/Gemini model cascades, local intents, function actions, speech input/output |
+| 4 | Maps and route safety | Google Routes/Places preference, configured fallbacks, route narration and safety signals |
+| 5 | Crowdsourcing | Hazard reports, aggregation/decay and route checks through Firebase |
+| 6 | Snapshot Vision | Front snaps, guided sweep, online ambient checks, local SSD/depth fallback |
+| 7 | Haptics | Turn, confirmation and hazard cues shared across navigation and vision |
+| 8 | Guardian | Paired location, alerts, snapshot consent, chat and web caretaker companion |
+| 9 | Emergency support | Physical/voice triggers and configured alert/navigation paths; verify release mode and hardware limits |
 
 ---
 

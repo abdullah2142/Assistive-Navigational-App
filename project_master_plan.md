@@ -2,6 +2,8 @@
 
 This document provides a comprehensive breakdown of the Context-Aware Assistive Navigational Tool (ANT). It details the tech stack, implementation approach for each core module, and the development roadmap.
 
+> **Implementation note (24 September 2026):** This is the original product plan, not a guarantee that every proposed service or behavior shipped exactly as written. The app has since changed its AI providers, vision routing, maps and pairing flows. For current module behavior, use [`docs/app_documentation.md`](docs/app_documentation.md); for camera specifics, use [`docs/vision_camera_module.md`](docs/vision_camera_module.md). Check the implementation and tests before applying a plan statement as a code-level requirement.
+
 ## Tech Stack & Tooling
 
 To ensure the app is fast, offline-capable where needed, scalable, and highly accessible, we will use the following tech stack:

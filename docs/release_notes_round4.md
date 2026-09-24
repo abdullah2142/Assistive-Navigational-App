@@ -2,6 +2,8 @@
 
 This build brings the recent navigation, vision, AI reliability, caretaker, and accessibility work together. It is intended for trusted testers. The Google release build uses the release variant, Google Routes preference with OSM fallback, tester onboarding skip, and configured speech-to-text / Gemini / Groq keys from the local ignored defines file.
 
+For the system architecture and what each module does, see the [ANT Application Guide](app_documentation.md). For detailed camera behavior, see [Vision and Camera Module](vision_camera_module.md).
+
 ## New things to try
 
 - **Ask “what's in front of me?”** The app takes one high-quality frame for analysis. Use the aiming viewfinder and shutter when you want to choose the exact frame. The viewfinder closes after analysis or sending.
@@ -12,6 +14,7 @@ This build brings the recent navigation, vision, AI reliability, caretaker, and 
 - **Try route requests** such as “I need to eat,” “I need a bathroom,” “take me to…,” and “how do I get there?” Check nearest-place routing, transport questions/suggestions, bus itinerary details when available, traffic-aware ETA, and relevant weather alerts.
 - **Search for a destination** in the map and destination fields using Google Places suggestions; select a suggestion and confirm the destination.
 - **Try caretaker messaging** in the Guardian Hub: pair a browser, send text or an image, request a snapshot, and tap a voice memo to replay it. The user and caretaker chats both support tap-to-play voice messages.
+- **Run the Guardian Hub locally** without deploying it: from `guardian_web/`, run `npm install` once and `npm run dev`, then open the printed localhost URL (normally `http://localhost:5173/`). With `guardian_web/.env.local` configured, generate a pairing code in the browser and enter it in the app's caretaker pairing flow. Keep the tab open; the one-time code expires after 15 minutes. Localhost supports microphone recording. See [Guardian Hub README](../guardian_web/README.md).
 - **Try emergency contact setup** in onboarding and Settings. Search phone contacts by name/number, use voice input, or choose manual name and number entry with dictation.
 - **Try the model fallback behavior** after hitting a provider limit or forcing a temporary provider error. A limited model should be skipped during its cooldown and regain priority when the cooldown ends.
 

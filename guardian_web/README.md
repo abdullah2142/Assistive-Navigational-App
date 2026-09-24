@@ -13,9 +13,16 @@ documents and rules.
    `MESSAGING_SENDER_ID` (for example, `VITE_FIREBASE_API_KEY=...`). The
    local file is git-ignored. The repository's existing `DefaultFirebaseOptions.web`
    can be used to fill these values.
-3. Run `npm install`, then `npm run dev` from this directory.
+3. From this directory, run `npm install` once and then `npm run dev`.
 4. Open the local URL in the browser, generate a code, and enter it in the ANT
    app's existing caretaker pairing flow.
+
+For the usual same-computer test, Vite prints a URL such as
+`http://localhost:5173/`. Leave the dev server and browser tab open while
+pairing. The code is single-use and expires after 15 minutes. No Firebase
+Hosting setup or deployment is needed for this local preview. Both clients
+need an internet connection to reach Firebase. Use `npm run build` to verify
+the TypeScript production build without deploying it.
 
 The Firebase project must have anonymous Authentication enabled and the
 preview host must be an authorized Firebase Auth domain. Microphone recording
@@ -35,3 +42,6 @@ Hosting target configured yet, so this preview has not been published.
 
 The client uses OpenStreetMap tiles with attribution. It does not include the
 mobile app's route planning or remote settings controls.
+
+See [`../docs/app_documentation.md`](../docs/app_documentation.md) for the full
+ANT module and data-flow guide, including local Guardian Hub testing.

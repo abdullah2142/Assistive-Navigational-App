@@ -23,7 +23,16 @@ class GeminiVisionCascade implements VisionBackend {
              apiKey: apiKey,
              modelName: name,
              cooldowns: cooldowns,
-             requestTimeout: const Duration(milliseconds: 2800),
+             // Confirmed live on a real device (2026-10-12): the previous
+             // 2800ms was transplanted from VisionConfig.cloudTimeout's
+             // dedicated fast-backend headroom (measured 0.43-0.70s there),
+             // but the generativelanguage Gemini API itself is far slower
+             // (a same-session text call took 14027ms) — so every model in
+             // this cascade timed out, every single time, and the feature
+             // never worked on a real connection. 6s keeps the 4-model
+             // worst case bounded (~24s) while giving each model a real
+             // chance to answer instead of a guaranteed failure.
+             requestTimeout: const Duration(milliseconds: 6000),
            ),
        ];
 

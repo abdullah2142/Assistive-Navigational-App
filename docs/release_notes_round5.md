@@ -30,6 +30,12 @@ Also: ambiguous destinations ("take me to the one you just mentioned"),
 mid-route changes of mind, and bus/sign reading should all feel more
 reliable this round — report anything that still guesses wrong.
 
+One more fix in this build: pointing the camera at something ("what's
+in front of me?") was failing almost every time — it would say "I have
+no internet" even on a good connection. That's fixed; please try it on
+a real bus, sign, or street scene and tell us what it got wrong, if
+anything.
+
 Report the exact words you said. That matters more than anything else
 you can tell us.
 ```
@@ -66,6 +72,19 @@ a message that meant the opposite.
 
 **"exact words you said"** — unchanged from round 1; still the single
 most useful thing in a report.
+
+## Vision fallback timeout fix (this build)
+
+Confirmed live on a physical device: the Gemini vision fallback chain's
+per-model timeout was 2800ms, transplanted from a different, much faster
+dedicated vision backend's calibration (measured 0.43-0.70s there). The
+general-purpose Gemini generativelanguage API is far slower — a
+same-session text call took 14027ms — so every Gemini model in the
+cascade timed out on every real capture, and once Groq's own 12s budget
+was also exhausted, the camera-description feature failed 100% of the
+time and told the user it had no internet. Raised to 6000ms per model.
+Verified against the full test suite (1500 passing) and a fresh live
+capture that correctly described a real scene.
 
 ## Known constraints for this round
 

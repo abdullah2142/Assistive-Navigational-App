@@ -72,10 +72,13 @@ most useful thing in a report.
 - Built with Google routing preferred and OSM fallback, same as round 4.
 - Cloud TTS still has no dedicated key in this build (item 63, unchanged)
   — spoken output uses the handset's own engine.
-- The new on-screen debug error banner (shows the real error when an AI
-  call fails, instead of only the console) is a **developer-mode-only**
-  feature and will not appear in this release build — nothing to test
-  here, it is for `flutter run` during development.
+- The on-screen debug error banner (shows the real error when an AI call
+  fails, instead of only the console) now **also shows in this build** —
+  corrected after the first upload, which gated it to `kDebugMode` alone
+  and so it never appeared in any build testers actually receive. If you
+  see a bordered box with a bug icon and raw error text after a reply
+  that seems off, that is it working as intended — screenshot it, it is
+  exactly the detail a report needs.
 
 ## Build and verification
 
@@ -84,3 +87,10 @@ preference with OSM fallback, tester onboarding skip, raw diagnostic
 transcripts, and configured Groq/Gemini/Cloud STT keys, each verified
 present in the compiled APK (not just the build command) by the script's
 own post-build checks. Full Flutter test suite passed: 1,500 tests.
+
+Google routing itself confirmed live on a real device (not just the
+build-time check above): installed via `adb`, requested a route to a
+saved place, and `adb logcat` showed no app-level `"[Routing] Google ...
+failed"` line, `[Map] building` reporting `openStreetMap=false`, and the
+Places API returning real nearby bus stops along the route — Google was
+genuinely reached, not silently falling back to OpenStreetMap.

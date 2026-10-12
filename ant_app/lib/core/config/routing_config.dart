@@ -46,16 +46,20 @@
 /// labelled as worse (see [RouteCandidate.isPedestrianProfile]), instead of
 /// going dark.
 ///
-/// ## Turning Google on
+/// ## Turning Google off
 ///
 /// ```
-/// flutter run --dart-define=ROUTING_PREFER_GOOGLE=true
+/// flutter run --dart-define=ROUTING_PREFER_GOOGLE=false
 /// ```
 ///
-/// Defaults to off, because it costs real money the moment it is wrong and
-/// because it needs three APIs enabled on a billing-attached project first
-/// (Geocoding API, Routes API, Places API — see `README.md`). Flip it only
-/// once those exist and the key is restricted.
+/// On by default: the three reasons above apply to every build, not only
+/// ones somebody remembered to opt into, and `defaultApiBudget` only reaches
+/// for Firestore once `main()` has confirmed Firebase is actually up (see
+/// its doc comment in `api_budget.dart`), so a build with no billing-attached
+/// project configured degrades to the free backend rather than crashing.
+/// Turn it off deliberately to run OSM-only — for example before the three
+/// APIs this needs (Geocoding API, Routes API, Places API — see
+/// `README.md`) are enabled and the key is restricted.
 library;
 
 /// Which service answers geocoding, routing and place-discovery calls.
@@ -73,10 +77,11 @@ class RoutingConfig {
   /// Whether Google is tried first for geocoding, routing and discovery.
   ///
   /// Compile-time so it can be flipped per-build without a code change —
-  /// the same shape as `EmergencyConfig.liveDispatch`, and for the same
-  /// reason: a build that spends money should be a deliberate build.
+  /// the same shape as `EmergencyConfig.liveDispatch`. On by default: see
+  /// "Turning Google off" above for why running OSM-only is the deliberate
+  /// build now, not the other way around.
   static const bool preferGoogle =
-      bool.fromEnvironment('ROUTING_PREFER_GOOGLE', defaultValue: false);
+      bool.fromEnvironment('ROUTING_PREFER_GOOGLE', defaultValue: true);
 
   /// Whether OSM answers when Google cannot.
   ///
@@ -86,7 +91,7 @@ class RoutingConfig {
   /// failure mode worth being able to switch off during setup.
   ///
   /// ```
-  /// flutter run --dart-define=ROUTING_PREFER_GOOGLE=true --dart-define=ROUTING_OSM_FALLBACK=false
+  /// flutter run --dart-define=ROUTING_OSM_FALLBACK=false
   /// ```
   static const bool allowOsmFallback =
       bool.fromEnvironment('ROUTING_OSM_FALLBACK', defaultValue: true);

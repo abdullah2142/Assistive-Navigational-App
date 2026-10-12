@@ -25,6 +25,7 @@ import '../models/hazard_report.dart';
 import '../models/suggested_chip.dart';
 import '../providers/chat_providers.dart';
 import 'chat_bubble.dart';
+import 'debug_error_banner.dart';
 import 'suggested_chip_row.dart';
 import 'camera_aiming_dialog.dart';
 
@@ -668,6 +669,9 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel>
                 );
               }
               final message = chatState.messages[index];
+              if (message.sender == ChatSender.error) {
+                return DebugErrorBanner(message: message);
+              }
               return ChatBubble(
                 message: message,
                 strings: d,

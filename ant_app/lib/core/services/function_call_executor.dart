@@ -362,6 +362,8 @@ class FunctionCallExecutor {
           // for the area first — broad, easy to answer, and the single most
           // useful thing for narrowing a Dhaka search.
           return d.clarifyAskArea(result['destination'] as String? ?? '');
+        case 'nearby_category_not_found':
+          return d.nearbyCategoryNotFound;
         case 'no_location':
           return bn
               ? 'আপনার অবস্থান জানতে পারছি না। লোকেশন চালু আছে কিনা দেখুন।'
@@ -1318,7 +1320,11 @@ class FunctionCallExecutor {
             profile,
             {
               'ok': true,
-              'destination': saved?.label ?? destination,
+              // Route planning may resolve a generic request like "food" or
+              // "nearest pharmacy" to a concrete nearby business. Speak the
+              // chosen route label so the user knows which place the app
+              // selected, rather than repeating the generic category.
+              'destination': choice.destinationLabel,
               'fromSavedPlace': saved != null,
               'wasRerouted': choice.wasRerouted,
               'stillUnsafe': !choice.verdict.safe,

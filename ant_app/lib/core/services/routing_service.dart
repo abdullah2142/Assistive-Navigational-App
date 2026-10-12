@@ -816,17 +816,110 @@ class RoutingService {
   /// to the nearest toilet" was sent to a *name* geocoder and came back
   /// "I don't know where that is" — see `place_categories.dart`.
   ///
-  /// Overpass only, deliberately. [nearbyRefuges] pays for Google Places
-  /// because it runs when somebody is already in trouble and a volunteer
-  /// service is a poor thing to have in that path. This one runs on ordinary
-  /// requests, many times a day, for things like a shop — that is exactly the
-  /// volume that should not be billed, and a failure here costs a spoken
-  /// "I couldn't find one nearby" rather than a missed emergency.
+  /// Uses Google Places when the configured backend and monthly Places
+  /// budget allow it, then falls back to the free Overpass query. This gives
+  /// named, nearby candidates for ordinary requests while retaining a usable
+  /// no-cost path when Google is unavailable or the budget is exhausted.
   Future<List<NearbyRefuge>> nearbyOfCategory({
     required LatLng origin,
     required PlaceCategory category,
     double radiusMeters = 1500,
-    Duration timeout = const Duration(seconds: 8),
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    if (_preferGoogle &&
+        category.googleType != null &&
+        await _canSpend(BillableApi.places)) {
+      final places = await _nearbyCategoryPlaces(
+        origin: origin,
+        category: category,
+        radiusMeters: radiusMeters,
+      );
+      if (places.isNotEmpty) return places;
+    }
+    return _nearbyOfCategoryOverpass(
+      origin: origin,
+      category: category,
+      radiusMeters: radiusMeters,
+      timeout: timeout,
+    );
+  }
+
+  Future<List<NearbyRefuge>> _nearbyCategoryPlaces({
+    required LatLng origin,
+    required PlaceCategory category,
+    required double radiusMeters,
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    try {
+      final response = await _postJson(
+        Uri.https('places.googleapis.com', '/v1/places:searchNearby'),
+        headers: {
+          'X-Goog-Api-Key': MapsConfig.apiKey,
+          'X-Goog-FieldMask': 'places.displayName,places.location',
+        },
+        body: {
+          'includedTypes': [category.googleType],
+          'maxResultCount': 20,
+          'rankPreference': 'DISTANCE',
+          'locationRestriction': {
+            'circle': {
+              'center': {
+                'latitude': origin.latitude,
+                'longitude': origin.longitude,
+              },
+              'radius': radiusMeters,
+            },
+          },
+          'languageCode': 'en',
+          'regionCode': 'BD',
+        },
+        failurePrefix: 'places_category_nearby_failed',
+        timeout: timeout,
+      );
+      final rawPlaces = response['places'];
+      if (rawPlaces is! List) return const [];
+      final found = <NearbyRefuge>[];
+      for (final raw in rawPlaces) {
+        if (raw is! Map) continue;
+        final point = raw['location'];
+        if (point is! Map ||
+            point['latitude'] is! num ||
+            point['longitude'] is! num) {
+          continue;
+        }
+        final displayName = raw['displayName'];
+        final name = displayName is Map
+            ? (displayName['text'] as String? ?? '').trim()
+            : '';
+        found.add((
+          name: name,
+          location: LatLng(
+            (point['latitude'] as num).toDouble(),
+            (point['longitude'] as num).toDouble(),
+          ),
+          kind: category.id,
+        ));
+      }
+      found.sort(
+        (a, b) => _haversineMeters(origin, a.location).compareTo(
+          _haversineMeters(origin, b.location),
+        ),
+      );
+      debugPrint(
+        '[Routing] Places category ${category.id}: ${found.length} nearby',
+      );
+      return found;
+    } catch (error) {
+      debugPrint('[Routing] Places category ${category.id} failed: $error');
+      return const [];
+    }
+  }
+
+  Future<List<NearbyRefuge>> _nearbyOfCategoryOverpass({
+    required LatLng origin,
+    required PlaceCategory category,
+    required double radiusMeters,
+    required Duration timeout,
   }) async {
     final r = radiusMeters.round();
     final lat = origin.latitude;
@@ -839,7 +932,11 @@ class RoutingService {
         .map((f) => 'nwr[$f](around:$r,$lat,$lng);')
         .join();
     final query =
-        '[out:json][timeout:8];($clauses);out center $_categoryResultLimit;';
+        // Leave a small transport margin beyond the server-side query cap.
+        // The previous equal 8-second limits could cancel the HTTP response
+        // just as Overpass reached its own query cap, degrading slow nearby
+        // searches into a name search.
+        '[out:json][timeout:10];($clauses);out center $_categoryResultLimit;';
     try {
       final response = await _client
           .post(

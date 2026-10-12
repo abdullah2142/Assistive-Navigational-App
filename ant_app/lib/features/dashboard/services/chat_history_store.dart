@@ -139,11 +139,16 @@ class ChatHistoryStore {
 
   Future<void> _write(String uid, List<ChatMessage> messages) async {
     try {
+      // Debug-only annotations, never part of the conversation — see
+      // ChatSender.error. Excluded here rather than relying on the read
+      // path's fallback-to-assistant, which would otherwise rehydrate a
+      // stale error banner as something the assistant actually said.
+      final withoutErrors = messages.where((m) => m.sender != ChatSender.error).toList();
       // The tail, not the head: the end of the conversation is what somebody
       // is going back to check.
-      final kept = messages.length > maxMessages
-          ? messages.sublist(messages.length - maxMessages)
-          : messages;
+      final kept = withoutErrors.length > maxMessages
+          ? withoutErrors.sublist(withoutErrors.length - maxMessages)
+          : withoutErrors;
       final file = await _file();
       await file.parent.create(recursive: true);
       await file.writeAsString(

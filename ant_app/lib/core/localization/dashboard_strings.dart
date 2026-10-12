@@ -64,6 +64,14 @@ class Dashboard {
     'জরুরি অবস্থা। সাহায্যের বার্তা পাঠানো হচ্ছে।',
   );
 
+  /// Used when the assistant's text claims an alert was sent even though it
+  /// did not invoke the emergency flow. Do not let a model imply that help is
+  /// on the way when the app has taken no such action.
+  String get emergencyNotTriggered => _t(
+    "I haven't sent an alert. If you need help now, use the Magic Button or call someone directly.",
+    'আমি কোনো সাহায্যের বার্তা পাঠাইনি। এখন সাহায্য দরকার হলে ম্যাজিক বাটন ব্যবহার করুন বা সরাসরি কাউকে ফোন করুন।',
+  );
+
   /// The cancel window's read-back for an accidental trigger.
   /// Introduces the cancel window, and must keep naming both the time and the
   /// word.
@@ -253,8 +261,10 @@ class Dashboard {
           );
   }
 
-  String get commuteIntro =>
-      _t('Here is how you could get there.', 'ওখানে যেভাবে যেতে পারেন।');
+  String commuteIntro(String destination) => _t(
+    'To $destination, here are your travel options.',
+    '$destination যেতে এই যাতায়াতের বিকল্পগুলো আছে।',
+  );
 
   String get commuteNoOptions =>
       _t("That's close enough to walk.", 'ওটা হেঁটে যাওয়ার মতোই কাছে।');
@@ -519,6 +529,12 @@ class Dashboard {
   String clarifyAskArea(String place) => _t(
     "I couldn't find $place. Which area is it in — Dhanmondi, Mirpur, Uttara, somewhere else?",
     '$place খুঁজে পেলাম না। এটা কোন এলাকায় — ধানমন্ডি, মিরপুর, উত্তরা, নাকি অন্য কোথাও?',
+  );
+
+  /// A proximity search has to return a named place for the user to identify.
+  String get nearbyCategoryNotFound => _t(
+    "I couldn't find a nearby place with a name. Try another place type or area.",
+    'কাছাকাছি নামসহ কোনো জায়গা পেলাম না। অন্য ধরনের জায়গা বা এলাকা বলুন।',
   );
 
   /// Second round: ask for a landmark. Someone who could not name the area

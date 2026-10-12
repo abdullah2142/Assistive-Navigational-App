@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 
 import '../localization/app_language.dart';
 import 'banglish.dart';
+import 'destination_clarifier.dart';
+import 'place_categories.dart';
 import 'voice_matching.dart';
 
 /// A function call [LocalIntentMatcher] is confident enough about to run
@@ -188,6 +190,8 @@ class LocalIntentMatcher {
         _matchAlertCaretaker(lower, text) ??
         _matchCancelRoute(lower, text) ??
         _matchRouteChange(lower, text) ??
+        _matchCommute(lower, text) ??
+        _matchNearestCategory(text) ??
         _matchNeedCategory(lower, text) ??
         _matchRoute(lower, text, bn) ??
         // Last, and only when every exact matcher has declined: this pass
@@ -323,6 +327,27 @@ class LocalIntentMatcher {
     'help help',
     'i am in danger',
     "i'm in danger",
+    'i might faint',
+    'i may faint',
+    'i am about to faint',
+    "i'm about to faint",
+    'i might pass out',
+    'i may pass out',
+    'i am about to pass out',
+    "i'm about to pass out",
+    // "I can't get up" names a person down and immobile as plainly as
+    // "I've fallen" does — stress-test item 5.3 (দুর্ঘটনা report, 12
+    // October): "আমি উঠতে পারছি না" went unrecognised because nothing
+    // short of an actual cry word ("help"/"বাঁচাও") ever reached
+    // _distressContext, where a bare "পারছি না" already lived but could
+    // only ever confirm a cry that was already there, never start one.
+    // Specific and unambiguous, like the faint/pass-out phrases above it,
+    // rather than loosening that general gate.
+    "i can't get up",
+    'i cannot get up',
+    'unable to get up',
+    "i can't stand up",
+    'cannot stand up',
     'bachao',
     'bachaw',
     'banchao',
@@ -339,7 +364,12 @@ class LocalIntentMatcher {
     'বাঁচান',
     'বিপদে পড়েছি',
     'জরুরি অবস্থা',
+    'আমি অজ্ঞান হয়ে যাব',
+    'আমি অজ্ঞান হয়ে যাচ্ছি',
+    'আমার মনে হচ্ছে আমি অজ্ঞান হয়ে যাব',
     'হেল্প হেল্প',
+    'উঠতে পারছি না',
+    'উঠতে পারছিনা',
   ];
 
   /// Phrases that mean an emergency *only* in the right company.
@@ -458,6 +488,8 @@ class LocalIntentMatcher {
     "don't need help", 'do not need help', 'dont need help', 'no help needed',
     "don't need any help", 'not an emergency', 'no emergency', 'false alarm',
     "i'm fine", 'im fine', 'i am fine', "i'm okay", 'i am okay', 'im ok',
+    "i'm not going to faint", 'i am not going to faint',
+    'not going to faint', "i won't faint", 'i will not faint',
     // Romanised, and added in the same change as the romanised cries above.
     // Adding the cry without the refusal would mean "sahajjo lagbe na" — "I
     // don't need help" — newly firing an SOS, which is the one direction this
@@ -465,6 +497,7 @@ class LocalIntentMatcher {
     'sahajjo lagbe na', 'shahajjo lagbe na', 'sahajjo dorkar nei',
     'dorkar nei', 'bipod nei', 'thik achi', 'thik asi', 'amar kichu hoyni',
     'সাহায্য লাগবে না', 'সাহায্য দরকার নেই', 'দরকার নেই', 'বিপদ নেই', 'ঠিক আছি',
+    'আমি অজ্ঞান হব না', 'অজ্ঞান হব না', 'আমি অজ্ঞান হচ্ছি না',
   ];
 
   /// Ways of asking *about* the feature rather than using it.
@@ -561,11 +594,36 @@ class LocalIntentMatcher {
   static bool containsBnWord(String text, String phrase) =>
       RegExp('(?<![ঀ-৿])${RegExp.escape(phrase)}(?![ঀ-৿])').hasMatch(text);
 
+  /// "Someone is following me and I'm scared" — stress-test item 5.1 (12
+  /// October): no single word in it is unmistakable the way "help" or
+  /// "bachao" is, so it never reached `_emergencyStrong`/`_emergencyWeak`,
+  /// and `_distressContext` (which does list "following"/"scared") is only
+  /// ever consulted once one of those two is already satisfied — it can
+  /// confirm a cry, not start one.
+  ///
+  /// Matched as a pair within a short span rather than widening
+  /// `_distressContext` into a standalone trigger: either word alone is
+  /// everyday speech ("my little brother keeps following me around the
+  /// house", "this neighbourhood is a bit scary at night"), and counting
+  /// any one distress-context word on its own would fire on both. Being
+  /// followed *and* afraid, said together, essentially never means
+  /// anything else.
+  static final _followedAndAfraid = RegExp(
+    r'(?:follow(?:ing|ed)|chasing|stalking|pursuing)\w*.{0,40}'
+        r'(?:scared|afraid|frightened|terrified|petrified)'
+        r'|(?:scared|afraid|frightened|terrified|petrified).{0,40}'
+        r'(?:follow(?:ing|ed)|chasing|stalking|pursuing)\w*'
+        r'|পিছু.{0,20}(?:নিচ্ছে|নিয়েছে|নেয়|লেগেছে).{0,30}(?:ভয়|ডর)'
+        r'|(?:ভয়|ডর).{0,30}পিছু.{0,20}(?:নিচ্ছে|নিয়েছে|নেয়|লেগেছে)',
+    caseSensitive: false,
+  );
+
   /// True when [text] is a call for help rather than a mention of one.
   static LocalIntent? _matchEmergency(String lower, String text) {
     final strong =
         _emergencyStrong.any(lower.contains) ||
-        _emergencyStrong.any(text.contains);
+        _emergencyStrong.any(text.contains) ||
+        _followedAndAfraid.hasMatch(text);
     final weak =
         _emergencyWeak.any(lower.contains) || _emergencyWeak.any(text.contains);
     if (!strong && !weak) return null;
@@ -1048,9 +1106,13 @@ class LocalIntentMatcher {
       r'\b(?:i need|need|gotta|have to|i want|want)\s+(?:(?:to|for)\s+)?(?:(?:go|find|get)\s+)?(?:to\s+)?(?:eat(?:\s+something)?|food|a meal|something to eat|a restaurant)\b',
     ).hasMatch(lower);
     if (foodNeed ||
+        RegExp(r"\b(?:i am|i'm|im)\s+(?:(?:really|so|very)\s+)?hungry\b")
+            .hasMatch(lower) ||
         lower.contains('i am hungry') ||
         lower.contains("i'm hungry") ||
         lower.contains('im hungry') ||
+        lower.contains('খিদা') ||
+        lower.contains('ক্ষুধা') ||
         [
           'খেতে চাই',
           'খাবার চাই',
@@ -1064,6 +1126,16 @@ class LocalIntentMatcher {
       });
     }
     return null;
+  }
+
+  /// A direct "nearest X" request is already a complete routing instruction.
+  /// Resolve known place categories locally so the model cannot turn it into a
+  /// list of suggestions or omit the route tool call.
+  static LocalIntent? _matchNearestCategory(String text) {
+    if (!DestinationClarifier.wantsNearest(text) || categoryFor(text) == null) {
+      return null;
+    }
+    return LocalIntent('request_route', {'destination': text.trim()});
   }
 
   /// Arms one following utterance as a written caretaker message. This is
@@ -2196,8 +2268,16 @@ class LocalIntentMatcher {
     'ট্রিপ বাতিল',
     'যাত্রা বাতিল',
     'পথ বাতিল',
+    'রুট বাতিল',
     'পথ দেখানো বন্ধ',
     'নেভিগেশন বন্ধ',
+    'ট্রিপটা ক্যানসেল',
+    'ট্রিপ ক্যানসেল',
+    'যাত্রা ক্যানসেল',
+    'রুট ক্যানসেল',
+    'ট্রিপটা বাতিল',
+    'ট্রিপটা বন্ধ',
+    'ট্রিপটা বাদ',
     'ট্রিপ বন্ধ করো', 'বাতিল করো',
   ];
 
@@ -2395,6 +2475,19 @@ class LocalIntentMatcher {
   static const int _maxAlertExtraWords = 2;
 
   static LocalIntent? _matchAlertCaretaker(String lower, String text) {
+    // Stress-test rapid-fire item 5 (12 October): "Tell my caretaker I'm
+    // okay" fit inside the extra-words budget below and raised a bare
+    // "please check on me" flag — the one signal that looks like trouble —
+    // for a sentence that meant the opposite, and the words "I'm okay"
+    // never reached the caretaker at all. _emergencyRefusals already lists
+    // exactly this content ("i'm fine", "i'm okay", ...) for vetoing an
+    // SOS; the same phrases mean the same thing here — a reassurance is
+    // content, not filler, and belongs to Gemini/`send_caretaker_message`,
+    // which actually carries the words rather than discarding them.
+    if (_emergencyRefusals.any(lower.contains) ||
+        _emergencyRefusals.any(text.contains)) {
+      return null;
+    }
     final spokenWords = _words(text).length;
     for (final phrase in _alertCaretaker) {
       if (!lower.contains(phrase) && !text.contains(phrase)) continue;
@@ -2416,6 +2509,17 @@ class LocalIntentMatcher {
     if (_cancelRouteStrong.any((p) => lower.contains(p) || text.contains(p))) {
       return const LocalIntent('cancel_route', {});
     }
+    // Speech recognition often attaches Bangla case markers ("টা", "টি")
+    // to the route noun and varies the cancel verb. Match the two concepts in
+    // either order so phrases like "ট্রিপটা ক্যানসেল করে দাও" and a slightly
+    // garbled "যাত্রা ... ক্যানসেল করো" still stop the active route locally.
+    final routeNoun =
+        r'(?:ট্রিপ|ট্রিট|তৃপ্তি|তিব্বে|যাত্রা|পথ|রুট|নেভিগেশন)\s*(?:টা|টি|কে)?';
+    final cancelWord = r'(?:ক্যানসেল|বাতিল|বন্ধ|বাদ)';
+    if (RegExp('$routeNoun.{0,28}$cancelWord|$cancelWord.{0,28}$routeNoun')
+        .hasMatch(text)) {
+      return const LocalIntent('cancel_route', {});
+    }
     final spokenWords = _words(text).length;
     for (final phrase in _cancelRouteWeak) {
       if (!lower.contains(phrase) && !text.contains(phrase)) continue;
@@ -2424,6 +2528,60 @@ class LocalIntentMatcher {
       }
     }
     return null;
+  }
+
+  /// Explicit requests for transport choices should reach the commute planner
+  /// without relying on the model to select `plan_commute` correctly.
+  /// Destination can be supplied in the request or inherited from the active
+  /// route by the chat controller.
+  static LocalIntent? _matchCommute(String lower, String text) {
+    const markers = [
+      'transport options',
+      'transportation',
+      'public transport',
+      'public transit',
+      'transport option',
+      'transit option',
+      'bus option',
+      'bus route',
+      'bus routes',
+      'bus line',
+      'by bus',
+      'how do i get there',
+      'how can i get there',
+      'যানবাহন',
+      'গণপরিবহন',
+      'পরিবহন ব্যবস্থা',
+      'যাতায়াতের বিকল্প',
+      'যাতায়াতের বিকল্প',
+      'বাসের রুট',
+      'বাসের বিকল্প',
+      'বাসে কীভাবে',
+      'বাসে কিভাবে',
+    ];
+    if (!markers.any((phrase) => lower.contains(phrase) || text.contains(phrase))) {
+      return null;
+    }
+
+    String destination = '';
+    final forMatch = RegExp(r'\bfor\s+(.+)$', caseSensitive: false).firstMatch(text);
+    if (forMatch != null) {
+      destination = forMatch.group(1)!.trim().replaceFirst(
+        RegExp(r'\s+(?:by bus|by public transport|using transit)$', caseSensitive: false),
+        '',
+      );
+    } else {
+      final routeMatch = _routeEnPattern.firstMatch(text);
+      if (routeMatch != null) {
+        destination = _tidyDestination(routeMatch.group(1)!.replaceFirst(
+          RegExp(r'\s+(?:by bus|by public transport|using transit)$', caseSensitive: false),
+          '',
+        ));
+      }
+    }
+    return LocalIntent('plan_commute', {
+      if (destination.isNotEmpty) 'destination': destination,
+    });
   }
 
   static LocalIntent? _matchRouteChange(String lower, String text) {

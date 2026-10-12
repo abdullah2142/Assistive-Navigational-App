@@ -33,6 +33,24 @@ import 'routing_service.dart' show RouteCandidate;
 /// A distinct type so the failure is legible in a log rather than arriving as
 /// a generic exception: "the budget stopped this" and "the network stopped
 /// this" want different responses from whoever reads the diagnostics.
+/// What to tell the model about the walk currently underway, or the lack of
+/// one — shared by every prompt builder in this file.
+///
+/// Root cause of a real, verified gap: "Actually, cancel that" went
+/// unresolved because nothing in the prompt ever said a route existed to
+/// cancel. `activeRoute` was already threaded through `converse()` to the
+/// executor (for `resolve_hazard`'s scoping), but never into the prompt
+/// text itself — the model had no stronger signal than guessing from the
+/// conversation transcript whether "that" referred to anything, and on
+/// `gemini-3.5-flash-lite` guessing came back as silence: no function
+/// call, no reply text, route left running with no acknowledgement at
+/// all. An explicit line removes the guess.
+String navigationStateLine(RouteChoice? route) => route == null
+    ? 'Not currently navigating anywhere.'
+    : 'Currently walking to: ${route.destinationLabel} '
+          '(${(route.distanceMeters / 1000).toStringAsFixed(1)} km'
+          '${route.viaSummary.isEmpty ? '' : ' via ${route.viaSummary}'}).';
+
 class GeminiBudgetExhausted implements Exception {
   const GeminiBudgetExhausted();
 
@@ -40,6 +58,95 @@ class GeminiBudgetExhausted implements Exception {
   String toString() =>
       'GeminiBudgetExhausted: this month\'s assistant call ceiling is spent '
       '(see BillableApi.gemini). Falling back to the offline matcher.';
+}
+
+/// Turns the model's function call(s) into one [AssistantTurn] — the half of
+/// `converse()` that is pure given what the model decided, with no network
+/// call of its own. Extracted so this logic has a seam a test can call
+/// directly with a canned `calls` list, instead of only being reachable by
+/// actually asking a live model to produce the right call.
+///
+/// That seam closes a real gap: `emergency_llm_fallback_test.dart` already
+/// asserted `FunctionCallExecutor().execute(name: 'trigger_emergency', ...)`
+/// sets `triggersEmergency`, but nothing exercised this aggregation step
+/// itself — and it, not the executor, is where `triggersEmergency` and
+/// `cancelsRoute` were silently dropped on the floor (both backends, see
+/// each `converse()`'s own history). A model that correctly decides to call
+/// `trigger_emergency` for distress the local matcher missed — precisely
+/// the case that tool exists for — produced an `AssistantTurn` indistinguishable
+/// from one where nothing happened at all, confirmed live 12 October 2026
+/// with a logging `FunctionCallExecutor`. Shared between both backends
+/// rather than duplicated, so a fix here cannot land in one and not the
+/// other the way the bug itself did.
+Future<AssistantTurn> applyFunctionCalls({
+  required List<({String name, Map<String, Object?> args})> calls,
+  required FunctionCallExecutor executor,
+  required UserProfile profile,
+  Position? location,
+  RouteChoice? activeRoute,
+  List<RouteCandidate> routeAlternatives = const [],
+}) async {
+  var workingProfile = profile;
+  SuggestedChipAction? overlay;
+  RouteChoice? route;
+  List<RouteCandidate>? alternatives;
+  HazardReportPrefill? hazardPrefill;
+  ScanFocus? scanFocus;
+  String? scanQuestion;
+  ReplayDirection? replayDirection;
+  var sendsPhotoToCaretaker = false;
+  String? commuteDestination;
+  DestinationClarification? clarification;
+  PendingPlaceSave? placeSave;
+  var triggersEmergency = false;
+  var cancelsRoute = false;
+  final confirmations = <String>[];
+  for (final call in calls) {
+    final applied = await executor.execute(
+      name: call.name,
+      args: call.args,
+      profile: workingProfile,
+      location: location,
+      // A turn that plans a route and then immediately asks for a
+      // different one must switch between *that* route's alternatives,
+      // not the previous route's.
+      activeRoute: route ?? activeRoute,
+      routeAlternatives: alternatives ?? routeAlternatives,
+    );
+    workingProfile = applied.updatedProfile ?? workingProfile;
+    overlay ??= applied.overlayAction;
+    if (applied.route != null) route = applied.route;
+    if (applied.routeAlternatives != null) alternatives = applied.routeAlternatives;
+    hazardPrefill ??= applied.hazardPrefill;
+    scanFocus ??= applied.scanFocus;
+    scanQuestion ??= applied.scanQuestion;
+    replayDirection ??= applied.replayDirection;
+    sendsPhotoToCaretaker |= applied.sendsPhotoToCaretaker;
+    commuteDestination ??= applied.commuteDestination;
+    clarification ??= applied.clarification;
+    placeSave ??= applied.placeSave;
+    triggersEmergency |= applied.triggersEmergency;
+    cancelsRoute |= applied.cancelsRoute;
+    confirmations.add(applied.responseText);
+  }
+
+  return AssistantTurn(
+    responseText: confirmations.join(' '),
+    updatedProfile: identical(workingProfile, profile) ? null : workingProfile,
+    overlayAction: overlay,
+    route: route,
+    routeAlternatives: alternatives,
+    hazardPrefill: hazardPrefill,
+    scanFocus: scanFocus,
+    scanQuestion: scanQuestion,
+    replayDirection: replayDirection,
+    sendsPhotoToCaretaker: sendsPhotoToCaretaker,
+    commuteDestination: commuteDestination,
+    clarification: clarification,
+    placeSave: placeSave,
+    triggersEmergency: triggersEmergency,
+    cancelsRoute: cancelsRoute,
+  );
 }
 
 class AssistantTurn {
@@ -174,6 +281,7 @@ class GeminiAssistantService implements AssistantService {
       required String userText,
       required UserProfile profile,
       Position? location,
+      RouteChoice? activeRoute,
     })? promptBuilder,
   }) : _budget = budget ?? defaultApiBudget,
        _modelName = modelName ?? GeminiConfig.modelName,
@@ -202,6 +310,7 @@ class GeminiAssistantService implements AssistantService {
     required String userText,
     required UserProfile profile,
     Position? location,
+    RouteChoice? activeRoute,
   })? _promptBuilder;
 
   /// How many prior messages ride along as short-term context.
@@ -260,6 +369,7 @@ class GeminiAssistantService implements AssistantService {
           userText: userText,
           profile: profile,
           location: location,
+          activeRoute: activeRoute,
         ),
       ),
     ];
@@ -280,76 +390,13 @@ class GeminiAssistantService implements AssistantService {
       );
     }
 
-    var workingProfile = profile;
-    SuggestedChipAction? overlay;
-    RouteChoice? route;
-    List<RouteCandidate>? alternatives;
-    HazardReportPrefill? hazardPrefill;
-    ScanFocus? scanFocus;
-    String? scanQuestion;
-    ReplayDirection? replayDirection;
-    var sendsPhotoToCaretaker = false;
-    String? commuteDestination;
-    DestinationClarification? clarification;
-    PendingPlaceSave? placeSave;
-    final confirmations = <String>[];
-    for (final call in calls) {
-      final applied = await _executor.execute(
-        name: call.name,
-        args: call.args,
-        profile: workingProfile,
-        location: location,
-        // A turn that plans a route and then immediately asks for a
-        // different one must switch between *that* route's alternatives,
-        // not the previous route's.
-        activeRoute: route ?? activeRoute,
-        routeAlternatives: alternatives ?? routeAlternatives,
-      );
-      workingProfile = applied.updatedProfile ?? workingProfile;
-      overlay ??= applied.overlayAction;
-      if (applied.route != null) route = applied.route;
-      if (applied.routeAlternatives != null)
-        alternatives = applied.routeAlternatives;
-      hazardPrefill ??= applied.hazardPrefill;
-      scanFocus ??= applied.scanFocus;
-      scanQuestion ??= applied.scanQuestion;
-      replayDirection ??= applied.replayDirection;
-      sendsPhotoToCaretaker |= applied.sendsPhotoToCaretaker;
-      commuteDestination ??= applied.commuteDestination;
-      clarification ??= applied.clarification;
-      placeSave ??= applied.placeSave;
-      confirmations.add(applied.responseText);
-    }
-
-    // Deliberately not a second `generateContent` round trip to let the
-    // model phrase its own confirmation — replaying a function-call turn
-    // back to Gemini's "thinking" models (3.x) requires echoing the exact
-    // `thoughtSignature` the model attached to that turn, and this SDK
-    // version (0.4.7, predating "thinking" models) doesn't capture that
-    // field on `FunctionCall` at all, so any reconstructed turn is
-    // rejected with "missing thought_signature" regardless of which role
-    // is used to send it (also confirmed live: the classic `role:
-    // 'function'` this SDK sends for `FunctionResponse` content is itself
-    // no longer accepted — "Role 'function' is not supported"). Bypassing
-    // the round trip entirely is more robust against this kind of
-    // API-surface drift than reverse-engineering the new contract, and as
-    // a side benefit halves per-turn latency (one call instead of two).
-    return AssistantTurn(
-      responseText: confirmations.join(' '),
-      updatedProfile: identical(workingProfile, profile)
-          ? null
-          : workingProfile,
-      overlayAction: overlay,
-      route: route,
-      routeAlternatives: alternatives,
-      hazardPrefill: hazardPrefill,
-      scanFocus: scanFocus,
-      scanQuestion: scanQuestion,
-      replayDirection: replayDirection,
-      sendsPhotoToCaretaker: sendsPhotoToCaretaker,
-      commuteDestination: commuteDestination,
-      clarification: clarification,
-      placeSave: placeSave,
+    return applyFunctionCalls(
+      calls: calls.map((c) => (name: c.name, args: c.args)).toList(),
+      executor: _executor,
+      profile: profile,
+      location: location,
+      activeRoute: activeRoute,
+      routeAlternatives: routeAlternatives,
     );
   }
 
@@ -391,6 +438,7 @@ class GeminiAssistantService implements AssistantService {
     required String userText,
     required UserProfile profile,
     Position? location,
+    RouteChoice? activeRoute,
   }) {
     final bn = profile.language == AppLanguage.bangla;
     final locationLine = location == null
@@ -421,9 +469,11 @@ Things this user has told you about themselves before (kept across sessions — 
 ${profile.rememberedNotes.map((n) => '- $n').join('\n')}
 '''}
 Live location (may be stale or unavailable — never invent one if missing): $locationLine
+${navigationStateLine(activeRoute)}
 Current app state: walking-route planning, one-frame camera snapshots, guided camera sweeps, and live local weather are available. Use look_around for camera questions. The app handles common live-weather questions directly; never answer current weather from general knowledge. Do not claim an implemented camera feature is unavailable.
 
 Rules:
+- If the user says to cancel, stop, end, or abandon the trip, or says they are no longer going — even with no destination named, just "cancel that" or "stop it" — call cancel_route when the line above shows one is active. If it shows none is active, say so instead of calling it or staying silent; never respond with nothing.
 - Never describe the state of something you cannot actually read. You have no way to check whether a screen, the camera, the microphone or a connection is on, so do not say it is. A half-heard command ("Screen.", "Route.") is a request to clarify, not a cue to invent a status: ask which of the likely commands they meant, in one short question. A confident wrong answer is worse than a question, because the user cannot see that nothing happened.
 - ALWAYS reply in ${bn ? 'Bangla' : 'English'}, regardless of what language the user's message is in, unless they explicitly ask you to switch.
 - If reply style is minimalist, answer in one short plain sentence.
@@ -468,6 +518,7 @@ User's message: "$userText"
     required String userText,
     required UserProfile profile,
     Position? location,
+    RouteChoice? activeRoute,
   }) {
     final bangla = profile.language == AppLanguage.bangla;
     final locationText = location == null
@@ -481,6 +532,7 @@ ${profile.savedPlaces.isEmpty ? '' : 'Saved places: ${profile.savedPlaces.map((p
 ${profile.magicButtonContacts.isEmpty ? '' : 'Saved emergency contacts: ${profile.magicButtonContacts.map((c) => '${c.name}: ${c.phoneNumber}').join('; ')}'}
 ${profile.rememberedNotes.isEmpty ? '' : 'Remembered details: ${profile.rememberedNotes.join('; ')}'}
 Live location: $locationText (possibly stale). Never infer a street name from coordinates.
+${navigationStateLine(activeRoute)}
 
 Intent rules:
 - “Take me to X” or walking directions -> request_route. Need for toilet, food, medicine, or rest -> nearest suitable place. Urgent destinations such as police, hospital, or bathroom must not trigger transport questions.
@@ -488,6 +540,7 @@ Intent rules:
 - Questions about visible surroundings, signs, text, or objects -> look_around. Use one frame for “in front of me”; use surroundings/sweep only when asked to look around.
 - Current weather -> use live weather handling; never guess or use general knowledge.
 - Route changes/off-route requests -> request_alternative_route or replan_route. Map visibility requests -> open_map/close_map, not routing.
+- Cancel/stop/no-longer-going, even just "cancel that" with nothing named -> cancel_route, when the navigation line above shows a route active. Never answer with nothing; say so if none is active.
 - Settings, saved/forgotten facts, caretaker messages, hazard reports, and passerby requests -> matching tools. For real danger, direct the user to the physical emergency button or call for help; do not claim to contact emergency services.
 - Respect snapshot consent. A caretaker's request is not user consent; the app must confirm before sending.
 

@@ -10,7 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ant_app/core/localization/app_language.dart';
 import 'package:ant_app/core/services/function_call_executor.dart';
-import 'package:ant_app/core/services/gemini_assistant_service.dart';
+import 'package:ant_app/core/services/gemini_assistant_service.dart'
+    show AssistantTurn, GeminiAssistantService, applyFunctionCalls;
 import 'package:ant_app/features/onboarding/models/user_profile.dart';
 import 'package:ant_app/features/onboarding/models/user_role.dart';
 
@@ -47,6 +48,55 @@ void main() {
 
     test('the flag defaults off', () {
       expect(const AssistantTurn(responseText: 'x').triggersEmergency, isFalse);
+    });
+  });
+
+  // Confirmed live, 12 October 2026: a real model call correctly decided to
+  // call `cancel_route` for "Actually, cancel that" — no local match, no
+  // keyword, exactly the case these tools are declared for — and the
+  // resulting AssistantTurn still came back with triggersEmergency and
+  // cancelsRoute both false, because `converse()`'s own aggregation (in
+  // both GeminiAssistantService and GroqAssistantService) built its return
+  // value without either flag at all. The group above proves the executor
+  // sets the flag correctly; it never exercised this aggregation step,
+  // which is where the flag was actually lost. This does, with no network
+  // call and no live key, by calling `applyFunctionCalls` — the function
+  // both backends' `converse()` now delegate to — directly with a canned
+  // call list.
+  group('the aggregation step the model\'s own call goes through', () {
+    test('trigger_emergency survives it', () async {
+      final turn = await applyFunctionCalls(
+        calls: const [(name: 'trigger_emergency', args: {})],
+        executor: FunctionCallExecutor(),
+        profile: profile,
+      );
+      expect(turn.triggersEmergency, isTrue,
+          reason: 'this is the exact flag that reached the caller as false before the fix');
+    });
+
+    test('cancel_route survives it', () async {
+      final turn = await applyFunctionCalls(
+        calls: const [(name: 'cancel_route', args: {})],
+        executor: FunctionCallExecutor(),
+        profile: profile,
+      );
+      expect(turn.cancelsRoute, isTrue);
+    });
+
+    test('an unrelated call in the same turn does not mask either flag', () async {
+      // Guards against a fix that only looks at the *last* call in a turn
+      // rather than OR-ing across all of them — multiple calls in one turn
+      // are an existing, declared capability (see the prompt's "one
+      // message can hold TWO requests" rule), not a hypothetical.
+      final turn = await applyFunctionCalls(
+        calls: const [
+          (name: 'open_passerby_helper', args: {}),
+          (name: 'trigger_emergency', args: {}),
+        ],
+        executor: FunctionCallExecutor(),
+        profile: profile,
+      );
+      expect(turn.triggersEmergency, isTrue);
     });
   });
 

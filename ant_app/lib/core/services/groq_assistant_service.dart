@@ -8,19 +8,13 @@ import 'package:http/http.dart' as http;
 import 'api_budget.dart';
 import 'assistant_service.dart';
 import '../../features/dashboard/models/chat_message.dart';
-import '../../features/dashboard/models/hazard_report.dart';
-import '../../features/dashboard/models/suggested_chip.dart';
 import '../../features/onboarding/models/user_profile.dart';
-import '../../features/guardian/models/communication_message.dart'
-    show ReplayDirection;
 import '../config/groq_config.dart';
 import '../localization/app_language.dart';
-import 'destination_clarifier.dart';
 import 'function_call_executor.dart';
-import 'gemini_assistant_service.dart' show AssistantTurn;
+import 'gemini_assistant_service.dart'
+    show AssistantTurn, applyFunctionCalls, navigationStateLine;
 import 'gemini_model_cooldowns.dart';
-import 'vision/vision_scene.dart' show ScanFocus;
-import 'pending_place_save.dart';
 import 'route_planning_service.dart';
 import 'routing_service.dart' show RouteCandidate;
 
@@ -117,7 +111,7 @@ class GroqAssistantService implements AssistantService {
         'content': _buildPrompt(profile: profile, location: location),
       },
       ..._historyToMessages(recentHistory),
-      _locationMessage(location),
+      _locationMessage(location, activeRoute),
       {'role': 'user', 'content': userText},
     ];
 
@@ -208,20 +202,13 @@ class GroqAssistantService implements AssistantService {
       );
     }
 
-    var workingProfile = profile;
-    SuggestedChipAction? overlay;
-    RouteChoice? route;
-    List<RouteCandidate>? alternatives;
-    HazardReportPrefill? hazardPrefill;
-    ScanFocus? scanFocus;
-    String? scanQuestion;
-    ReplayDirection? replayDirection;
-    var sendsPhotoToCaretaker = false;
-    String? commuteDestination;
-    DestinationClarification? clarification;
-    PendingPlaceSave? placeSave;
-    final confirmations = <String>[];
-
+    // Same gap as gemini_assistant_service.dart's converse() used to have —
+    // see applyFunctionCalls' doc comment. Shared rather than duplicated,
+    // so a fix lands in both backends at once, the way it should have the
+    // first time: Groq answers first in the fallback cascade, so this is
+    // the path most trigger_emergency/cancel_route calls that the local
+    // matcher misses actually take.
+    final calls = <({String name, Map<String, Object?> args})>[];
     for (final entry in toolCalls.values) {
       final name = entry.name;
       if (name == null) continue;
@@ -234,47 +221,16 @@ class GroqAssistantService implements AssistantService {
       } catch (_) {
         args = {};
       }
-
-      final applied = await _executor.execute(
-        name: name,
-        args: args,
-        profile: workingProfile,
-        location: location,
-        activeRoute: route ?? activeRoute,
-        routeAlternatives: alternatives ?? routeAlternatives,
-      );
-      workingProfile = applied.updatedProfile ?? workingProfile;
-      overlay ??= applied.overlayAction;
-      if (applied.route != null) route = applied.route;
-      if (applied.routeAlternatives != null)
-        alternatives = applied.routeAlternatives;
-      hazardPrefill ??= applied.hazardPrefill;
-      scanFocus ??= applied.scanFocus;
-      scanQuestion ??= applied.scanQuestion;
-      replayDirection ??= applied.replayDirection;
-      sendsPhotoToCaretaker |= applied.sendsPhotoToCaretaker;
-      commuteDestination ??= applied.commuteDestination;
-      clarification ??= applied.clarification;
-      placeSave ??= applied.placeSave;
-      confirmations.add(applied.responseText);
+      calls.add((name: name, args: args));
     }
 
-    return AssistantTurn(
-      responseText: confirmations.join(' '),
-      updatedProfile: identical(workingProfile, profile)
-          ? null
-          : workingProfile,
-      overlayAction: overlay,
-      route: route,
-      routeAlternatives: alternatives,
-      hazardPrefill: hazardPrefill,
-      scanFocus: scanFocus,
-      scanQuestion: scanQuestion,
-      replayDirection: replayDirection,
-      sendsPhotoToCaretaker: sendsPhotoToCaretaker,
-      commuteDestination: commuteDestination,
-      clarification: clarification,
-      placeSave: placeSave,
+    return applyFunctionCalls(
+      calls: calls,
+      executor: _executor,
+      profile: profile,
+      location: location,
+      activeRoute: activeRoute,
+      routeAlternatives: routeAlternatives,
     );
   }
 
@@ -440,6 +396,10 @@ Rules:
 - Need food or a toilet urgently -> route immediately to the nearest restaurant or toilet; keep any budget the user gives.
 - Current weather -> use the app's live local-weather handling; never guess from general knowledge or say weather is unavailable without a failed live lookup.
 - Emergency/fear/danger -> trigger_emergency.
+- Cancel/stop/end the trip, or no longer going — even just "cancel that" or
+  "stop it" with nothing named -> cancel_route, whenever the live-location
+  message below shows a route currently active. If it shows none, say so;
+  never answer with nothing.
 - Caretaker memo -> send_caretaker_message. General check -> alert_caretaker.
 - Where am I -> describe_current_location. Do not guess street names from coords.
 - Setting changes -> update_setting. (theme is only light/dark).
@@ -483,12 +443,22 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
   /// — system rules and the full tool list, ~2,400 tokens — stays a stable,
   /// cacheable prefix. Sent as a `system` message rather than folded into the
   /// user's text so it cannot be mistaken for something they said.
-  static Map<String, dynamic> _locationMessage(Position? location) => {
+  /// `activeRoute` rides here rather than in [_buildPrompt] for the same
+  /// reason location does: it changes on exactly the turns location does
+  /// not stay fixed for either — planning or cancelling a route — so it
+  /// belongs with the volatile half, not the cacheable prefix. See the
+  /// `navigationStateLine` doc comment in `gemini_assistant_service.dart`
+  /// for the gap this closes: without it, "cancel that" had nothing in the
+  /// prompt to resolve against and could come back with no reply at all.
+  static Map<String, dynamic> _locationMessage(
+    Position? location,
+    RouteChoice? activeRoute,
+  ) => {
     'role': 'system',
-    'content': location == null
-        ? 'Live location: Not available right now.'
-        : 'Live location: ${location.latitude.toStringAsFixed(5)}, '
-              '${location.longitude.toStringAsFixed(5)}',
+    'content':
+        '${location == null ? 'Live location: Not available right now.' : 'Live location: ${location.latitude.toStringAsFixed(5)}, '
+            '${location.longitude.toStringAsFixed(5)}'}\n'
+        '${navigationStateLine(activeRoute)}',
   };
 
   /// The keywords that put each group of tools in front of the model.

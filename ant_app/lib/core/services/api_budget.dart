@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 import '../config/routing_config.dart';
@@ -283,12 +284,20 @@ ApiBudget? _shared;
 /// independent cached counts that could each spend the full allowance —
 /// exactly the overshoot this class exists to prevent.
 ///
-/// Resolves off the compile-time [RoutingConfig.preferGoogle] rather than an
-/// injected backend, so an OpenStreetMap build never constructs a Firestore
-/// handle and the test suite never reaches Firebase.
-ApiBudget get defaultApiBudget => _shared ??= RoutingConfig.preferGoogle
-    ? MonthlyApiBudget(store: FirestoreApiBudgetStore())
-    : const UnlimitedApiBudget();
+/// Resolves off the compile-time [RoutingConfig.preferGoogle], guarded by
+/// whether Firebase has actually been initialized.
+///
+/// `AppRoot` only renders once `main()`'s own `Firebase.initializeApp()` has
+/// succeeded (see `firebaseReady` in `main.dart`), so a real Google build
+/// always has an app registered by the time anything touches this getter.
+/// The guard exists for everything that constructs a `RoutingService`
+/// without going through that startup path — the test suite, above all —
+/// so it falls open to the unlimited budget instead of reaching for a
+/// Firestore handle no `FirebaseApp` backs, which throws outright.
+ApiBudget get defaultApiBudget =>
+    _shared ??= (RoutingConfig.preferGoogle && Firebase.apps.isNotEmpty)
+        ? MonthlyApiBudget(store: FirestoreApiBudgetStore())
+        : const UnlimitedApiBudget();
 
 @visibleForTesting
 set defaultApiBudget(ApiBudget budget) => _shared = budget;

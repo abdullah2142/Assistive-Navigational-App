@@ -173,6 +173,17 @@ class ChatController extends Notifier<ChatState> {
   Future<void> Function()? _cameraAimFinisher;
   bool _oneShotCaretakerMessage = false;
 
+  /// The model must never claim an emergency action that the executor did
+  /// not perform. This is a safety-critical consistency check: the user may
+  /// otherwise believe help is coming when no alert was sent.
+  static final RegExp _emergencyActionClaim = RegExp(
+    r"\b(?:emergency mode|sending alerts?|alerts? (?:have been|were) sent|i(?: have|\x27ve| just) (?:sent|contacted|alerted).{0,40}(?:help|family|contacts?))\b|জরুরি অবস্থা.{0,35}(?:বার্তা|সাহায্য).{0,18}(?:পাঠানো হচ্ছে|পাঠানো হয়েছে|পাঠিয়েছি)",
+    caseSensitive: false,
+  );
+
+  static bool _claimsEmergencyAction(String text) =>
+      _emergencyActionClaim.hasMatch(text);
+
   /// The dashboard owns the camera UI/context; the controller requests a
   /// short aim session before every explicit scan or user-requested photo.
   void registerCameraAimer(
@@ -619,11 +630,11 @@ class ChatController extends Notifier<ChatState> {
       // Reuses the route failure vocabulary rather than inventing a second
       // one: "I don't know where that is" means the same thing whichever
       // question asked it.
-      await _appendAssistantReply(
-        d.clarifyAskArea(destination),
-        profile,
-        mayInviteAnswer: true,
-      );
+      final message = result is RoutePlanFailed &&
+              result.reason == 'nearby_category_not_found'
+          ? d.nearbyCategoryNotFound
+          : d.clarifyAskArea(destination);
+      await _appendAssistantReply(message, profile, mayInviteAnswer: true);
       return;
     }
 
@@ -652,7 +663,7 @@ class ChatController extends Notifier<ChatState> {
     }
 
     final lines = <String>[
-      d.commuteIntro,
+      d.commuteIntro(choice.destinationLabel),
       for (final o in options)
         if (transit == null || o.mode != CommuteMode.bus)
           d.commuteOptionLine(
@@ -1092,6 +1103,13 @@ class ChatController extends Notifier<ChatState> {
     LocalIntent intent,
     UserProfile profile,
   ) {
+    if (intent.name == 'plan_commute' &&
+        (intent.args['destination'] as String?)?.trim().isNotEmpty != true) {
+      final activeDestination = state.pendingRoute?.destinationLabel;
+      return activeDestination == null || activeDestination.trim().isEmpty
+          ? intent.args
+          : {...intent.args, 'destination': activeDestination};
+    }
     if (intent.name != 'update_setting' ||
         intent.args['setting'] != 'text_size')
       return intent.args;
@@ -2051,13 +2069,6 @@ class ChatController extends Notifier<ChatState> {
       await _sendPhotoToCaretaker(profile, d);
       return;
     }
-    final repliedPicture = _pictureForReply(replyToMessageId);
-    final picture = repliedPicture ?? _mostRecentPicture();
-    if (picture != null &&
-        (_looksLikePictureFollowUp(trimmed) || repliedPicture != null)) {
-      await _answerPictureFollowUp(picture, trimmed, profile, d);
-      return;
-    }
     // These actions need no location lookup. The camera request opens aiming
     // UI; ordinary scene questions capture immediately.
     if (localIntent?.name == 'open_camera') {
@@ -2191,6 +2202,10 @@ class ChatController extends Notifier<ChatState> {
     if (localIntent != null &&
         answeringQuestion &&
         localIntent.name != 'trigger_emergency' &&
+        localIntent.name != 'update_setting' &&
+        localIntent.name != 'request_route' &&
+        localIntent.name != 'cancel_route' &&
+        localIntent.name != 'plan_commute' &&
         localIntent.name != 'arm_caretaker_message' &&
         localIntent.name != 'send_photo_to_caretaker') {
       debugPrint(
@@ -2220,6 +2235,15 @@ class ChatController extends Notifier<ChatState> {
         return;
       }
       final args = _resolveLocalIntentArgs(localIntent, profile);
+      if (localIntent.name == 'plan_commute' &&
+          (args['destination'] as String?)?.trim().isNotEmpty != true) {
+        await _appendAssistantReply(
+          d.chatAskDestination,
+          profile,
+          mayInviteAnswer: true,
+        );
+        return;
+      }
       final turn = await ref
           .read(functionCallExecutorProvider)
           .execute(
@@ -2305,6 +2329,20 @@ class ChatController extends Notifier<ChatState> {
       return;
     }
 
+    // Image context is a fallback for an unclassified follow-up, not an
+    // override for a fresh command. Keep it after local intent handling so
+    // "make the text bigger" changes the setting even immediately after a
+    // photo, and a route/cancel request cannot be mistaken for image
+    // commentary. An explicit reply-to-image still gets the image context.
+    final repliedPicture = _pictureForReply(replyToMessageId);
+    final picture = repliedPicture ?? _mostRecentPicture();
+    if (picture != null &&
+        localIntent == null &&
+        (_looksLikePictureFollowUp(trimmed) || repliedPicture != null)) {
+      await _answerPictureFollowUp(picture, trimmed, profile, d);
+      return;
+    }
+
     final gemini = ref.read(geminiAssistantServiceProvider);
     if (gemini == null) {
       await _appendAssistantReply(
@@ -2316,9 +2354,15 @@ class ChatController extends Notifier<ChatState> {
     }
 
     // Snapshot history *before* the message just appended above, so it
-    // isn't duplicated when handed to Gemini as prior turns.
+    // isn't duplicated when handed to Gemini as prior turns. Debug error
+    // banners (ChatSender.error) are excluded — they are this app's own
+    // account of why a call failed, not something either party said, and
+    // `_historyToContents` has no other case for them but "assistant".
     final history = state.messages.length > 1
-        ? state.messages.sublist(0, state.messages.length - 1)
+        ? state.messages
+              .sublist(0, state.messages.length - 1)
+              .where((m) => m.sender != ChatSender.error)
+              .toList()
         : const <ChatMessage>[];
 
     final stopwatch = Stopwatch()..start();
@@ -2393,6 +2437,10 @@ class ChatController extends Notifier<ChatState> {
               // A superseded turn must not keep writing into the bubble — its
               // chunks would overwrite the newer answer as they arrive.
               if (superseded()) return;
+              // This can be checked as text streams in, before any false
+              // reassurance is displayed or spoken. The final response is
+              // replaced below with a clear, truthful instruction.
+              if (_claimsEmergencyAction(partial)) return;
               firstChunkMs ??= stopwatch.elapsedMilliseconds;
               if (!streaming) {
                 streaming = true;
@@ -2457,9 +2505,16 @@ class ChatController extends Notifier<ChatState> {
         state = state.copyWith(isAssistantTyping: false);
         return;
       }
+      final responseText = !turn.triggersEmergency &&
+              _claimsEmergencyAction(turn.responseText)
+          ? d.emergencyNotTriggered
+          : turn.responseText;
+      if (responseText != turn.responseText) {
+        debugPrint('[Chat] suppressed an unexecuted emergency-action claim');
+      }
       debugPrint(
         '[Chat] <- Gemini in ${stopwatch.elapsedMilliseconds}ms '
-        '(first chunk ${firstChunkMs ?? -1}ms): "${turn.responseText}" '
+        '(first chunk ${firstChunkMs ?? -1}ms): "$responseText" '
         '(overlay=${turn.overlayAction}, route=${turn.route != null}, '
         'scan=${turn.scanFocus?.name ?? '-'}'
         '${turn.scanQuestion == null ? '' : ' q="${turn.scanQuestion}"'}, '
@@ -2500,10 +2555,10 @@ class ChatController extends Notifier<ChatState> {
         // which is most replies' final clause.
         state = state.copyWith(
           isAssistantTyping: false,
-          messages: _withLastReplaced(text: turn.responseText),
+          messages: _withLastReplaced(text: responseText),
         );
-        final spokenSoFar = lastSpokenIndex.clamp(0, turn.responseText.length);
-        final remaining = turn.responseText.substring(spokenSoFar);
+        final spokenSoFar = lastSpokenIndex.clamp(0, responseText.length);
+        final remaining = responseText.substring(spokenSoFar);
         if (!profile.isDeafOrHardOfHearing && remaining.trim().isNotEmpty) {
           unawaited(
             ref
@@ -2513,7 +2568,7 @@ class ChatController extends Notifier<ChatState> {
         }
       } else {
         await _appendAssistantReply(
-          turn.responseText,
+          responseText,
           profile,
           mayInviteAnswer: true,
         );
@@ -2599,6 +2654,25 @@ class ChatController extends Notifier<ChatState> {
         '[Chat] Gemini call FAILED after ${stopwatch.elapsedMilliseconds}ms: $e',
       );
       debugPrintStack(stackTrace: st, label: '[Chat] Gemini failure stack');
+      // Debug builds only — a blind user gets the ordinary fallback reply
+      // below exactly as before; this is the console's `debugPrint` above,
+      // made visible on-device without a connected log, for exactly the
+      // session where this file's own history says "there was no way to
+      // tell" cost the most time. Appended directly rather than through
+      // _appendAssistantReply: no typing delay, no TTS, no reopened mic —
+      // it is an annotation on the transcript, not a turn in it.
+      if (kDebugMode) {
+        state = state.copyWith(
+          messages: [
+            ...state.messages,
+            ChatMessage(
+              sender: ChatSender.error,
+              text: '$e',
+              timestamp: DateTime.now(),
+            ),
+          ],
+        );
+      }
       final fallback =
           OfflineIntentMatcher.match(trimmed, profile.language) ??
           d.chatStubReply;
@@ -2607,7 +2681,15 @@ class ChatController extends Notifier<ChatState> {
   }
 
   ({Uint8List jpeg, String description})? _mostRecentPicture() {
+    int userMessageCount = 0;
     for (final message in state.messages.reversed) {
+      if (message.sender == ChatSender.user) {
+        userMessageCount++;
+        if (userMessageCount > 1) {
+          return null;
+        }
+        continue;
+      }
       if (message.sender != ChatSender.assistant || message.imageJpeg == null) {
         continue;
       }

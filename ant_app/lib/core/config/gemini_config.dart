@@ -119,28 +119,60 @@ class GeminiConfig {
   static const String flash36 = 'gemini-3.6-flash';
   static const String flash35 = 'gemini-3.5-flash';
   static const String flashLite35 = 'gemini-3.5-flash-lite';
+  static const String flash38 = 'gemini-3.8-flash';
 
+  /// **`flash37` and `flash35` retired, per Google's deprecation notice
+  /// received by email, 12 October 2026.** `flash35` redirects to `flash36`
+  /// server-side (confirmed live the same day: calling it answers with
+  /// `modelVersion: "gemini-3.6-flash"`), so a separate entry for it would
+  /// only ever retry a model already in the cascade — no slot is spent
+  /// restoring it. `flash37` itself no longer resolves at all — confirmed
+  /// live the same day as a bare connection failure, not even a 503 — so it
+  /// is gone from every list below, not just reordered.
+  ///
+  /// `flash37`'s named redirect target, `flash38`, is **live-tested but the
+  /// result is confounded, not clean** — 12 October 2026, an unpaced burst
+  /// of six calls got four `UNAVAILABLE`/"currently experiencing high
+  /// demand", the exact wording `flash37` itself gave ten-for-ten on 17
+  /// September when it was this new. Tempting to read as the same story
+  /// twice. But the same test key, on a *separate* probe run minutes later,
+  /// turned out to be sitting on a free-tier ceiling the whole time — this
+  /// account's `generate_content_free_tier_requests` quota is 20/day for
+  /// `flash36` alone, confirmed by the 429 naming that exact number, and an
+  /// unpaced burst is exactly what blows through either ceiling, model
+  /// overload or account quota, the same way. `flash36`'s five-for-five
+  /// clean run happened to land *under* both; that does not clear `flash38`
+  /// of the same confound. So: kept out of the front slot on caution, not
+  /// on confidence — a clean read needs calls paced well under whatever
+  /// this key's per-minute limit turns out to be, one model at a time, on a
+  /// day with quota left. Re-test properly before moving it back to the
+  /// front `flash37` used to hold, and don't mistake this note for a clean
+  /// "still broken" result.
+  ///
+  /// The retired constants (`flash37`, `flash35`) are kept, unreferenced,
+  /// rather than deleted — this file's own convention: a model name once
+  /// pinned and later retired is history worth being able to grep for, same
+  /// as every superseded pin above. Nothing else in the codebase reads
+  /// either directly; confirmed by search before removing them from the
+  /// lists.
   static const List<String> chatFallbackModels = [
     gemma4,
-    flash37,
     flash36,
-    flash35,
+    flash38,
     flashLite35,
   ];
 
   static const List<String> frontSnapFallbackModels = [
-    flash37,
     flash36,
+    flash38,
     gemma4,
-    flash35,
     flashLite35,
   ];
 
   static const List<String> sweepFallbackModels = [
-    flash37,
     flash36,
+    flash38,
     gemma4,
-    flash35,
   ];
 
   /// Kept for older call sites and as the last-resort default.

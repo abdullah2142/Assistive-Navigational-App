@@ -1,6 +1,7 @@
 import 'package:ant_app/core/config/routing_config.dart';
 import 'package:ant_app/core/services/api_budget.dart';
 import 'package:ant_app/core/services/routing_service.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng;
 import 'package:http/http.dart' as http;
@@ -258,14 +259,26 @@ void main() {
     });
 
     test(
-      'an OpenStreetMap build gets an unlimited budget and no Firestore',
+      'with no Firebase app registered, the default budget is unlimited '
+      'rather than reaching for Firestore',
       () {
-        // Guards the test suite as much as the app: resolving the real budget
-        // would construct a Firestore handle with no Firebase initialised.
-        expect(RoutingConfig.preferGoogle, isFalse);
+        // Guards the test suite as much as the app: this suite never calls
+        // Firebase.initializeApp(), so if the default budget resolved
+        // straight off RoutingConfig.preferGoogle (true in a Google build)
+        // it would construct a Firestore handle with no FirebaseApp behind
+        // it and throw. defaultApiBudget must fall open to unlimited
+        // instead — see its doc comment in api_budget.dart.
+        expect(Firebase.apps, isEmpty);
         expect(defaultApiBudget, isA<UnlimitedApiBudget>());
       },
     );
+
+    test('Google is the shipped default', () {
+      // Documents the choice rather than the mechanism above: a build with
+      // no dart-defines at all is a Google build now, counted against the
+      // caps asserted above. See routing_config.dart for why.
+      expect(RoutingConfig.preferGoogle, isTrue);
+    });
   });
 }
 

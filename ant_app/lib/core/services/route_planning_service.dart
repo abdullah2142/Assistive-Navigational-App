@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'destination_clarifier.dart';
@@ -96,21 +95,6 @@ class RoutePlanAmbiguous extends RoutePlanResult {
 /// (`RoutingService` for Directions/Geocoding, `RouteSafetyService` for the
 /// `checkRouteSafety` Cloud Function), so the chat transcript can show each
 /// step as it happens rather than waiting on an opaque server-side loop.
-/// How much further the app will walk somebody to reach a place it can name.
-///
-/// 250m is roughly three minutes. Far enough to skip an unnamed stall in
-/// favour of a real restaurant, short enough that it is never the difference
-/// between arriving and giving up.
-const double _namedPlaceSlackMeters = 250;
-
-/// Extra distance from [origin] incurred by going to [alternative] instead of
-/// [nearest], in metres.
-double _extraMetres(LatLng origin, NearbyRefuge nearest, NearbyRefuge alternative) {
-  double d(LatLng a, LatLng b) => Geolocator.distanceBetween(
-      a.latitude, a.longitude, b.latitude, b.longitude);
-  return d(origin, alternative.location) - d(origin, nearest.location);
-}
-
 class RoutePlanningService {
   RoutePlanningService({RoutingService? routing, RouteSafetyService? safety})
       : _routing = routing ?? RoutingService(),
@@ -168,7 +152,10 @@ class RoutePlanningService {
       if (category != null) {
         final found = await _routing.nearbyOfCategory(origin: origin, category: category);
         if (found.isNotEmpty) {
-          // Prefer a *named* result over a marginally closer anonymous one.
+          // A route to an unnamed feature is not useful to someone who cannot
+          // see the map: they cannot confirm arrival or ask someone for it.
+          // Select the nearest named result so the spoken route can identify
+          // the actual destination.
           //
           // Reported 23 September: "was guiding me to nearest restaurant, but
           // couldn't say its name", and the transcript has the user asking
@@ -178,30 +165,26 @@ class RoutePlanningService {
           // the label fell back to the user's own words and the route
           // confirmed nothing back to them.
           //
-          // A name is worth a short detour because it is the only way
-          // somebody who cannot see the place can tell they have arrived
-          // somewhere sensible, and the only thing they can say to a
-          // stranger. Not worth an unbounded one, hence the slack.
-          final nearest = found.first;
-          final named = found.firstWhere(
-            (p) => p.name.isNotEmpty,
-            orElse: () => nearest,
-          );
-          final chosen = (named.name.isNotEmpty &&
-                  _extraMetres(origin, nearest, named) <= _namedPlaceSlackMeters)
-              ? named
-              : nearest;
+          final namedPlaces = found.where((p) => p.name.trim().isNotEmpty);
+          if (namedPlaces.isEmpty) {
+            return const RoutePlanFailed('nearby_category_not_found');
+          }
+          final chosen = namedPlaces.first;
           debugPrint('[RoutePlanning] "$destinationQuery" read as category '
               '${category.id} — ${found.length} nearby, chose '
               '"${chosen.name.isEmpty ? '(unnamed)' : chosen.name}"');
           destination = chosen.location;
-          // The OSM name when it has one. Where nothing nearby is named at
-          // all, the category itself is the most honest label available —
-          // inventing one would be worse than admitting it.
-          label ??= chosen.name.isNotEmpty ? chosen.name : destinationQuery;
+          label ??= chosen.name.trim();
         } else {
           debugPrint('[RoutePlanning] category ${category.id} found nothing nearby — '
               'falling through to a name search');
+          // If the user asked for the nearest kind of place, geocoding the
+          // category as a place name can return a list of unrelated matches.
+          // Keep the request semantics: don't list options when they already
+          // asked us to choose the nearest one.
+          if (DestinationClarifier.wantsNearest(destinationQuery)) {
+            return const RoutePlanFailed('nearby_category_not_found');
+          }
         }
       }
     }

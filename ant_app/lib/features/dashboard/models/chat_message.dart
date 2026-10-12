@@ -1,6 +1,14 @@
 import 'dart:typed_data';
 
-enum ChatSender { user, assistant, caretaker }
+/// `error` is a debug-only annotation — the assistant backend failed and
+/// [ChatController] recorded why, right in the transcript instead of only
+/// in the console. Never shown outside `kDebugMode`, never sent to Gemini/
+/// Groq as conversation history, and never persisted — see the call sites
+/// for all three. Keeping it a distinct [ChatSender] rather than a flag on
+/// an ordinary assistant message is what lets it render as its own banner
+/// instead of a bubble a screen reader would read as something the
+/// assistant said.
+enum ChatSender { user, assistant, caretaker, error }
 
 /// One bubble in the Dynamic Chat Stream.
 ///

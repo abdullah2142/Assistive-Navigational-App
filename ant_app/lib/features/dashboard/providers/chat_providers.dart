@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../core/config/emergency_config.dart';
+import '../../../core/config/tester_build_config.dart';
 import '../../../core/localization/app_language.dart';
 import '../../../core/localization/dashboard_strings.dart';
 import '../../../core/services/vision/snapshot_vision_service.dart';
@@ -2654,14 +2655,18 @@ class ChatController extends Notifier<ChatState> {
         '[Chat] Gemini call FAILED after ${stopwatch.elapsedMilliseconds}ms: $e',
       );
       debugPrintStack(stackTrace: st, label: '[Chat] Gemini failure stack');
-      // Debug builds only — a blind user gets the ordinary fallback reply
-      // below exactly as before; this is the console's `debugPrint` above,
-      // made visible on-device without a connected log, for exactly the
-      // session where this file's own history says "there was no way to
-      // tell" cost the most time. Appended directly rather than through
-      // _appendAssistantReply: no typing delay, no TTS, no reopened mic —
-      // it is an annotation on the transcript, not a turn in it.
-      if (kDebugMode) {
+      // Debug builds and tester builds only — never a public release. A
+      // blind end user gets the ordinary fallback reply below exactly as
+      // before; this is the console's `debugPrint` above, made visible
+      // on-device without a connected log, for exactly the session where
+      // this file's own history says "there was no way to tell" cost the
+      // most time. `kDebugMode` alone answers the wrong question here, the
+      // same mistake `TesterBuildConfig`'s own doc comment already names:
+      // testers are handed release builds, where `kDebugMode` is always
+      // false. Appended directly rather than through _appendAssistantReply:
+      // no typing delay, no TTS, no reopened mic — it is an annotation on
+      // the transcript, not a turn in it.
+      if (kDebugMode || TesterBuildConfig.isTesterBuild) {
         state = state.copyWith(
           messages: [
             ...state.messages,

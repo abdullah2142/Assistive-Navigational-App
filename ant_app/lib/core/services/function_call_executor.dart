@@ -197,6 +197,14 @@ class FunctionCallExecutor {
       placeSave: applied.placeSave,
       triggersEmergency: applied.triggersEmergency,
       cancelsRoute: applied.cancelsRoute,
+      // These five were never copied across, so a model's own look_around,
+      // plan_commute, send_photo_to_caretaker or replay_voice_message call
+      // reached the app as a turn where nothing had been asked for.
+      scanFocus: applied.scanFocus,
+      scanQuestion: applied.scanQuestion,
+      replayDirection: applied.replayDirection,
+      sendsPhotoToCaretaker: applied.sendsPhotoToCaretaker,
+      commuteDestination: applied.commuteDestination,
     );
   }
 
@@ -563,6 +571,8 @@ class FunctionCallExecutor {
         return Dashboard.of(language).mapOpened;
       case 'close_map':
         return Dashboard.of(language).mapClosed;
+      case 'describe_capabilities':
+        return Dashboard.of(language).capabilitiesOverview;
       // Spoken by the caller's own cancel path, which is the only thing that
       // knows whether there was a route to cancel in the first place.
       case 'cancel_route':
@@ -708,6 +718,8 @@ class FunctionCallExecutor {
         return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.showMap);
       case 'close_map':
         return _AppliedCall(profile, const {'ok': true}, SuggestedChipAction.hideMap);
+      case 'describe_capabilities':
+        return _AppliedCall(profile, const {'ok': true}, null);
 
       // The merged form. `open_map`/`close_map` above are kept because the
       // offline matcher and the suggested chips still emit them, and because

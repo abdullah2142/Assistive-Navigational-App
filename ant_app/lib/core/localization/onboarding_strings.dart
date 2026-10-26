@@ -1012,6 +1012,21 @@ class Onboarding {
       examples: [_t('Show my screen', 'স্ক্রিন দেখাও')],
       note: null,
     ),
+    (
+      heading: _t(
+        'To hear everything I can do, say',
+        'আমি কী কী করতে পারি শুনতে বলুন',
+      ),
+      examples: [_t('What can you do', 'তুমি কী করতে পারো')],
+      note: _t(
+        'In an emergency, hold the Volume Down button for three seconds. '
+            'This is the Magic Button. It messages your trusted contacts with '
+            'your location. Say cancel within five seconds to stop it.',
+        'জরুরি অবস্থায় ভলিউম ডাউন বোতাম তিন সেকেন্ড চেপে ধরুন। '
+            'এটাই ম্যাজিক বাটন। এটি আপনার বিশ্বস্ত পরিচিতদের আপনার অবস্থান-সহ '
+            'বার্তা পাঠায়। পাঁচ সেকেন্ডের মধ্যে বাতিল বললে থেমে যায়।',
+      ),
+    ),
   ];
 
   String get commandTourClosing => _t(

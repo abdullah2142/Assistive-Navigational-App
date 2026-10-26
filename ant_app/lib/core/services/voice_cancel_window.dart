@@ -124,10 +124,15 @@ class VoiceCancelWindow {
   ];
 
   /// Whether [heard] cancels a pending emergency.
-  @visibleForTesting
   static bool cancelsEmergency(String heard) {
     final words = voiceWords(heard);
     if (words.isEmpty) return false;
+    // "don't cancel", "do not cancel", "বাতিল করো না": the person is asking
+    // for the alarm to continue.
+    if (words.any(kAllNegations.contains) ||
+        words.any((w) => w == "don't" || w == 'dont')) {
+      return false;
+    }
     return emergencyCancelWords.any((phrase) {
       final parts = voiceWords(phrase);
       if (parts.isEmpty) return false;
@@ -225,29 +230,47 @@ class VoiceCancelWindow {
     /// Use the narrow SOS vocabulary instead of the dictation one, and say
     /// so in the prompt. See [emergencyCancelWords].
     bool emergency = false,
+    /// Completes when the user cancels by some route other than speech: a tap
+    /// on the on-screen Cancel button or a typed "cancel". Without it the
+    /// window was voice-only, so a deaf or mute user could not stop an alarm.
+    Future<void>? cancelSignal,
   }) async {
     final d = Dashboard.of(language);
     final limit = windowOverride ?? window;
 
+    var cancelledByUser = false;
+    unawaited(cancelSignal?.then((_) => cancelledByUser = true));
+
     try {
-      await tts.speak(
-        '$readBack ${emergency ? d.cancelWindowPromptEmergency(limit.inSeconds) : d.cancelWindowPrompt(limit.inSeconds)}',
-        language: language,
-      );
+      await Future.any<void>([
+        tts
+            .speak(
+              '$readBack ${emergency ? d.cancelWindowPromptEmergency(limit.inSeconds) : d.cancelWindowPrompt(limit.inSeconds)}',
+              language: language,
+            )
+            // A phone call or notification can take audio focus and the
+            // completion callback then never fires; without a bound the
+            // escalation waited forever and nothing was ever sent.
+            .timeout(const Duration(seconds: 15)),
+        if (cancelSignal != null) cancelSignal,
+      ]);
     } catch (e) {
       // A dead TTS engine must not take the pending action with it. This
       // is called from the emergency path, where an exception escaping here
       // aborted the entire escalation before a single message was sent.
       debugPrint('[CancelWindow] read-back failed: $e');
     }
-    if (isCancelled()) return CancelWindowOutcome.cancelled;
+    if (cancelledByUser || isCancelled()) {
+      await tts.stop();
+      return CancelWindowOutcome.cancelled;
+    }
 
     // No microphone means no way to hear a cancellation. Proceeding is
     // still right: the message was already captured and the user asked for
     // it to be sent — silently dropping their work because the mic died
     // would be the larger failure, and this action is reversible in a way
     // that a saved phone number is not.
-    if (!await stt.ensureAvailable()) return CancelWindowOutcome.proceed;
+    final micAvailable = await stt.ensureAvailable();
     if (isCancelled()) return CancelWindowOutcome.cancelled;
 
     await signalWindowOpen();
@@ -262,8 +285,9 @@ class VoiceCancelWindow {
     }
 
     expiry = Timer(limit, () => settle(CancelWindowOutcome.proceed));
+    unawaited(cancelSignal?.then((_) => settle(CancelWindowOutcome.cancelled)));
 
-    unawaited(stt.listenOnce(
+    if (micAvailable) unawaited(stt.listenOnce(
       language: language,
       // Only final results are acted on. An interim transcript is a guess
       // the recognizer is still revising, and "can't" on its way to
@@ -285,7 +309,7 @@ class VoiceCancelWindow {
     ));
 
     final outcome = await decided.future;
-    await stt.stop();
+    if (micAvailable) await stt.stop();
     if (isCancelled()) return CancelWindowOutcome.cancelled;
     return outcome;
   }

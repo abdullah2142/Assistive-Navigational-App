@@ -144,7 +144,9 @@ class GeminiVisionService implements VisionBackend {
       ],
       'generationConfig': {
         'temperature': 0,
-        'maxOutputTokens': 800,
+        // 800 truncated 5 of 6 live answers on gemini-3.6-flash (finishReason
+        // MAX_TOKENS, thinking tokens count) and a half answer is not JSON.
+        'maxOutputTokens': 2048,
         // Asks for JSON directly rather than relying on the prompt alone.
         // Flash-lite otherwise wraps replies in markdown headings and
         // bilingual glosses — observed live during the 21 September

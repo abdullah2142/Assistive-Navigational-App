@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../core/config/emergency_config.dart';
+import '../../../core/services/emergency_service.dart' show EmergencyPhase;
+import '../../../core/services/voice_cancel_window.dart';
 import '../../../core/config/tester_build_config.dart';
 import '../../../core/localization/app_language.dart';
 import '../../../core/localization/dashboard_strings.dart';
@@ -1799,6 +1801,17 @@ class ChatController extends Notifier<ChatState> {
     }
 
     state = state.copyWith(isAssistantTyping: true);
+    // Said, not just shown. A cloud answer can take 5 to 36 seconds and the
+    // only sign of life was a typing dot, which a blind user cannot see.
+    Timer? stillLooking;
+    if (!sweep && !profile.isDeafOrHardOfHearing) {
+      final tts = ref.read(ttsServiceProvider);
+      unawaited(tts.speak(d.visionLookingNow, language: profile.language));
+      stillLooking = Timer(
+        const Duration(seconds: 10),
+        () => unawaited(tts.speak(d.visionStillLooking, language: profile.language)),
+      );
+    }
     ScanResult result;
     try {
       result = await vision.scan(
@@ -1832,6 +1845,7 @@ class ChatController extends Notifier<ChatState> {
       await _appendAssistantReply(d.visionCaptureFailed, profile);
       return;
     } finally {
+      stillLooking?.cancel();
       vision.closeCamera();
       await _finishCameraAim();
     }
@@ -2032,6 +2046,16 @@ class ChatController extends Notifier<ChatState> {
     // Jumping the pending-question queue is not new behaviour, it is the
     // existing rule applied earlier: someone in trouble does not stop being in
     // trouble because the assistant happened to have asked them something.
+    // A typed "cancel" while an alarm is counting down stops it. The window
+    // was voice-only, so a typed "cancel" went to the model, which called it
+    // an emergency and the repeat trigger was ignored.
+    final emergencyPhase = ref.read(emergencyPhaseProvider).value;
+    if ((emergencyPhase == EmergencyPhase.announcing ||
+            emergencyPhase == EmergencyPhase.countdown) &&
+        VoiceCancelWindow.cancelsEmergency(trimmed) &&
+        ref.read(emergencyServiceProvider).cancelPending()) {
+      return;
+    }
     final localIntent = LocalIntentMatcher.match(
       trimmed,
       profile.language,
@@ -2494,7 +2518,9 @@ class ChatController extends Notifier<ChatState> {
           )
           .timeout(_geminiBudget);
       stillWorking?.cancel();
-      if (superseded()) {
+      // A safety judgement is never stale: a model that decided the user is
+      // in danger acts on it even if they have since said "hello?".
+      if (superseded() && !turn.triggersEmergency) {
         // The user moved on. Speaking this now would answer a question they
         // have stopped asking, on top of an answer they already got.
         debugPrint(

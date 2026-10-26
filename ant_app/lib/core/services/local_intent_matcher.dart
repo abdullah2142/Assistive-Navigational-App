@@ -175,6 +175,10 @@ class LocalIntentMatcher {
         // first — a user who says they are lost and frightened wants help,
         // not a street name.
         _matchWhereAmI(lower, text) ??
+        // After `_matchLookAround`: "what can you see" is a camera request.
+        // These phrases ask about the app itself, and answering them with the
+        // whole list is the only way a blind user ever learns it exists.
+        _matchCapabilities(lower, text) ??
         _matchCancelAndClose(lower, text) ??
         // After emergency, deliberately. "Tell my caretaker I've fallen" is
         // an emergency that happens to name a caretaker, and it must not be
@@ -321,6 +325,8 @@ class LocalIntentMatcher {
   /// words: `bachao`, `bachaw` and `banchao` are all ordinary ways of writing
   /// the same one.
   static const _emergencyStrong = [
+    // Bangla "I am in danger": the recall pass read বিপদে as the hazard word.
+    'বিপদে আছি', 'বিপদে পড়েছি', 'আমি বিপদে',
     'emergency',
     'sos',
     'save me',
@@ -485,6 +491,12 @@ class LocalIntentMatcher {
   /// Refusing help is a narrow, specific thing to say, so it is matched
   /// narrowly and specifically.
   static const _emergencyRefusals = [
+    // Ending or asking about an alarm is not raising one: "cancel sos"
+    // started a new SOS, and so did "emergency room" and "emergency exit".
+    'cancel sos', 'cancel the sos', 'cancel emergency', 'cancel the emergency',
+    'stop sos', 'stop the sos', 'stop emergency', 'stop the emergency',
+    'emergency is over', 'emergency over', 'emergency room', 'emergency exit',
+    'emergency number', 'sos button',
     "don't need help", 'do not need help', 'dont need help', 'no help needed',
     "don't need any help", 'not an emergency', 'no emergency', 'false alarm',
     "i'm fine", 'im fine', 'i am fine', "i'm okay", 'i am okay', 'im ok',
@@ -2494,6 +2506,38 @@ class LocalIntentMatcher {
       if (spokenWords - _words(phrase).length <= _maxAlertExtraWords) {
         return const LocalIntent('alert_caretaker', {});
       }
+    }
+    return null;
+  }
+
+  static const _capabilities = [
+    'what can you do', 'what can i do', 'what can i say', 'what can i ask',
+    'what do you do', 'what are you able to do', 'what are your features',
+    'what are your capabilities', 'your capabilities', 'what are the commands',
+    'list the commands', 'list your commands', 'tell me the commands',
+    'what commands', 'how do i use this', 'how do i use the app',
+    'how do i use you', 'how does this work', 'how does this app work',
+    'how to use this', 'how to use the app', 'explain the app',
+    'tell me what you can do', 'show me what you can do', 'give me a tour',
+    'what is the magic button', 'how does the magic button work',
+    'where is the magic button', 'how do i call for help',
+    'how do i get help', 'how do i ask for help',
+    // Romanised Bangla.
+    'ki ki korte paro', 'tumi ki ki korte paro', 'tumi ki korte paro',
+    'ki korte paro', 'kibhabe use korbo', 'kivabe use korbo',
+    'kibhabe byabohar korbo', 'kivabe byabohar korbo', 'ki bolte pari',
+    'magic button ki', 'magic button kivabe', 'magic button kibhabe',
+    // Bangla script.
+    'কী কী করতে পারো', 'কি কি করতে পারো', 'কী করতে পারো', 'কি করতে পারো',
+    'তুমি কী করতে পারো', 'তুমি কি করতে পারো', 'কী কী করতে পারেন',
+    'কি কি করতে পারেন', 'কীভাবে ব্যবহার করব', 'কিভাবে ব্যবহার করব',
+    'কী বলতে পারি', 'কি বলতে পারি', 'ম্যাজিক বাটন কী', 'ম্যাজিক বাটন কি',
+    'ম্যাজিক বাটন কীভাবে', 'ম্যাজিক বাটন কিভাবে',
+  ];
+
+  static LocalIntent? _matchCapabilities(String lower, String text) {
+    if (_capabilities.any((p) => lower.contains(p) || text.contains(p))) {
+      return const LocalIntent('describe_capabilities', {});
     }
     return null;
   }

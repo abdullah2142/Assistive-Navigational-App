@@ -94,8 +94,16 @@ final locationPermissionPrimerProvider = Provider<LocationPermissionPrimer>(
   (ref) => LocationPermissionPrimer(),
 );
 
+/// What the emergency escalation is doing, for the screen. Separate from the
+/// service so the chat panel can show the Cancel banner without building the
+/// service (and everything it needs, Firebase included) until it is used.
+final emergencyPhaseProvider = Provider<ValueNotifier<EmergencyPhase>>(
+  (ref) => ValueNotifier(EmergencyPhase.idle),
+);
+
 final emergencyServiceProvider = Provider<EmergencyService>(
   (ref) => EmergencyService(
+    phase: ref.watch(emergencyPhaseProvider),
     tts: ref.watch(ttsServiceProvider),
     stt: ref.watch(sttServiceProvider),
     alerts: ref.watch(alertServiceProvider),

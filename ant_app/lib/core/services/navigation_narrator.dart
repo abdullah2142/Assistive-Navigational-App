@@ -247,13 +247,64 @@ class NavigationNarrator {
   /// manoeuvre that sits behind it. Proximity is kept as a second condition
   /// so this still works when no geometry was supplied.
   void _advancePast(LatLng position) {
-    final userIndex = _nearestPathIndex(position);
+    _updateProgress(position);
     while (_current < steps.length) {
-      final reached = _distanceMeters(position, steps[_current].location) <= reachedRadiusMeters;
-      final passed = userIndex != null && (_stepPathIndex(_current) ?? -1) <= userIndex;
-      if (!reached && !passed) break;
+      final isLast = _current == steps.length - 1;
+      final reached =
+          _distanceMeters(position, steps[_current].location) <= reachedRadiusMeters;
+      // The final step (arrival) counts only when the user is actually at the
+      // destination: progress along a sparse polyline, or GPS drifting to the
+      // far side of a river, must not announce "you have arrived".
+      final stepIndex = _stepPathIndex(_current);
+      final passed = !isLast &&
+          routePoints.length >= 2 &&
+          stepIndex != null &&
+          _progress >= stepIndex;
+      // Within the normal radius, or at the very end of the path and within
+      // GPS-drift distance of the destination.
+      final atEndOfPath = routePoints.length >= 2 &&
+          _progress >= routePoints.length - 1 - 0.02 &&
+          _distanceMeters(position, steps[_current].location) <= arrivalRadiusMeters;
+      final arrivedAtEnd = isLast && atEndOfPath;
+      if (!reached && !passed && !arrivedAtEnd) break;
       _current++;
       _announcedBand = null;
+    }
+  }
+
+  /// How close to the final point counts as arrived. Wider than
+  /// [reachedRadiusMeters] because phone GPS beside buildings drifts.
+  static const double arrivalRadiusMeters = 30;
+
+  /// Progress along [routePoints] as segment index plus fraction (3.5 is half
+  /// way along the fourth segment). Measured by projecting onto segments, not
+  /// by the nearest vertex: Google routes have vertices hundreds of metres
+  /// apart on straight roads, and "nearest vertex" jumped to the next corner
+  /// and announced arrival about 200 m early. Never goes backwards, and only
+  /// looks a limited distance ahead so a GPS jump across a river cannot
+  /// teleport the user to the destination.
+  double _progress = 0;
+  static const double _lookAheadMeters = 600;
+
+  void _updateProgress(LatLng position) {
+    if (routePoints.length < 2) return;
+    final startSeg = _progress.floor().clamp(0, routePoints.length - 2);
+    var bestDist = double.infinity;
+    var bestProgress = _progress;
+    var ahead = 0.0;
+    for (var i = startSeg; i + 1 < routePoints.length; i++) {
+      final a = routePoints[i];
+      final b = routePoints[i + 1];
+      final proj = _projectOnSegment(position, a, b);
+      if (proj.$1 < bestDist) {
+        bestDist = proj.$1;
+        bestProgress = i + proj.$2;
+      }
+      ahead += _distanceMeters(a, b);
+      if (ahead > _lookAheadMeters && i > startSeg) break;
+    }
+    if (bestDist <= offRouteMeters && bestProgress > _progress) {
+      _progress = bestProgress;
     }
   }
 
@@ -445,6 +496,22 @@ double _distanceMeters(LatLng a, LatLng b) {
 /// point-to-segment maths. Over the tens-of-metres distances this is used
 /// for, the error from ignoring curvature is far below GPS accuracy, and it
 /// avoids doing spherical geometry for a corridor check.
+/// Distance to the segment and the clamped position along it (0 to 1).
+(double, double) _projectOnSegment(LatLng p, LatLng a, LatLng b) {
+  const latScale = 111320.0;
+  final lngScale = 111320.0 * math.cos(_toRadians(a.latitude));
+  final px = (p.longitude - a.longitude) * lngScale;
+  final py = (p.latitude - a.latitude) * latScale;
+  final bx = (b.longitude - a.longitude) * lngScale;
+  final by = (b.latitude - a.latitude) * latScale;
+  final lengthSquared = bx * bx + by * by;
+  if (lengthSquared == 0) return (math.sqrt(px * px + py * py), 0.0);
+  final t = ((px * bx + py * by) / lengthSquared).clamp(0.0, 1.0);
+  final dx = px - t * bx;
+  final dy = py - t * by;
+  return (math.sqrt(dx * dx + dy * dy), t);
+}
+
 double _distanceToSegmentMeters(LatLng p, LatLng a, LatLng b) {
   final latScale = 111320.0;
   final lngScale = 111320.0 * math.cos(_toRadians(a.latitude));

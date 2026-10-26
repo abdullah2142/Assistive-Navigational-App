@@ -781,7 +781,13 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel>
         // side, it is still the largest and left-most target on the bar (the
         // first thing a thumb or a screen reader reaches) while the chat
         // above keeps the space both rows used to consume.
+        // Keyed, and so is the field below. The mic, map button and chips
+        // vanish on the first keystroke, which shifts this row's position in
+        // the column and the field's position in the row; without keys Flutter
+        // matched widgets by position, rebuilt the TextField from scratch,
+        // lost focus, and the keyboard closed after one character.
         Padding(
+          key: const ValueKey('chat-input-row'),
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -865,6 +871,7 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel>
                 ),
               if (!_draftHasText) const SizedBox(width: 10),
               Expanded(
+                key: const ValueKey('chat-input-field'),
                 child: Semantics(
                   textField: true,
                   label: d.chatInputHint,

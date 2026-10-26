@@ -52,6 +52,42 @@ class Dashboard {
     'Sending in $seconds seconds. Say cancel to stop, or change it to say it again.',
     '$seconds সেকেন্ডে পাঠানো হবে। থামাতে বলুন বাতিল, আবার বলতে চাইলে বলুন বদলাও।',
   );
+  /// Shown on screen from the moment an emergency starts until it is sent or
+  /// cancelled. The countdown used to be audible only.
+  String get emergencyBannerTitle =>
+      _t('Emergency alert starting', 'জরুরি বার্তা শুরু হচ্ছে');
+  String get emergencyBannerBody => _t(
+    'Your trusted contacts will be messaged in a few seconds.',
+    'কয়েক সেকেন্ডের মধ্যে আপনার বিশ্বস্ত পরিচিতদের বার্তা যাবে।',
+  );
+  String get emergencyBannerCancel => _t('Cancel alert', 'বাতিল করুন');
+
+  /// Everything the app can do, in one breath, ending with the Magic Button.
+  ///
+  /// The Magic Button was never explained anywhere: error replies said "use
+  /// the Magic Button" to people who had never been told what or where it is.
+  /// Spoken in short sentences because it is heard, not read.
+  String get capabilitiesOverview => _t(
+    'Here is what I can do. '
+        'Say take me to, and a place, and I will guide you there. '
+        'Ask where am I, and I will tell you the road. '
+        'Ask what is in front of me, or which bus this is, and I will use the camera. '
+        'I can report a hazard, show a message to a stranger on your screen, and change settings like text size or language. '
+        'If you have a caretaker, I can message them. '
+        'In an emergency, hold the Volume Down button for three seconds. This is the Magic Button. '
+        'It messages your trusted contacts with your location, and you can say cancel within five seconds to stop it. '
+        'Ask what can you do at any time to hear this again.',
+    'আমি যা করতে পারি তা বলছি। '
+        'আমাকে বলুন, অমুক জায়গায় নিয়ে যাও, আমি পথ দেখাব। '
+        'আমি কোথায়, জিজ্ঞেস করলে রাস্তার নাম বলব। '
+        'সামনে কী আছে, বা এটা কোন বাস, জিজ্ঞেস করলে ক্যামেরা দিয়ে দেখে বলব। '
+        'আমি বিপদ জানাতে পারি, অপরিচিতকে স্ক্রিনে বার্তা দেখাতে পারি, আর লেখার আকার বা ভাষার মতো সেটিং বদলাতে পারি। '
+        'আপনার কেয়ারটেকার থাকলে তাঁকে বার্তা পাঠাতে পারি। '
+        'জরুরি অবস্থায় ভলিউম ডাউন বোতাম তিন সেকেন্ড চেপে ধরুন। এটাই ম্যাজিক বাটন। '
+        'এটি আপনার বিশ্বস্ত পরিচিতদের আপনার অবস্থান-সহ বার্তা পাঠায়, আর পাঁচ সেকেন্ডের মধ্যে বাতিল বললে থেমে যায়। '
+        'আবার শুনতে যেকোনো সময় বলুন, তুমি কী করতে পারো।',
+  );
+
   // ---- Magic Button (Module 9) ---------------------------------------
 
   /// Spoken the instant a trigger fires, before anything is sent.
@@ -1771,6 +1807,13 @@ class Dashboard {
   /// A single-frame scan needs no stand-still instruction — it is already
   /// taken by the time this would be said.
   String get visionLookingNow => _t('Looking…', 'দেখছি…');
+  String get visionCarefulPrefix => _t('Careful.', 'সাবধান।');
+  String get visionStillLooking =>
+      _t('Still working on it. Please wait.', 'এখনও দেখছি। একটু অপেক্ষা করুন।');
+  String get visionTooDark => _t(
+    'I cannot see anything. The camera view is dark. Is the lens covered, or is it too dark here?',
+    'আমি কিছু দেখতে পাচ্ছি না। ক্যামেরা অন্ধকার। লেন্স কি ঢাকা, নাকি এখানে খুব অন্ধকার?',
+  );
 
   String get visionAlreadyLooking =>
       _t('I am still looking — one moment.', 'এখনও দেখছি — একটু দাঁড়ান।');

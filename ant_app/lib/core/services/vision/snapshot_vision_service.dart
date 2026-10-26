@@ -270,6 +270,13 @@ class SnapshotVisionService {
     }
     if (decoded.isEmpty) return ScanResult(spoken: d.visionCaptureFailed);
 
+    // A covered lens or a pitch-black room is not "a clear path": say so
+    // instead of uploading black and letting a model, or the local detector,
+    // call it empty.
+    if (decoded.every(_isTooDark)) {
+      return ScanResult(spoken: d.visionTooDark);
+    }
+
     await _edge.ensureLoaded();
 
     // Every frame gets the local check — it is free and offline, and the
@@ -283,7 +290,16 @@ class SnapshotVisionService {
     }
 
     // Plan Step 2.3 — abort before any upload.
-    if (worst.isImminent) {
+    //
+    // Not when the user is asking about that very vehicle. "Which bus is
+    // this?" held at arm's length makes the bus fill the frame, which scored
+    // as imminent, buzzed, said "stop" and never uploaded the board for
+    // reading — so the question it was asked was the one it could not answer.
+    final subjectIsTheVehicle =
+        focus == ScanFocus.vehicle &&
+        const {'bus', 'car', 'truck', 'motorcycle', 'train'}
+            .contains(worst.nearest?.label.toLowerCase());
+    if (worst.isImminent && !subjectIsTheVehicle) {
       // Buzz first, speak second. The motor reaches somebody whose phone is
       // in a pocket and whose ears are full of traffic; `HapticsService`
       // already throttles this to one every five seconds.
@@ -343,6 +359,7 @@ class SnapshotVisionService {
         _lastCloudCallAt = _now();
         _lastQuestion = _normalisedQuestion(question);
         scene = await _verifyRoutes(scene, language);
+        scene = _surfaceSeriousHazards(scene, language);
         _lastScene = scene;
       }
     } on VisionBudgetExhausted {
@@ -461,9 +478,13 @@ class SnapshotVisionService {
     AppLanguage language,
   ) async {
     if (!VisionConfig.busRouteLookupWins) return scene;
-    final bus =
-        scene.vehicles.where((v) => v.kind == 'bus').firstOrNull ??
-        scene.vehicles.firstOrNull;
+    // Only for a "which bus is this" question, and only for something the
+    // model called a bus. The lookup used to run on every scan and on the
+    // first vehicle of any kind, so a hazard or crossing answer was replaced
+    // by a bus announcement and a CNG with digits painted on it became a
+    // numbered bus.
+    if (scene.focus != ScanFocus.vehicle) return scene;
+    final bus = scene.vehicles.where((v) => v.kind == 'bus').firstOrNull;
     if (bus == null) return scene;
 
     // Everything the board said, not just the name field. The model splits a
@@ -489,7 +510,7 @@ class SnapshotVisionService {
       SceneVehicle(
         kind: 'bus',
         routeNumber: route.routeNumber ?? bus.routeNumber,
-        destination: match.destinationCertain ? route.destination : null,
+        destination: match.destinationCertain && bus.destination == null ? route.destination : null,
         rawText: bus.rawText,
       ),
       ...scene.vehicles.where((v) => v != bus),
@@ -502,10 +523,15 @@ class SnapshotVisionService {
 
     return VisionScene(
       focus: scene.focus,
+      // A destination is only stated when the board did not give one: the
+      // directory stores one corridor end, and naming it over a board that
+      // shows the other end announced the wrong direction. Otherwise the name
+      // alone.
+      //
       // Rebuilt rather than kept, because the model's sentence contained its
       // own unverified reading of the name. Correctness outranks fluency when
       // the alternative is confidently naming a bus somebody will board.
-      spoken: match.destinationCertain
+      spoken: match.destinationCertain && bus.destination == null
           ? d.visionBusVerified(
               route: route.nameFor(language),
               destination: route.destination,
@@ -513,6 +539,43 @@ class SnapshotVisionService {
           : d.visionBusNameOnly(route.nameFor(language)),
       hazards: scene.hazards,
       vehicles: verified,
+      textFound: scene.textFound,
+      peopleEstimate: scene.peopleEstimate,
+      capturedAt: scene.capturedAt,
+    );
+  }
+
+  /// Makes the spoken answer agree with the hazards the model itself listed.
+  ///
+  /// A scene could list a severity-3 "stop walking" hazard in its structured
+  /// hazards and still carry a spoken line of "The path ahead is clear.", and
+  /// only the spoken line reached the user.
+  /// Whether [spoken] already names the hazard: any word of three letters or
+  /// more from [description] appears in it.
+  static bool _mentions(String spoken, String description) {
+    final said = spoken.toLowerCase();
+    return description
+        .toLowerCase()
+        .split(RegExp(r'[\s,.;:!?।-]+'))
+        .where((w) => w.length >= 3)
+        .any(said.contains);
+  }
+
+  VisionScene _surfaceSeriousHazards(VisionScene scene, AppLanguage language) {
+    final missing = [
+      for (final h in scene.hazards)
+        if (h.severity >= 2 &&
+            h.description.trim().isNotEmpty &&
+            !_mentions(scene.spoken, h.description))
+          h.description.trim(),
+    ];
+    if (missing.isEmpty) return scene;
+    final d = Dashboard.of(language);
+    return VisionScene(
+      focus: scene.focus,
+      spoken: '${d.visionCarefulPrefix} ${missing.join('. ')}. ${scene.spoken}',
+      hazards: scene.hazards,
+      vehicles: scene.vehicles,
       textFound: scene.textFound,
       peopleEstimate: scene.peopleEstimate,
       capturedAt: scene.capturedAt,
@@ -684,4 +747,24 @@ class SnapshotVisionService {
     _edge.dispose();
     isScanning.dispose();
   }
+}
+
+/// Whether a frame carries no usable picture: almost every sampled pixel
+/// near black. Sampled on a grid, so a 12 MP frame costs about 1,000 reads.
+bool _isTooDark(img.Image frame) {
+  const grid = 32;
+  var sum = 0.0;
+  var bright = 0;
+  for (var gy = 0; gy < grid; gy++) {
+    for (var gx = 0; gx < grid; gx++) {
+      final p = frame.getPixel(
+        (gx * frame.width) ~/ grid,
+        (gy * frame.height) ~/ grid,
+      );
+      final lum = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
+      sum += lum;
+      if (lum > 40) bright++;
+    }
+  }
+  return sum / (grid * grid) < 12 && bright < (grid * grid) * 0.02;
 }

@@ -36,6 +36,17 @@ no internet" even on a good connection. That's fixed; please try it on
 a real bus, sign, or street scene and tell us what it got wrong, if
 anything.
 
+Also new in this build:
+
+- Typing in the chat box used to close the keyboard after the first
+  letter. Please type a full message and confirm it works.
+- Ask "what time is it" (it used to invent the time) and "what can you do"
+  or "what is the Magic Button" (it now explains everything, including how
+  to hold Volume Down for three seconds in an emergency).
+- When an emergency starts you now see a red box with a big "Cancel alert"
+  button, and typing "cancel" also stops it. Nothing is sent in practice
+  mode.
+
 Report the exact words you said. That matters more than anything else
 you can tell us.
 ```

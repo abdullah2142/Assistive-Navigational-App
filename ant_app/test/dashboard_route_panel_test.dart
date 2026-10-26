@@ -376,4 +376,10 @@ class _FakeEmergency implements EmergencyService {
 
   @override
   bool get isRunning => false;
+
+  @override
+  bool cancelPending() => false;
+
+  @override
+  final ValueNotifier<EmergencyPhase> phase = ValueNotifier(EmergencyPhase.idle);
 }

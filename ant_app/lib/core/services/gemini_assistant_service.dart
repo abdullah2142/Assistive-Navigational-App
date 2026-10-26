@@ -51,6 +51,25 @@ String navigationStateLine(RouteChoice? route) => route == null
           '(${(route.distanceMeters / 1000).toStringAsFixed(1)} km'
           '${route.viaSummary.isEmpty ? '' : ' via ${route.viaSummary}'}).';
 
+/// The device's local date and time, for the prompt.
+///
+/// Without it the model has no clock and answers "what time is it" with an
+/// invented time (seen on a phone showing 3:01 PM: "It's currently 10:42 AM").
+String currentTimeLine([DateTime? now]) {
+  final t = now ?? DateTime.now();
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December',
+  ];
+  final hour12 = t.hour % 12 == 0 ? 12 : t.hour % 12;
+  final minute = t.minute.toString().padLeft(2, '0');
+  final ampm = t.hour < 12 ? 'AM' : 'PM';
+  return 'Current local time (from the phone clock): ${days[t.weekday - 1]} '
+      '${t.day} ${months[t.month - 1]} ${t.year}, $hour12:$minute $ampm. '
+      'Use this for any question about the time or date; never guess it.';
+}
+
 class GeminiBudgetExhausted implements Exception {
   const GeminiBudgetExhausted();
 
@@ -470,6 +489,7 @@ ${profile.rememberedNotes.map((n) => '- $n').join('\n')}
 '''}
 Live location (may be stale or unavailable — never invent one if missing): $locationLine
 ${navigationStateLine(activeRoute)}
+${currentTimeLine()}
 Current app state: walking-route planning, one-frame camera snapshots, guided camera sweeps, and live local weather are available. Use look_around for camera questions. The app handles common live-weather questions directly; never answer current weather from general knowledge. Do not claim an implemented camera feature is unavailable.
 
 Rules:
@@ -490,6 +510,7 @@ Rules:
 - If they say they have come off the route, ask to "re-route", or ask which way to go from here, call replan_route.
 - For a real emergency, tell them to use the physical Magic Button or call for help directly — you cannot dial or send messages on their behalf yet.
 - If they want their caretaker told something, call send_caretaker_message with what they want said, in their own words. If they want to be checked on but have nothing specific to pass on, call alert_caretaker. If they want to send their own voice, call record_caretaker_voice_memo.
+- If they ask what you can do, what they can say, how to use the app, or what the Magic Button is, call describe_capabilities. Never describe the features yourself.
 - If they ask where they are, what road or area this is, or say they are lost, call describe_current_location. Never guess a street name from the coordinates above.
 - If they ask to see, show, open, hide or close the map, call open_map or close_map. This is not a route request.
 - If they tell you something durable about themselves in passing — a preference, a limitation, a routine — call remember_about_me so it survives this conversation. If they ask you to forget something, call forget_about_me. Never claim to remember something without calling it.
@@ -887,6 +908,14 @@ User message: "$userText"
           'guardian or family know something, to alert or notify them, or says they want someone '
           'told where they are. This is NOT an emergency — for danger, injury or a call for help, '
           'use trigger_emergency instead.',
+      null,
+    ),
+    FunctionDeclaration(
+      'describe_capabilities',
+      'Tell the user everything this app can do, including how to use the Magic Button (hold Volume Down '
+          'for three seconds in an emergency). Call this when they ask what you can do, what they can say, '
+          'how to use the app, what the Magic Button is, or how to get help. Do not list features yourself: '
+          'call this so the full, accurate list is spoken.',
       null,
     ),
     FunctionDeclaration(

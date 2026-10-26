@@ -81,6 +81,9 @@ class EmergencyOutcome {
 /// but it defaults to **proceeding**, not to asking. Requiring a confirmed
 /// "yes" would mean an unconscious or panicking user is never helped, and
 /// yes/no is the least reliable thing to recognise in noise. Silence sends.
+/// See [EmergencyService.phase].
+enum EmergencyPhase { idle, announcing, countdown, dispatching }
+
 class EmergencyService {
   EmergencyService({
     required TtsService tts,
@@ -90,7 +93,9 @@ class EmergencyService {
     RoutingService? routing,
     RoutePlanningService? planner,
     void Function(RouteChoice route, AppLanguage language)? onRoute,
-  })  : _tts = tts,
+    ValueNotifier<EmergencyPhase>? phase,
+  })  : phase = phase ?? ValueNotifier(EmergencyPhase.idle),
+        _tts = tts,
         _stt = stt,
         _alerts = alerts,
         _channel = channel ?? EmergencyChannel(),
@@ -121,6 +126,27 @@ class EmergencyService {
   bool _running = false;
   bool get isRunning => _running;
 
+  /// What the escalation is doing, for the screen. Everything here used to be
+  /// audible only: nothing was visible for the first 30 seconds and there was
+  /// nothing to tap, so a deaf user could neither see an alarm coming nor stop
+  /// it.
+  final ValueNotifier<EmergencyPhase> phase;
+  Completer<void>? _cancelSignal;
+  bool _cancelRequested = false;
+
+  /// Stops an alarm that has not been sent yet. True when there was one to
+  /// stop. From the on-screen Cancel button or a typed "cancel".
+  bool cancelPending() {
+    final p = phase.value;
+    if (!_running || (p != EmergencyPhase.announcing && p != EmergencyPhase.countdown)) {
+      return false;
+    }
+    _cancelRequested = true;
+    final signal = _cancelSignal;
+    if (signal != null && !signal.isCompleted) signal.complete();
+    return true;
+  }
+
   /// Runs the whole escalation.
   ///
   /// [confirm] false skips the cancel window entirely — used when the user
@@ -135,10 +161,14 @@ class EmergencyService {
       return const EmergencyOutcome(cancelled: false, reason: 'already running');
     }
     _running = true;
+    _cancelRequested = false;
+    _cancelSignal = Completer<void>();
+    phase.value = EmergencyPhase.announcing;
     try {
       return await _run(profile, confirm);
     } finally {
       _running = false;
+      phase.value = EmergencyPhase.idle;
     }
   }
 
@@ -149,8 +179,16 @@ class EmergencyService {
 
     // Said before any check, because the user is waiting to know whether the
     // phone heard them at all.
-    await _speak(d.emergencyActivated, profile.language);
+    await Future.any<void>([
+      _speak(d.emergencyActivated, profile.language),
+      _cancelSignal!.future,
+    ]);
     unawaited(_signalTriggered());
+    if (_cancelRequested) {
+      await _tts.stop();
+      await _speak(d.emergencyCancelled, profile.language);
+      return const EmergencyOutcome(cancelled: true);
+    }
 
     if (recipients.isEmpty && callTarget == null) {
       await _speak(d.emergencyNoContacts, profile.language);
@@ -158,14 +196,17 @@ class EmergencyService {
     }
 
     if (confirm) {
+      phase.value = EmergencyPhase.countdown;
       final outcome = await VoiceCancelWindow.run(
         tts: _tts,
         stt: _stt,
         language: profile.language,
         readBack: d.emergencyAbout(recipients.length, VoiceCancelWindow.window.inSeconds),
-        isCancelled: () => false,
+        isCancelled: () => _cancelRequested,
         emergency: true,
+        cancelSignal: _cancelSignal!.future,
       );
+      phase.value = EmergencyPhase.dispatching;
       if (outcome != CancelWindowOutcome.proceed) {
         await _speak(d.emergencyCancelled, profile.language);
         return const EmergencyOutcome(cancelled: true);

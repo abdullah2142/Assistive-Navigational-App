@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/localization/app_language.dart';
 import '../../../core/services/stt_service.dart';
+import '../../../core/services/voice_matching.dart' show kAllNegations, voiceWords;
 import '../../../core/services/tts_service.dart';
 
 /// One voice-selectable option on an onboarding screen — the label spoken
@@ -39,13 +40,23 @@ class OnboardingVoiceChoice {
   /// being ignored. Setting a blind user's vision level to the opposite of
   /// what they said is not a near miss.
   double matchScore(String heard) {
-    var best = fuzzyMatchScore(heard, label);
+    final heardNegated = _hasNegation(heard);
+    // A candidate and the utterance must agree about negation: "do not
+    // allow" must not land on "always allow", and "I can see" must not land
+    // on "can't see". Either way the user is asked again, which is cheaper
+    // than recording the opposite of what they said.
+    double score(String candidate) =>
+        _hasNegation(candidate) == heardNegated ? fuzzyMatchScore(heard, candidate) : 0;
+    var best = score(label);
     for (final synonym in synonyms) {
-      final score = fuzzyMatchScore(heard, synonym);
-      if (score > best) best = score;
+      final s = score(synonym);
+      if (s > best) best = s;
     }
     return best;
   }
+
+  static bool _hasNegation(String text) =>
+      voiceWords(text).any(_isNegationWord);
 }
 
 /// Forgiving whole-*word* match: a near-miss transcript ("no vision" heard
@@ -108,7 +119,9 @@ double fuzzyMatchScore(String spoken, String target) {
     final minLen = (word.length * 0.7).ceil();
     for (final heardWord in sWords) {
       if (heardWord.length < minLen) continue;
-      if (heardWord.contains(word.substring(0, minLen)) || word.contains(heardWord)) {
+      // "can" is inside "cane" but is not "cane".
+      if (heardWord.contains(word.substring(0, minLen)) ||
+          (word.contains(heardWord) && heardWord.length >= 4)) {
         matchedWords++;
         break;
       }
@@ -193,7 +206,15 @@ bool? classifyTraitYesNo(
   // specific one and is what the user actually said.
   final present = _longestMatch(lower, trimmed, presentPhrases);
   final absent = _longestMatch(lower, trimmed, absentPhrases);
-  if (present != absent) return present > absent;
+  // A yes with a negation inside it is a no: "জি না", "ঠিক নয়", "not right",
+  // "না, ঠিক নেই". These confirmed a read-back phone number, because the
+  // first word is a yes and the negation comes after the verb in Bangla.
+  //
+  // Only a negation *outside* the matched phrase counts: "can't hear" is a
+  // yes to "do you have trouble hearing", because the phrase carries its own
+  // negation.
+  final negated = _negationOutsidePhrases(lower, trimmed, presentPhrases);
+  if (present != absent) return present > absent && !negated;
 
   // Homophones of a bare answer, accepted only when they are the *whole*
   // utterance.
@@ -232,14 +253,33 @@ bool? classifyTraitYesNo(
   // that merely contains the word somewhere, and it used to reject these
   // too.
   if (bareNo.any((w) => first == w.toLowerCase())) return false;
-  if (bareYes.any((w) => first == w.toLowerCase())) return true;
+  if (bareYes.any((w) => first == w.toLowerCase())) return !negated;
 
   // Otherwise only a short utterance may be decided by a bare particle: a
   // longer sentence that happens to contain "yes" in passing shouldn't.
   if (trimmed.length > 15) return null;
   if (bareNo.any((w) => words.contains(w.toLowerCase()))) return false;
-  if (bareYes.any((w) => words.contains(w.toLowerCase()))) return true;
+  if (bareYes.any((w) => words.contains(w.toLowerCase()))) return !negated;
   return null;
+}
+
+bool _isNegationWord(String w) =>
+    kAllNegations.contains(w) ||
+    w == 'নাহ' ||
+    (w.length > 2 && w.endsWith('নি') && RegExp(r'[ঀ-৿]').hasMatch(w));
+
+/// Whether the utterance negates something other than the phrase that
+/// matched.
+bool _negationOutsidePhrases(String lower, String original, List<String> phrases) {
+  var rest = lower;
+  String? best;
+  for (final phrase in phrases) {
+    if (lower.contains(phrase.toLowerCase()) && (best == null || phrase.length > best.length)) {
+      best = phrase;
+    }
+  }
+  if (best != null) rest = lower.replaceFirst(best.toLowerCase(), ' ');
+  return _spokenWords(rest).any(_isNegationWord);
 }
 
 /// Length of the longest phrase in [phrases] found in the utterance, or 0.

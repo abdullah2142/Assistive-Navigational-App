@@ -13,7 +13,7 @@ import '../config/groq_config.dart';
 import '../localization/app_language.dart';
 import 'function_call_executor.dart';
 import 'gemini_assistant_service.dart'
-    show AssistantTurn, applyFunctionCalls, navigationStateLine;
+    show AssistantTurn, applyFunctionCalls, currentTimeLine, navigationStateLine;
 import 'gemini_model_cooldowns.dart';
 import 'route_planning_service.dart';
 import 'routing_service.dart' show RouteCandidate;
@@ -401,6 +401,7 @@ Rules:
   message below shows a route currently active. If it shows none, say so;
   never answer with nothing.
 - Caretaker memo -> send_caretaker_message. General check -> alert_caretaker.
+- What can you do / how do I use this / Magic Button -> describe_capabilities.
 - Where am I -> describe_current_location. Do not guess street names from coords.
 - Setting changes -> update_setting. (theme is only light/dark).
   This includes turning the wake word or auto-listen off, in either language.
@@ -458,7 +459,8 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     'content':
         '${location == null ? 'Live location: Not available right now.' : 'Live location: ${location.latitude.toStringAsFixed(5)}, '
             '${location.longitude.toStringAsFixed(5)}'}\n'
-        '${navigationStateLine(activeRoute)}',
+        '${navigationStateLine(activeRoute)}\n'
+        '${currentTimeLine()}',
   };
 
   /// The keywords that put each group of tools in front of the model.
@@ -816,6 +818,10 @@ ${profile.rememberedNotes.isEmpty ? '' : 'What you know about this user:\n${prof
     _tool(
       'alert_caretaker',
       'Tell the paired caretaker to check on them, with current position. NOT an emergency — for danger use trigger_emergency.',
+    ),
+    _tool(
+      'describe_capabilities',
+      'Speak everything the app can do, incl. the Magic Button (hold Volume Down 3 s). Use for "what can you do", "how do I use this", "what is the Magic Button". Never list features yourself.',
     ),
     _tool(
       'describe_current_location',

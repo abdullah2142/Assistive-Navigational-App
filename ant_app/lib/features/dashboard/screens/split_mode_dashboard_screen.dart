@@ -13,6 +13,7 @@ import '../../../core/localization/onboarding_strings.dart';
 import '../../onboarding/models/user_profile.dart';
 import '../models/hazard_report.dart';
 import '../models/suggested_chip.dart';
+import '../widgets/emergency_cancel_banner.dart';
 import '../widgets/chat_stream_panel.dart';
 import '../widgets/caretaker_voice_memo_overlay.dart';
 import '../widgets/crowdsource_reporting_hub.dart';
@@ -339,6 +340,10 @@ class _SplitModeDashboardScreenState
               );
               return Column(
                 children: [
+                  // At the top of the whole dashboard, not inside the chat
+                  // panel: with the map full-screen the panel is offstage and
+                  // a deaf or mute user could neither see nor stop the alarm.
+                  EmergencyCancelBanner(language: profile.language),
                   // NOT `Visibility(child: Expanded(...))`. `Expanded` is a
                   // ParentDataWidget and must be a *direct* child of the
                   // `Column` — wrapping it in anything else (Visibility

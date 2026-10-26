@@ -4,9 +4,13 @@ import 'package:flutter/foundation.dart';
 import '../models/guardian_alert.dart';
 
 class AlertService {
-  AlertService({FirebaseFirestore? firestore}) : _db = firestore ?? FirebaseFirestore.instance;
+  AlertService({FirebaseFirestore? firestore}) : _injected = firestore;
 
-  final FirebaseFirestore _db;
+  // Resolved on first use, not at construction: building the emergency
+  // service (which the chat panel now watches to show the Cancel banner) must
+  // not require Firebase to be initialised.
+  final FirebaseFirestore? _injected;
+  FirebaseFirestore get _db => _injected ?? FirebaseFirestore.instance;
 
   CollectionReference<Map<String, dynamic>> _items(String disabledUserUid) =>
       _db.collection('alerts').doc(disabledUserUid).collection('items');

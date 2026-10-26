@@ -162,14 +162,20 @@ class GeminiConfig {
     flashLite35,
   ];
 
+  // Order measured live on 26 Oct 2026 (10 real photos): flash-lite answered
+  // every time it was reached, in 1.7-5 s, while 3.6, 3.8 and gemma timed out
+  // at 6 s on the same frames. With the slow models first, every request that
+  // reached Gemini (Groq rate-limited, which it often is) paid 18 s of
+  // timeouts before the one model that works.
   static const List<String> frontSnapFallbackModels = [
+    flashLite35,
     flash36,
     flash38,
     gemma4,
-    flashLite35,
   ];
 
   static const List<String> sweepFallbackModels = [
+    flashLite35,
     flash36,
     flash38,
     gemma4,

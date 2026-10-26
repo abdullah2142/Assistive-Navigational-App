@@ -244,7 +244,7 @@ class GeminiVisionService implements VisionBackend {
         '[Vision] $name timed out after ${_requestTimeout.inMilliseconds}ms '
         '(${jpegs.length} frame(s), ${jpegs.fold<int>(0, (n, j) => n + j.length)} bytes)',
       );
-      _cooldowns.recordReset(name, const Duration(seconds: 30));
+      _cooldowns.recordReset(name, const Duration(seconds: 120));
       return null;
     } catch (e) {
       debugPrint('[Vision] $name call failed: $e');

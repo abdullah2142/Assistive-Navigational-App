@@ -584,7 +584,7 @@ void main() {
         expect(out?.spoken, 'fast one');
         expect(cd.isCooling('gemini:slow1'), isTrue);
         expect(cd.resetAt('gemini:slow1')!.difference(async.getClock(DateTime.utc(2026)).now()),
-            lessThanOrEqualTo(const Duration(seconds: 30)));
+            lessThanOrEqualTo(const Duration(seconds: 120)));
       });
     });
 
@@ -954,7 +954,7 @@ void main() {
           ));
       final s2 = makeService(VisionRouter(groq: brtc), () => t, routes: routes);
       final r = await s2.scan(focus: ScanFocus.vehicle, language: AppLanguage.english, capturedJpeg: realJpeg());
-      expect(r.spoken, Dashboard.of(AppLanguage.english).visionBusNameOnly('BRTC Bus'));
+      expect(r.spoken, endsWith(Dashboard.of(AppLanguage.english).visionBusNameOnly('BRTC Bus')));
       expect(r.spoken, isNot(contains('Gulshan')));
     });
 

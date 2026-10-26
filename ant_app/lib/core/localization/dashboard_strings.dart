@@ -1807,6 +1807,8 @@ class Dashboard {
   /// A single-frame scan needs no stand-still instruction — it is already
   /// taken by the time this would be said.
   String get visionLookingNow => _t('Looking…', 'দেখছি…');
+  String visionSignSays(String text) => _t('The sign says: $text.', 'সাইনে লেখা আছে: $text।');
+  String visionBoardReads(String text) => _t('The bus board reads: $text.', 'বাসের বোর্ডে লেখা: $text।');
   String get visionCarefulPrefix => _t('Careful.', 'সাবধান।');
   String get visionStillLooking =>
       _t('Still working on it. Please wait.', 'এখনও দেখছি। একটু অপেক্ষা করুন।');

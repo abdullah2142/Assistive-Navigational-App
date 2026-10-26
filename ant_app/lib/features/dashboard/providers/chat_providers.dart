@@ -2748,19 +2748,7 @@ class ChatController extends Notifier<ChatState> {
     return null;
   }
 
-  bool _looksLikePictureFollowUp(String text) {
-    final value = text.toLowerCase();
-    // Keep explicit navigation, weather, emergency and route commands on
-    // their existing paths even if a recent image is still in the transcript.
-    if (RegExp(
-      r'\b(route|navigate|directions|weather|rain|emergency|help|sos|cancel trip|cancel route)\b',
-    ).hasMatch(value)) {
-      return false;
-    }
-    return RegExp(
-      r'\b(picture|photo|image|scene|frame|sign|text|word|color|colour|car|bus|vehicle|person|man|woman|child|tree|building|door|window|object|thing|shape|left|right|behind|beside|next to|near|far|what else|tell me more|more about|it|this|that|those|these)\b|ছবিতে|ছবির|এটা|ওটা|ওই|এখানে|লেখা|রং',
-    ).hasMatch(value);
-  }
+  bool _looksLikePictureFollowUp(String text) => looksLikePictureFollowUp(text);
 
   Future<void> _answerPictureFollowUp(
     ({Uint8List jpeg, String description}) picture,
@@ -2851,3 +2839,40 @@ final chatHistoryStoreProvider = Provider<ChatHistoryStore>((ref) {
 final chatControllerProvider = NotifierProvider<ChatController, ChatState>(
   ChatController.new,
 );
+
+/// Whether a message sent right after a photo is a question about that photo,
+/// rather than an ordinary request.
+///
+/// It used to match any message containing "it", "this", "that", "car", "bus",
+/// "left" or "right", so "what time is it" and "where is the nearest bus
+/// stop" right after a camera scan were answered by the vision model about
+/// the photo.
+bool looksLikePictureFollowUp(String text) {
+  final v = text.toLowerCase().trim();
+  if (v.isEmpty) return false;
+  // Ordinary requests that mention picture-ish words stay with the assistant.
+  if (RegExp(
+    r'\b(route|navigate|directions?|weather|rain|emergency|help|sos|cancel|'
+    r'time|date|today|tomorrow|nearest|nearby|stop|station|take me|go to|'
+    r'find|where|map|caretaker|setting|louder|slower|bigger|smaller|volume)\b',
+  ).hasMatch(v)) {
+    return false;
+  }
+  // Explicit references to the picture or to reading what is in it.
+  if (RegExp(
+    r'\b(picture|photo|image|scene|frame|in front|visible|written|says?|'
+    r'sign|colou?r|describe|what else|tell me more|more about)\b|^read (it|this|that)\b|ছবিতে|ছবির|লেখা|রং',
+  ).hasMatch(v)) {
+    return true;
+  }
+  final isQuestion = RegExp(
+    r'^(what|which|who|whose|how many|is|are|does|do|can|could|any|anything|read|tell)\b|\?|কী|কি|কোন',
+  ).hasMatch(v);
+  final aboutScene = RegExp(
+    r'\b(car|bus|vehicle|rickshaw|person|people|man|woman|child|tree|building|'
+    r'door|window|object|thing|shape|left|right|behind|beside|next to|far)\b',
+  ).hasMatch(v);
+  final demonstrative = RegExp(r'^(what|who|which)( is| are|\x27s)? (it|that|this|those|these)\b')
+      .hasMatch(v);
+  return (isQuestion && aboutScene) || demonstrative;
+}

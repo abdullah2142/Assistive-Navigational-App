@@ -244,7 +244,7 @@ void main() {
         language: AppLanguage.english,
         capturedJpeg: _jpegOfWidth(120),
       );
-      expect(en.spoken, 'This is the BRTC bus. I cannot tell where it goes — ask the helper.');
+      expect(en.spoken, endsWith('This is the BRTC bus. I cannot tell where it goes — ask the helper.'));
     });
 
     test('with no backend at all the answer says it could not look instead of clear', () async {
@@ -368,7 +368,7 @@ void main() {
     test('a response whose text part carries a thoughtSignature is still read (only text parts are joined)', () async {
       final s = svcFor('{"say":"Bus stop ahead.","hazards":[],"vehicles":[],"text_found":"বাস স্টপ","people_estimate":1}');
       final r = await s.scan(focus: ScanFocus.sign, language: AppLanguage.english, capturedJpeg: _jpegOfWidth(160));
-      expect(r.spoken, 'Bus stop ahead.');
+      expect(r.spoken, endsWith('Bus stop ahead.'));
       expect(r.scene!.textFound, 'বাস স্টপ');
     });
   });

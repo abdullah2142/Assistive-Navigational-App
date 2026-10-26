@@ -360,6 +360,8 @@ class SnapshotVisionService {
         _lastQuestion = _normalisedQuestion(question);
         scene = await _verifyRoutes(scene, language);
         scene = _surfaceSeriousHazards(scene, language);
+        scene = _ensureSignRead(scene, language, focus);
+        scene = _ensureBoardRead(scene, language, focus);
         _lastScene = scene;
       }
     } on VisionBudgetExhausted {
@@ -559,6 +561,50 @@ class SnapshotVisionService {
         .split(RegExp(r'[\s,.;:!?।-]+'))
         .where((w) => w.length >= 3)
         .any(said.contains);
+  }
+
+  /// A sign scan that found text must say it. The model put "ফার্মগেট" in the
+  /// text field and spoke only about motorbikes, so the user never heard it.
+  VisionScene _ensureSignRead(VisionScene scene, AppLanguage language, ScanFocus focus) {
+    if (focus != ScanFocus.sign) return scene;
+    final text = scene.textFound.trim();
+    if (text.isEmpty) return scene;
+    final said = scene.spoken.toLowerCase();
+    final words = text.toLowerCase().split(RegExp(r'\s+')).where((w) => w.length >= 2);
+    if (words.isNotEmpty && words.every(said.contains)) return scene;
+    final d = Dashboard.of(language);
+    return VisionScene(
+      focus: scene.focus,
+      spoken: '${d.visionSignSays(text)} ${scene.spoken}',
+      hazards: scene.hazards,
+      vehicles: scene.vehicles,
+      textFound: scene.textFound,
+      peopleEstimate: scene.peopleEstimate,
+      capturedAt: scene.capturedAt,
+    );
+  }
+
+  /// A "which bus" scan that read a signboard must say what it read. The model
+  /// returned "টঙ্গী টু মতিঝিল" as the board text and still answered "I cannot
+  /// tell where this bus is going".
+  VisionScene _ensureBoardRead(VisionScene scene, AppLanguage language, ScanFocus focus) {
+    if (focus != ScanFocus.vehicle) return scene;
+    final bus = scene.vehicles.where((v) => v.kind == 'bus').firstOrNull;
+    final board = (bus?.destination ?? bus?.rawText ?? '').trim();
+    if (board.isEmpty) return scene;
+    final said = scene.spoken.toLowerCase();
+    final words = board.toLowerCase().split(RegExp(r'\s+')).where((w) => w.length >= 2);
+    if (words.isNotEmpty && words.every(said.contains)) return scene;
+    final d = Dashboard.of(language);
+    return VisionScene(
+      focus: scene.focus,
+      spoken: '${d.visionBoardReads(board)} ${scene.spoken}',
+      hazards: scene.hazards,
+      vehicles: scene.vehicles,
+      textFound: scene.textFound,
+      peopleEstimate: scene.peopleEstimate,
+      capturedAt: scene.capturedAt,
+    );
   }
 
   VisionScene _surfaceSeriousHazards(VisionScene scene, AppLanguage language) {

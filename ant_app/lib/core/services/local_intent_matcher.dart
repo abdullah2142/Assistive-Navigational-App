@@ -510,6 +510,13 @@ class LocalIntentMatcher {
   /// Refusing help is a narrow, specific thing to say, so it is matched
   /// narrowly and specifically.
   static const _emergencyRefusals = [
+    // Thanks and "no help wanted" must not raise an alarm, and neither must
+    // ending one in reverse or Banglish order.
+    'that helps', 'that helped', 'that was helpful', 'helpful', 'helpline',
+    'help lagbe na', 'help chai na', 'help koro na', 'help dorkar nai',
+    'help nai', 'help not needed',
+    'sos cancel', 'emergency cancel', 'emergency stop', 'sos stop',
+    'sos bondho', 'emergency bondho', 'sos batil', 'emergency batil',
     // Romanised and Bangla "this is not an emergency".
     'emergency noy', 'emergency na', 'emergency nai', 'emergency nei',
     'joruri noy', 'joruri na', 'জরুরি অবস্থা নেই', 'জরুরি নয়', 'জরুরি না',

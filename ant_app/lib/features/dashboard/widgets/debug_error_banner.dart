@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_colors.dart';
 import '../models/chat_message.dart';
 
 /// A debug-only annotation that an assistant call failed, shown as its own
@@ -27,9 +28,10 @@ class DebugErrorBanner extends StatelessWidget {
           margin: const EdgeInsets.symmetric(vertical: 6),
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: theme.colorScheme.errorContainer.withValues(alpha: 0.6),
+            // Amber, not red: red is reserved for the emergency alert.
+            color: AppColors.caution.withValues(alpha: 0.25),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: theme.colorScheme.error, width: 1),
+            border: Border.all(color: AppColors.caution, width: 1.5),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -37,7 +39,7 @@ class DebugErrorBanner extends StatelessWidget {
               Icon(
                 Icons.bug_report_outlined,
                 size: 18,
-                color: theme.colorScheme.error,
+                color: AppColors.caution,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -47,7 +49,7 @@ class DebugErrorBanner extends StatelessWidget {
                     Text(
                       'Assistant call failed (debug only)',
                       style: theme.textTheme.labelMedium?.copyWith(
-                        color: theme.colorScheme.error,
+                        color: AppColors.caution,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -55,7 +57,7 @@ class DebugErrorBanner extends StatelessWidget {
                     Text(
                       message.text,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onErrorContainer,
+                        color: theme.colorScheme.onSurface,
                         fontFamily: 'monospace',
                       ),
                     ),

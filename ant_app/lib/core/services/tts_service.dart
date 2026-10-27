@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
@@ -135,7 +136,17 @@ class TtsService {
     // without throwing, it just falls back to whatever default is installed.
     await _tts.setLanguage(language.ttsLocale);
     await _pinVoiceFor(language.ttsLocale);
-    await _tts.speak(trimmed);
+    // `awaitSpeakCompletion` waits for the engine's completion callback, which
+    // does not fire when audio focus is lost mid-sentence (an incoming call, a
+    // Bluetooth handoff). Unbounded, that left every later utterance queued
+    // behind it, in silence, until the app was restarted.
+    final budget = Duration(seconds: 10 + (trimmed.length / 8).ceil());
+    try {
+      await _tts.speak(trimmed).timeout(budget);
+    } on TimeoutException {
+      debugPrint('[Tts] utterance did not complete within ${budget.inSeconds}s; moving on');
+      await _tts.stop();
+    }
   }
 
   /// Which of the device's installed voices to speak with.

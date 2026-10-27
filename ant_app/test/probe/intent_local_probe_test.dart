@@ -621,4 +621,22 @@ void main() {
       }
     });
   });
+
+  group('round 2 verified behaviours', () {
+    test('noisy punctuation, case, danda, RTL mark and zero-width space do not defeat a plain cry', () {
+      for (final t in ['HELP!!!', 'help।', 'বাঁচাও।', '‏help‏', '​help me', 'help​ me', 'HELP ME', 'hey jarvis help me', 'help me please', 'help me uh']) {
+        expect(en(t)?.name, 'trigger_emergency', reason: t);
+      }
+    });
+    test('English reassurances and feature questions stay silent', () {
+      for (final t in ['it is not an emergency', 'no emergency', 'i am not scared', 'i dont need help', 'how do i use sos', 'the sos button', 'emergency contact', 'thanks for helping me', 'জরুরি নয়', 'জরুরি না', 'সাহায্য লাগবে না']) {
+        expect(en(t)?.name, isNot('trigger_emergency'), reason: t);
+      }
+    });
+    test('wake-word residue and polite prefix keep ordinary commands', () {
+      expect(en('hey jarvis show map')?.name, 'open_map');
+      expect(en('please take me to gulshan')?.name, 'request_route');
+      expect(en('hide map')?.name, 'close_map');
+    });
+  });
 }

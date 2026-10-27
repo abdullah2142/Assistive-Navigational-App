@@ -172,6 +172,13 @@ class NavigationController {
         );
     _subscription = stream.listen(_onPosition, onError: (Object e) {
       debugPrint('[Navigation] position stream error: $e');
+      // Said once: guidance silently stopping mid-route, because location was
+      // switched off or permission withdrawn, left a blind user walking on
+      // with no way to know nobody was watching the route any more.
+      if (!_announcedLocationLost) {
+        _announcedLocationLost = true;
+        unawaited(_speak(Dashboard.of(_language).navigateLocationLost));
+      }
     });
   }
 
@@ -187,9 +194,12 @@ class NavigationController {
     }
   }
 
+  bool _announcedLocationLost = false;
+
   void _onPosition(Position position) {
     final narrator = _narrator;
     if (narrator == null) return;
+    _announcedLocationLost = false;
     if (position.accuracy > _maxAcceptableAccuracyMeters) {
       debugPrint('[Navigation] dropped a ${position.accuracy.round()}m fix as too imprecise');
       return;

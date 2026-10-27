@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../../../core/config/emergency_config.dart';
 import '../../../core/services/emergency_service.dart' show EmergencyPhase;
+import '../../../core/services/ai_failure.dart';
 import '../../../core/services/voice_cancel_window.dart';
 import '../../../core/config/tester_build_config.dart';
 import '../../../core/localization/app_language.dart';
@@ -180,7 +181,10 @@ class ChatController extends Notifier<ChatState> {
   /// not perform. This is a safety-critical consistency check: the user may
   /// otherwise believe help is coming when no alert was sent.
   static final RegExp _emergencyActionClaim = RegExp(
-    r"\b(?:emergency mode|sending alerts?|alerts? (?:have been|were) sent|i(?: have|\x27ve| just) (?:sent|contacted|alerted).{0,40}(?:help|family|contacts?))\b|জরুরি অবস্থা.{0,35}(?:বার্তা|সাহায্য).{0,18}(?:পাঠানো হচ্ছে|পাঠানো হয়েছে|পাঠিয়েছি)",
+    r"\b(?:emergency mode|sending alerts?|alerts? (?:have been|were) sent|help is (?:on (?:the|its) way|coming|being sent)|"
+    r"(?:calling|called|i(?: have|\x27ve| just) called) (?:an? )?(?:ambulance|police|emergency)|"
+    r"i(?: have|\x27ve| just) (?:sent|contacted|alerted|notified|called|informed).{0,40}(?:help|family|contacts?|caretaker|guardian|ambulance|police))\b|"
+    r"জরুরি অবস্থা.{0,35}(?:বার্তা|সাহায্য).{0,18}(?:পাঠানো হচ্ছে|পাঠানো হয়েছে|পাঠিয়েছি)|সাহায্য আসছে|কেয়ারটেকারকে জানিয়েছি|অ্যাম্বুলেন্স.{0,15}(?:আসছে|ডেকেছি)",
     caseSensitive: false,
   );
 
@@ -1297,6 +1301,17 @@ class ChatController extends Notifier<ChatState> {
           'replan_route',
           'open_passerby_helper',
           'open_hazard_report',
+          // Questions and controls the user may ask while a destination
+          // question is open: "where am I" used to be geocoded as part of the
+          // place name.
+          'describe_current_location',
+          'describe_capabilities',
+          'cancel_route',
+          'trigger_emergency',
+          'alert_caretaker',
+          'set_map',
+          'open_map',
+          'close_map',
         }.contains(escape.name)) {
       state = state.copyWith(clearClarification: true);
       return false;
@@ -1898,6 +1913,7 @@ class ChatController extends Notifier<ChatState> {
     /// The camera frame this reply is about — shown under the bubble. See
     /// [ChatMessage.imageJpeg].
     Uint8List? imageJpeg,
+    bool isFailure = false,
   }) async {
     // A function whose confirmation is spoken by whatever it opens returns an
     // empty string rather than talking over it — `record_caretaker_voice_memo`
@@ -1915,6 +1931,7 @@ class ChatController extends Notifier<ChatState> {
           text: text,
           timestamp: DateTime.now(),
           imageJpeg: imageJpeg,
+          isFailure: isFailure,
         ),
       ],
     );
@@ -2014,9 +2031,36 @@ class ChatController extends Notifier<ChatState> {
     String? replyTo,
     String? replyToMessageId,
   }) async {
+    try {
+      await _sendFreeTextInner(
+        text,
+        profile,
+        replyTo: replyTo,
+        replyToMessageId: replyToMessageId,
+      );
+    } catch (e, st) {
+      // Anything thrown while carrying out a command used to escape as an
+      // unhandled error and leave the user in silence.
+      debugPrint('[Chat] sendFreeText failed: $e');
+      debugPrintStack(stackTrace: st, label: '[Chat] sendFreeText stack');
+      state = state.copyWith(isAssistantTyping: false);
+      final d = Dashboard.of(profile.language);
+      await _appendAssistantReply(d.commandFailedReply, profile);
+    }
+  }
+
+  Future<void> _sendFreeTextInner(
+    String text,
+    UserProfile profile, {
+    String? replyTo,
+    String? replyToMessageId,
+  }) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
-    _turnGeneration++;
+    // Taken here, at once. It used to be read after the location wait, so two
+    // messages sent back to back captured the same number and both were
+    // answered.
+    final myTurn = ++_turnGeneration;
     _appendUserMessage(
       trimmed,
       replyToText: replyTo,
@@ -2421,7 +2465,6 @@ class ChatController extends Notifier<ChatState> {
     }
     // Whose turn this reply belongs to. Anything that comes back for an
     // older one is discarded rather than spoken — see `_turnGeneration`.
-    final myTurn = _turnGeneration;
     bool superseded() => _turnGeneration != myTurn;
 
     // ---- streaming narration ------------------------------------------------
@@ -2668,6 +2711,12 @@ class ChatController extends Notifier<ChatState> {
       }
     } catch (e, st) {
       stillWorking?.cancel();
+      // The user has already moved on to a newer message: a failure of the old
+      // turn must not speak a stub reply over the newer answer.
+      if (superseded()) {
+        debugPrint('[Chat] a superseded turn failed quietly: $e');
+        return;
+      }
       state = state.copyWith(isAssistantTyping: false);
       // Previously a bare `catch (_)` — silently swallowed *every* Gemini
       // failure (network, quota, malformed response, anything) with zero
@@ -2704,10 +2753,18 @@ class ChatController extends Notifier<ChatState> {
           ],
         );
       }
+      // Said plainly and truthfully for everyone, tester or not: the old
+      // "Got it, I've noted that" read as success even for a distress message
+      // or a request that had in fact been dropped.
       final fallback =
           OfflineIntentMatcher.match(trimmed, profile.language) ??
-          d.chatStubReply;
-      await _appendAssistantReply(fallback, profile, mayInviteAnswer: true);
+          d.aiFailureReply(classifyAiFailure(e));
+      await _appendAssistantReply(
+        fallback,
+        profile,
+        mayInviteAnswer: true,
+        isFailure: true,
+      );
     }
   }
 

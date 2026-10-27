@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/localization/app_language.dart';
 import '../../../core/services/stt_service.dart';
 import '../../../core/services/voice_matching.dart' show kAllNegations, voiceWords;
+import '../../../core/localization/onboarding_strings.dart';
 import '../../../core/services/tts_service.dart';
 
 /// One voice-selectable option on an onboarding screen — the label spoken
@@ -615,5 +616,16 @@ Future<void> listenForVoiceChoice({
     } else {
       await tts.speak(retryHint, language: language);
     }
+  }
+}
+
+
+/// Tells the user, out loud, that listening has stopped. A user who cannot see
+/// the screen otherwise waits for a question that will never come.
+Future<void> speakMicUnavailable(TtsService tts, AppLanguage language) async {
+  try {
+    await tts.speak(Onboarding.of(language).voiceUnavailableSpoken, language: language);
+  } catch (e) {
+    debugPrint('[OnboardingVoice] could not speak the mic-unavailable notice: $e');
   }
 }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 
 import '../../../core/localization/dashboard_strings.dart';
+import '../../../core/theme/app_colors.dart';
 import '../models/chat_message.dart';
 
 class ChatBubble extends StatefulWidget {
@@ -95,6 +96,8 @@ class _ChatBubbleState extends State<ChatBubble> {
                   ? theme.colorScheme.primary
                   : isCaretaker
                   ? theme.colorScheme.tertiaryContainer
+                  : message.isFailure
+                  ? AppColors.caution.withValues(alpha: 0.22)
                   : theme.colorScheme.surface,
               borderRadius: BorderRadius.only(
                 topLeft: const Radius.circular(18),
@@ -104,6 +107,8 @@ class _ChatBubbleState extends State<ChatBubble> {
               ),
               border: isUser || isCaretaker
                   ? null
+                  : message.isFailure
+                  ? Border.all(color: AppColors.caution, width: 2)
                   : Border.all(color: theme.dividerColor),
             ),
             child: Column(

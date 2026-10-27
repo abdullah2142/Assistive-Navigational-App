@@ -112,7 +112,10 @@ class _UserPairingScreenState extends ConsumerState<UserPairingScreen> {
         language: language,
       );
       if (cancelled()) return;
-      if (!await stt.ensureAvailable()) return;
+      if (!await stt.ensureAvailable()) {
+        await speakMicUnavailable(tts, language);
+        return;
+      }
       var wantsSkip = false;
       String? digits;
       await stt.listenOnce(

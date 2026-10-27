@@ -15,7 +15,14 @@ class EmergencyPlan {
   /// person naturally says. `SmsManager` and a `tel:` URI both want them
   /// gone.
   static String normalise(String raw) {
-    final trimmed = raw.trim();
+    // Bengali digits (০-৯) are what a Bangla speaker's dictated or typed number
+    // contains; stripping non-ASCII digits dropped them, so the number was
+    // saved as empty and silently skipped at emergency time.
+    const bn = '০১২৩৪৫৬৭৮৯';
+    var trimmed = raw.trim();
+    for (var i = 0; i < bn.length; i++) {
+      trimmed = trimmed.replaceAll(bn[i], '$i');
+    }
     final leadingPlus = trimmed.startsWith('+');
     final digits = trimmed.replaceAll(RegExp(r'[^0-9]'), '');
     return leadingPlus ? '+$digits' : digits;

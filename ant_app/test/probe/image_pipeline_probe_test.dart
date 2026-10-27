@@ -961,7 +961,7 @@ void main() {
         final svc = build(backends: backends);
         final r = await scanBytes(svc, jpegOf(gradient(200, 150)));
         expect(r.spoken, d.visionOfflineNothingSeen);
-        expect(r.spoken, contains('internet'));
+        expect(r.spoken, contains('offline'));
         expect(
           r.frameJpeg,
           isNotNull,

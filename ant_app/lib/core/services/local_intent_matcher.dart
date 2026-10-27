@@ -126,6 +126,16 @@ class LocalIntentMatcher {
     return found;
   }
 
+  static final _forbidsAction = RegExp(
+    r"^(?:please\s+)?(?:don'?t|dont|do not|never)\s+\w+",
+  );
+  // Imperatives that forbid ("do not do it"). Deliberately not "যাব না" / "jabo
+  // na": "I will not go" is how a Bangla speaker cancels a trip.
+  static final _bnTrailingNegation = RegExp(
+    r'(?:করো|কর|করুন|দিও|পাঠিও)\s*না[\s।.!?]*$|(?:koro|kor|dio|pathio)\s+na[\s.!?]*$',
+    caseSensitive: false,
+  );
+
   static LocalIntent? _matchExactly(
     String rawText,
     AppLanguage language, {
@@ -145,6 +155,14 @@ class LocalIntentMatcher {
 
     final followUp = _matchFollowUp(text, recentSetting);
     if (followUp != null) return followUp;
+
+    // A command the user is forbidding is not a command: "don't cancel the
+    // trip", "don't take me home", "বাতিল করো না". Left to the assistant, which
+    // reads negation, rather than acted on here. Emergency is above, and has
+    // its own refusals.
+    if (_forbidsAction.hasMatch(lower) || _bnTrailingNegation.hasMatch(text)) {
+      return null;
+    }
 
     // Checked before everything else. An emergency phrase must not be able
     // to lose a race to some other matcher that happens to share a word,
@@ -325,6 +343,7 @@ class LocalIntentMatcher {
   /// words: `bachao`, `bachaw` and `banchao` are all ordinary ways of writing
   /// the same one.
   static const _emergencyStrong = [
+    'জরুরী',
     // Bangla "I am in danger": the recall pass read বিপদে as the hazard word.
     'বিপদে আছি', 'বিপদে পড়েছি', 'আমি বিপদে',
     'emergency',
@@ -491,6 +510,10 @@ class LocalIntentMatcher {
   /// Refusing help is a narrow, specific thing to say, so it is matched
   /// narrowly and specifically.
   static const _emergencyRefusals = [
+    // Romanised and Bangla "this is not an emergency".
+    'emergency noy', 'emergency na', 'emergency nai', 'emergency nei',
+    'joruri noy', 'joruri na', 'জরুরি অবস্থা নেই', 'জরুরি নয়', 'জরুরি না',
+    'জরুরী নয়', 'জরুরী না', 'কোনো জরুরি', 'not urgent',
     // Ending or asking about an alarm is not raising one: "cancel sos"
     // started a new SOS, and so did "emergency room" and "emergency exit".
     'cancel sos', 'cancel the sos', 'cancel emergency', 'cancel the emergency',

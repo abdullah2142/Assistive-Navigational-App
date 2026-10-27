@@ -256,7 +256,7 @@ void main() {
       );
       expect(r.scene, isNull);
       expect(r.spoken.toLowerCase(), isNot(contains('clear')));
-      expect(r.spoken.toLowerCase(), contains('no internet'));
+      expect(r.spoken.toLowerCase(), contains('offline'));
     });
   });
 

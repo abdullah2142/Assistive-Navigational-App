@@ -131,7 +131,10 @@ class _CognitiveAnxietyScreenState extends ConsumerState<CognitiveAnxietyScreen>
     final prompt = '$question ${Onboarding.of(language).voiceAnswerYesOrNo}';
     await tts.speak(prompt, language: language);
     while (!isCancelled()) {
-      if (!await stt.ensureAvailable()) return null;
+      if (!await stt.ensureAvailable()) {
+        await speakMicUnavailable(tts, language);
+        return null;
+      }
       var wantsHelp = false;
       bool? answer;
       await stt.listenOnce(

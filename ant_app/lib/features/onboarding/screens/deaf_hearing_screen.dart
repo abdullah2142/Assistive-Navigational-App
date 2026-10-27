@@ -84,7 +84,10 @@ class _DeafHearingScreenState extends ConsumerState<DeafHearingScreen> {
     final controller = ref.read(onboardingControllerProvider.notifier);
 
     while (!cancelled()) {
-      if (!await stt.ensureAvailable()) return;
+      if (!await stt.ensureAvailable()) {
+        await speakMicUnavailable(tts, language);
+        return;
+      }
       var wantsHelp = false;
       bool? answer;
       await stt.listenOnce(

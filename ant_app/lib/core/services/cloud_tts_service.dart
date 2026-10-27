@@ -119,7 +119,11 @@ class CloudTtsService {
           'voice': {'languageCode': _languageCodeFor(language), 'name': _voiceNameFor(language, voiceId)},
           'audioConfig': {'audioEncoding': 'MP3'},
         }),
-      );
+      )
+          // Unbounded, one stalled request held the whole speech queue and every
+          // later utterance with it. On timeout the caller falls back to the
+          // on-device voice.
+          .timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
         debugPrint('[CloudTts] synth failed: ${response.statusCode} ${response.body}');
         return false;

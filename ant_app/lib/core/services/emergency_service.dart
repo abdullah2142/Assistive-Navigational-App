@@ -190,9 +190,14 @@ class EmergencyService {
       return const EmergencyOutcome(cancelled: true);
     }
 
-    if (recipients.isEmpty && callTarget == null) {
+    final caretakerOnly = recipients.isEmpty && callTarget == null;
+    if (caretakerOnly) {
       await _speak(d.emergencyNoContacts, profile.language);
-      return const EmergencyOutcome(cancelled: false, reason: 'no contacts');
+      // A paired caretaker is still told: with no phone contacts saved they are
+      // the only person who can be.
+      if (profile.pairedUserId == null) {
+        return const EmergencyOutcome(cancelled: false, reason: 'no contacts');
+      }
     }
 
     if (confirm) {
@@ -201,7 +206,9 @@ class EmergencyService {
         tts: _tts,
         stt: _stt,
         language: profile.language,
-        readBack: d.emergencyAbout(recipients.length, VoiceCancelWindow.window.inSeconds),
+        readBack: caretakerOnly
+            ? d.emergencyAboutCaretaker(VoiceCancelWindow.window.inSeconds)
+            : d.emergencyAbout(recipients.length, VoiceCancelWindow.window.inSeconds),
         isCancelled: () => _cancelRequested,
         emergency: true,
         cancelSignal: _cancelSignal!.future,
@@ -257,9 +264,11 @@ class EmergencyService {
     if (!canSms || !canCall) {
       unawaited(_channel.requestPermissions());
     }
-    if (!canSms && !canCall) {
+    if (!canSms && !canCall && !caretakerOnly) {
       await _speak(d.emergencyNoPermission, profile.language);
-      return const EmergencyOutcome(cancelled: false, reason: 'permissions denied');
+      if (profile.pairedUserId == null) {
+        return const EmergencyOutcome(cancelled: false, reason: 'permissions denied');
+      }
     }
 
     final messages = EmergencyPayload.messages(
@@ -293,14 +302,18 @@ class EmergencyService {
     // Last, because it needs data — the thing most likely to be missing.
     var alerted = false;
     if (profile.pairedUserId != null) {
-      alerted = await _alerts.createAlert(
-        disabledUserUid: profile.uid,
-        type: GuardianAlertType.magicButton,
-        lat: position?.latitude,
-        lng: position?.longitude,
-        batteryPercent: battery,
-        notifiedContacts: sms.delivered,
-      );
+      // Bounded: a Firestore write made offline queues and its future never
+      // completes, which held the whole emergency open for ever.
+      alerted = await _alerts
+          .createAlert(
+            disabledUserUid: profile.uid,
+            type: GuardianAlertType.magicButton,
+            lat: position?.latitude,
+            lng: position?.longitude,
+            batteryPercent: battery,
+            notifiedContacts: sms.delivered,
+          )
+          .timeout(const Duration(seconds: 10), onTimeout: () => false);
       if (position != null) {
         unawaited(_alerts.publishLocation(
           disabledUserUid: profile.uid,
@@ -463,36 +476,24 @@ class EmergencyService {
 
   Future<Position?> _position() async {
     try {
-      // Bounded in Dart as well as in the plugin, and both are needed.
-      // `LocationSettings.timeLimit` is enforced by the platform side, so it
-      // only helps while the platform is answering — if the channel itself
-      // never replies, nothing is watching the clock and this never completes.
-      // Found while fixing the hazard hub, where the same shape stalled a
-      // report before the write was ever attempted; here it would hold up an
-      // emergency, which is worse.
-      //
-      // One bound around both attempts, not one each: chained timeouts make
-      // the worst case their sum, and this is the path where somebody is
-      // waiting for a message to go out.
-      return await _freshOrLastKnownPosition().timeout(_positionBudget);
+      final fresh = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 6),
+        ),
+      ).timeout(const Duration(seconds: 7));
+      return fresh;
+    } catch (e) {
+      debugPrint('[Emergency] no fresh fix: $e');
+    }
+    // The fresh attempt used to share one 8 s bound with this fallback, so a
+    // slow fix used the whole budget and the last known position was never
+    // tried. A stale fix is still a place to start looking.
+    try {
+      return await Geolocator.getLastKnownPosition().timeout(const Duration(seconds: 2));
     } catch (e) {
       debugPrint('[Emergency] no position: $e');
       return null;
-    }
-  }
-
-  Future<Position?> _freshOrLastKnownPosition() async {
-    try {
-      return await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: _positionBudget,
-        ),
-      );
-    } catch (e) {
-      debugPrint('[Emergency] no fresh fix: $e');
-      // A stale fix is still a place to start looking.
-      return Geolocator.getLastKnownPosition();
     }
   }
 }

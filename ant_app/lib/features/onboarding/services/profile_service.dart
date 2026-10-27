@@ -29,7 +29,14 @@ class ProfileService {
   /// Upsert — used after every onboarding step so progress survives an app
   /// restart mid-interview, not just at final lock-in.
   Future<void> saveProfile(UserProfile profile) {
-    return _doc(profile.uid).set(profile.toJson(), SetOptions(merge: true));
+    // Firestore applies a write to its local cache at once and completes the
+    // future only when the server acknowledges it, which offline is never. A
+    // caller awaiting this before speaking its confirmation stayed silent for
+    // as long as the phone had no signal, even though the change had taken
+    // effect. The write stays queued and is sent when the network returns.
+    return _doc(profile.uid)
+        .set(profile.toJson(), SetOptions(merge: true))
+        .timeout(const Duration(seconds: 5), onTimeout: () {});
   }
 
   /// Records how far through onboarding this user has got, and nothing else.
@@ -38,6 +45,8 @@ class ProfileService {
   /// step changes are synchronous and frequent, and touching only this field
   /// means it can never race a profile write into overwriting an answer.
   Future<void> saveOnboardingStep({required String uid, required OnboardingStep step}) {
-    return _doc(uid).set({'onboardingStep': step.name}, SetOptions(merge: true));
+    return _doc(uid)
+        .set({'onboardingStep': step.name}, SetOptions(merge: true))
+        .timeout(const Duration(seconds: 5), onTimeout: () {});
   }
 }

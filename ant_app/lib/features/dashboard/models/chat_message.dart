@@ -27,7 +27,13 @@ class ChatMessage {
     this.replyToText,
     this.audioBase64,
     this.audioDurationSeconds,
+    this.isFailure = false,
   });
+
+  /// A reply that reports something going wrong (the assistant timed out or was
+  /// unreachable), drawn in the amber failure colour rather than as an ordinary
+  /// answer. Not persisted.
+  final bool isFailure;
 
   final ChatSender sender;
   final String text;

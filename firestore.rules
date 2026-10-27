@@ -3,6 +3,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // A caretaker relationship exists only when BOTH profiles point at each
+    // other. Checking only the caretaker's own `pairedUserId` let any signed-in
+    // user write someone else's uid into their own profile (a user may update
+    // their own document) and then read that person's location, alerts and
+    // messages.
+    function isPairedCaretaker(disabledUserUid) {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid &&
+        get(/databases/$(database)/documents/users/$(disabledUserUid)).data.pairedUserId == request.auth.uid;
+    }
+
     // users/{uid} — the disability/preference profile built during
     // onboarding (Module 1) and mutated afterwards only via Gemini
     // function-calling or the paired Caretaker's remote toggles (Module 2+).
@@ -54,7 +65,7 @@ service cloud.firestore {
     match /liveLocations/{disabledUserUid} {
       allow read: if request.auth != null &&
         (request.auth.uid == disabledUserUid ||
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid);
+         isPairedCaretaker(disabledUserUid));
       allow write: if request.auth != null && request.auth.uid == disabledUserUid;
     }
 
@@ -66,10 +77,10 @@ service cloud.firestore {
     match /alerts/{disabledUserUid}/items/{alertId} {
       allow read: if request.auth != null &&
         (request.auth.uid == disabledUserUid ||
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid);
+         isPairedCaretaker(disabledUserUid));
       allow create: if request.auth != null && request.auth.uid == disabledUserUid;
       allow update: if request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid &&
+        isPairedCaretaker(disabledUserUid) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved', 'resolvedAt']);
     }
 
@@ -80,10 +91,10 @@ service cloud.firestore {
     match /communications/{disabledUserUid}/messages/{messageId} {
       allow read: if request.auth != null &&
         (request.auth.uid == disabledUserUid ||
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid);
+         isPairedCaretaker(disabledUserUid));
       allow create: if request.auth != null && request.auth.uid == request.resource.data.fromUid &&
         (request.auth.uid == disabledUserUid ||
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pairedUserId == disabledUserUid);
+         isPairedCaretaker(disabledUserUid));
     }
 
     // hazardReports/{reportId} — Crowdsource Reporting Hub. Readable by any

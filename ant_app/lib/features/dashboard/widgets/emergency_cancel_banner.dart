@@ -28,7 +28,7 @@ class EmergencyCancelBanner extends ConsumerWidget {
         return Semantics(
           liveRegion: true,
           container: true,
-          label: '${d.emergencyBannerTitle}. ${d.emergencyBannerBody}',
+          label: '${d.emergencyBannerTitle}. ${d.emergencyBannerBody}. ${d.emergencyBannerCancel}.',
           child: Container(
             width: double.infinity,
             margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -60,27 +60,21 @@ class EmergencyCancelBanner extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
-                Semantics(
-                  button: true,
-                  label: d.emergencyBannerCancel,
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: AppColors.danger,
-                      ),
-                      onPressed: () => ref.read(emergencyServiceProvider).cancelPending(),
-                      child: ExcludeSemantics(
-                        child: Text(
-                          d.emergencyBannerCancel,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: AppColors.danger,
+                    ),
+                    onPressed: () => ref.read(emergencyServiceProvider).cancelPending(),
+                    // The text is the button's accessible name. It used to be
+                    // wrapped in a second Semantics and the text hidden, which
+                    // left the node TalkBack could double-tap with no name.
+                    child: Text(
+                      d.emergencyBannerCancel,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                     ),
                   ),
                 ),

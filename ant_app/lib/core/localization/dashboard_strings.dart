@@ -1,5 +1,6 @@
 import '../../features/dashboard/models/hazard_report.dart';
 import '../config/diagnostics_config.dart';
+import '../services/ai_failure.dart';
 import '../services/routing_service.dart' show ManeuverKind;
 import '../../features/onboarding/models/disability_profile_enums.dart';
 import 'app_language.dart';
@@ -123,6 +124,11 @@ class Dashboard {
     'I will message $contacts people and call for help in $seconds seconds. '
         'Say cancel to stop.',
     '$contacts জনকে বার্তা পাঠাব এবং $seconds সেকেন্ডে ফোন করব। থামাতে বলুন বাতিল।',
+  );
+
+  String emergencyAboutCaretaker(int seconds) => _t(
+    'I have no phone contacts saved, so I will alert your caretaker in $seconds seconds. Say cancel to stop.',
+    'কোনো ফোন নম্বর সেভ করা নেই, তাই $seconds সেকেন্ডে আপনার কেয়ারটেকারকে জানাব। থামাতে বলুন বাতিল।',
   );
 
   String get emergencyCancelled => _t(
@@ -1809,6 +1815,35 @@ class Dashboard {
   String get visionLookingNow => _t('Looking…', 'দেখছি…');
   String visionSignSays(String text) => _t('The sign says: $text.', 'সাইনে লেখা আছে: $text।');
   String visionBoardReads(String text) => _t('The bus board reads: $text.', 'বাসের বোর্ডে লেখা: $text।');
+  String get commandFailedReply => _t(
+    'Sorry, that did not work. Please try again.',
+    'দুঃখিত, কাজটি হয়নি। আবার চেষ্টা করুন।',
+  );
+  String get navigateLocationLost => _t(
+    'I have lost your location, so I cannot guide you right now. Please check that location is switched on.',
+    'আপনার অবস্থান পাচ্ছি না, তাই এখন পথ দেখাতে পারছি না। লোকেশন চালু আছে কি না দেখুন।',
+  );
+  /// What to say when the assistant could not answer. Each cause gets its own
+  /// sentence, and each says what still works.
+  String aiFailureReply(AiFailureKind kind) => switch (kind) {
+    AiFailureKind.timeout => _t(
+      'The assistant is taking too long. Please say that again in a moment. Commands like where am I, cancel, and the Magic Button still work.',
+      'সহকারী উত্তর দিতে দেরি করছে। একটু পরে আবার বলুন। আমি কোথায়, বাতিল, আর ম্যাজিক বাটন এখনও কাজ করবে।',
+    ),
+    AiFailureKind.offline => _t(
+      'I cannot reach the internet right now. Commands like where am I, cancel, and the Magic Button still work.',
+      'এখন ইন্টারনেট পাচ্ছি না। আমি কোথায়, বাতিল, আর ম্যাজিক বাটন এখনও কাজ করবে।',
+    ),
+    AiFailureKind.busy => _t(
+      'The assistant is busy right now. Please try again in a minute. The Magic Button still works.',
+      'সহকারী এখন ব্যস্ত। এক মিনিট পরে আবার চেষ্টা করুন। ম্যাজিক বাটন এখনও কাজ করবে।',
+    ),
+    AiFailureKind.other => _t(
+      'Sorry, I could not do that. Please try again. The Magic Button still works.',
+      'দুঃখিত, এটা করতে পারিনি। আবার চেষ্টা করুন। ম্যাজিক বাটন এখনও কাজ করবে।',
+    ),
+  };
+
   String get visionCarefulPrefix => _t('Careful.', 'সাবধান।');
   String get visionStillLooking =>
       _t('Still working on it. Please wait.', 'এখনও দেখছি। একটু অপেক্ষা করুন।');
@@ -1854,8 +1889,8 @@ class Dashboard {
   );
 
   String get visionOfflineNothingSeen => _t(
-    'I cannot see anything I recognise, and I have no internet to look properly.',
-    'চেনা কিছু দেখতে পাচ্ছি না, আর ভালো করে দেখার মতো ইন্টারনেটও নেই।',
+    'I could not get an answer just now. It may be slow or offline. Please try again.',
+    'এখন উত্তর পাইনি। হয়তো ধীর বা অফলাইন। আবার চেষ্টা করুন।',
   );
 
   String visionCountedObject(String label, int count) => count <= 1

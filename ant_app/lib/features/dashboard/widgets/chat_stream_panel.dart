@@ -213,6 +213,16 @@ class _ChatStreamPanelState extends ConsumerState<ChatStreamPanel>
 
   Future<Uint8List?> _openCameraAim() async {
     if (!mounted) return null;
+    // Said aloud: the viewfinder is a full-screen dialog, and a blind user who
+    // opened it by voice was told nothing about what to do next.
+    if (!widget.profile.isDeafOrHardOfHearing) {
+      unawaited(
+        ref.read(ttsServiceProvider).speak(
+          Dashboard.of(widget.profile.language).cameraAimSpoken,
+          language: widget.profile.language,
+        ),
+      );
+    }
     final vision = _vision;
     if (!await vision.camera.open()) {
       if (mounted) {

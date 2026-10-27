@@ -343,6 +343,18 @@ class LocalIntentMatcher {
   /// words: `bachao`, `bachaw` and `banchao` are all ordinary ways of writing
   /// the same one.
   static const _emergencyStrong = [
+    'help help', 'help me help me', 'help me please help',
+    // Distress described without a cry word. "I can't breathe" gave no local
+    // SOS and, offline, no reply at all. Deliberately specific: "I fell" alone
+    // would catch "I fell asleep".
+    "can't breathe", 'cant breathe', 'cannot breathe', 'unable to breathe',
+    'call an ambulance', 'call ambulance', 'need an ambulance',
+    'i am bleeding', "i'm bleeding", 'im bleeding', 'bleeding badly',
+    'i fell down', 'i have fallen', 'i just fell', 'heart attack',
+    'i am being attacked', "i'm being attacked", 'someone is attacking',
+    'has a knife', 'has a gun', 'save my life', 'i am dying', "i'm dying",
+    'আমি পড়ে গেছি', 'এম্বুলেন্স ডাকো', 'অ্যাম্বুলেন্স ডাকো', 'রক্ত পড়ছে',
+    'শ্বাস নিতে পারছি না', 'দম বন্ধ', 'ছুরি আছে', 'আমাকে মারছে',
     'জরুরী',
     // Bangla "I am in danger": the recall pass read বিপদে as the hazard word.
     'বিপদে আছি', 'বিপদে পড়েছি', 'আমি বিপদে',
@@ -510,6 +522,8 @@ class LocalIntentMatcher {
   /// Refusing help is a narrow, specific thing to say, so it is matched
   /// narrowly and specifically.
   static const _emergencyRefusals = [
+    "don't need an ambulance", 'do not need an ambulance', 'dont need an ambulance',
+    'no ambulance', "don't need ambulance", 'ambulance not needed',
     // Thanks and "no help wanted" must not raise an alarm, and neither must
     // ending one in reverse or Banglish order.
     'that helps', 'that helped', 'that was helpful', 'helpful', 'helpline',
@@ -678,6 +692,10 @@ class LocalIntentMatcher {
     if (_emergencyQuestionBlockers.any(lower.contains) ||
         _emergencyQuestionBlockers.any(text.contains)) {
       return null;
+    }
+    // "save my" is an errand prefix (save my location), and swallowed this.
+    if (lower.contains('save my life')) {
+      return const LocalIntent('trigger_emergency', {});
     }
     if (_emergencyErrandPhrases.any(lower.contains) ||
         _emergencyErrandPhrases.any(text.contains) ||

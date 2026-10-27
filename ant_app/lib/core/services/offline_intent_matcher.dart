@@ -29,7 +29,9 @@ class OfflineIntentMatcher {
   ];
   static const _emergency = [
     'emergency', 'sos', 'bachao', 'bachaw', 'banchao', 'joruri', 'bipode',
-    'জরুরি', 'বাঁচাও',
+    'জরুরি', 'জরুরী', 'বাঁচাও',
+    "can't breathe", 'cannot breathe', 'ambulance', 'bleeding', 'knife', 'fell down',
+    'dying', 'heart attack', 'এম্বুলেন্স', 'অ্যাম্বুলেন্স', 'রক্ত', 'শ্বাস নিতে',
   ];
 
   /// Returns a canned reply if [rawText] matches a known safety keyword, or

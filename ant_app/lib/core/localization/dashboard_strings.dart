@@ -1844,6 +1844,10 @@ class Dashboard {
     ),
   };
 
+  String get cameraAimSpoken => _t(
+    'Camera open. Point it at what you want me to look at, then tap the big Look at this button.',
+    'ক্যামেরা খোলা আছে। যা দেখাতে চান সেদিকে ধরুন, তারপর বড় "দেখো" বোতামে চাপ দিন।',
+  );
   String get visionCarefulPrefix => _t('Careful.', 'সাবধান।');
   String get visionStillLooking =>
       _t('Still working on it. Please wait.', 'এখনও দেখছি। একটু অপেক্ষা করুন।');

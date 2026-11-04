@@ -12,6 +12,8 @@ not have it. So values are read back before they are saved, dangerous
 actions have a spoken escape route, and a wrong action is always treated as
 more expensive than a missed one.
 
+Video Demo: https://lnkd.in/p/g4GDbyEH
+
 ---
 
 ## What's in the repository
